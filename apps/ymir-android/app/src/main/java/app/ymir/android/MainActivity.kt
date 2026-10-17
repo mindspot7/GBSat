@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        if (Emulator.running) Emulator.setPaused(true)
+        if (Emulator.running) Emulator.pause(true)
     }
 
     private fun requestAllFiles() {

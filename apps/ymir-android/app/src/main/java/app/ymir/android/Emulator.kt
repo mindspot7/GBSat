@@ -81,17 +81,17 @@ object Emulator {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
-            currentGame = path; running = true; setPaused(false)
+            currentGame = path; running = true; pause(false)
         }
         err
     }
 
-    fun setPaused(p: Boolean) { paused = p; NativeBridge.nativeSetPaused(p) }
+    fun pause(p: Boolean) { paused = p; NativeBridge.nativeSetPaused(p) }
     fun toggleFastForward() { fastForward = !fastForward; NativeBridge.nativeSetFastForward(fastForward) }
     fun reset(hard: Boolean) = NativeBridge.nativeReset(hard)
     fun toggleTray() { trayOpen = !trayOpen; NativeBridge.nativeSetTrayOpen(trayOpen) }
     fun quitGame() {
-        setPaused(true); running = false; currentGame = null
+        pause(true); running = false; currentGame = null
         if (trayOpen) { trayOpen = false }
         NativeBridge.nativeEjectDisc()
     }

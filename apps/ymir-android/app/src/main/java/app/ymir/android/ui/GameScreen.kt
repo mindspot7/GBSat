@@ -26,12 +26,12 @@ fun GameScreen() {
     var fps by remember { mutableFloatStateOf(0f) }
     var showStats by remember { mutableStateOf(false) }
 
-    BackHandler { menu = true; Emulator.setPaused(true) }
+    BackHandler { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
         while (true) { fps = NativeBridge.nativeGetStats()[0] / 100f; delay(500) }
     }
     // Resume when returning from background.
-    LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.setPaused(false) }
+    LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val screenW = maxWidth
@@ -58,7 +58,7 @@ fun GameScreen() {
         // Unobtrusive top-left menu handle + optional stats
         Row(Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilledTonalIconButton(
-                onClick = { menu = true; Emulator.setPaused(true) },
+                onClick = { menu = true; Emulator.pause(true) },
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
             ) { Icon(Icons.Default.Menu, "Menu") }
             if (showStats) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
@@ -66,7 +66,7 @@ fun GameScreen() {
 
         if (menu) GameMenu(
             showStats = showStats, onToggleStats = { showStats = !showStats },
-            onDismiss = { menu = false; Emulator.setPaused(false) },
+            onDismiss = { menu = false; Emulator.pause(false) },
         )
     }
 }
