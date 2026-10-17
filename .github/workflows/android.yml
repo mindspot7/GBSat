@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, master, android ]
+    branches: [ main, master, android, android-port ]
     paths: [ 'apps/ymir-android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
   workflow_dispatch:
 
