@@ -1,0 +1,47 @@
+name: Android APK
+
+on:
+  push:
+    branches: [ main, master, android ]
+    paths: [ 'apps/ymir-android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install NDK, CMake and platform
+        run: |
+          sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Create sideload signing key (debug keystore)
+        run: |
+          mkdir -p ~/.android
+          [ -f ~/.android/debug.keystore ] || keytool -genkeypair -v -keystore ~/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Build release APK
+        working-directory: apps/ymir-android
+        run: gradle --no-daemon assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ymir-android-arm64
+          path: apps/ymir-android/app/build/outputs/apk/release/*.apk
