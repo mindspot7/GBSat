@@ -24,6 +24,7 @@ android {
                 cppFlags += "-std=c++20"
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
+                    "-DCMAKE_CXX_SCAN_FOR_MODULES=OFF",
                     "-DCMAKE_BUILD_TYPE=Release",
                     "-DYmir_EXTRA_INLINING=ON",
                     "-DYmir_ENABLE_IPO=ON",

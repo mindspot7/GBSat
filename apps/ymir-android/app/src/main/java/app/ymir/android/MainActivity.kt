@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { YmirRoot(onRequestAllFiles = ::requestAllFiles, onImmersive = ::setImmersive) }
+        setContent { YmirRoot(onRequestAllFiles = ::requestAllFiles, onImmersive = ::setImmersiveMode) }
     }
 
     override fun onPause() {
@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setImmersive(on: Boolean) {
+    private fun setImmersiveMode(on: Boolean) {
         val c = WindowInsetsControllerCompat(window, window.decorView)
         if (on) {
             c.hide(WindowInsetsCompat.Type.systemBars())

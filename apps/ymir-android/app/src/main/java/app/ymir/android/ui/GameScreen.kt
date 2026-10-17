@@ -34,6 +34,7 @@ fun GameScreen() {
     LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.setPaused(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val screenW = maxWidth
         val landscape = maxWidth > maxHeight
         val videoMod = when (Emulator.aspect) {
             1 -> Modifier.fillMaxSize()
@@ -48,7 +49,7 @@ fun GameScreen() {
         } else {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Box(Modifier.fillMaxWidth().weight(1f, fill = false), contentAlignment = Alignment.TopCenter) {
-                    VideoSurface(if (Emulator.aspect == 1) Modifier.fillMaxWidth().height(maxWidth * 0.75f) else Modifier.fillMaxWidth().aspectRatio(4f / 3f))
+                    VideoSurface(if (Emulator.aspect == 1) Modifier.fillMaxWidth().height(screenW * 0.75f) else Modifier.fillMaxWidth().aspectRatio(4f / 3f))
                 }
                 if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxWidth().weight(1f), landscape = false)
             }

@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF) # avoid host clang-scan-deps vs NDK clang PCH mismatch
 project(ymir_android LANGUAGES C CXX)
 
 # <repo>/apps/ymir-android/app/src/main/cpp -> <repo>
