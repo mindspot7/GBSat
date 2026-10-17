@@ -23,7 +23,7 @@ FetchContent_Declare(cereal GIT_REPOSITORY https://github.com/USCiLab/cereal.git
 FetchContent_MakeAvailable(cereal)
 
 add_library(ymir_android SHARED ymir_jni.cpp savestate_io.cpp)
-target_include_directories(ymir_android PRIVATE "${YMIR_ROOT}/apps/ymir-sdl3/src")
+target_include_directories(ymir_android PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_features(ymir_android PRIVATE cxx_std_20)
 target_link_libraries(ymir_android PRIVATE ymir::ymir-core cereal::cereal android log nativewindow aaudio)
 set_target_properties(ymir_android PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)

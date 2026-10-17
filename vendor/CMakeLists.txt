@@ -60,47 +60,4 @@ add_subdirectory(stb)
 message(STATUS "==> dr_libs")
 add_subdirectory(dr_libs)
 
-# wil - https://github.com/microsoft/wil
-if (WIN32)
-    message(STATUS "==> wil")
-    set(WIL_BUILD_PACKAGING OFF)
-    set(WIL_BUILD_TESTS OFF)
-    set(WIL_ENABLE_ASAN OFF)
-    set(WIL_ENABLE_UBSAN OFF)
-    add_subdirectory(wil)
-endif ()
-
-####################################################################################################
-# Other dependencies
-
-if (NOT Ymir_LIBRARY_ONLY)
-    # dear ImGui - https://github.com/ocornut/imgui
-    # - Using the docking branch
-    message(STATUS "==> dear ImGui")
-    add_subdirectory(imgui EXCLUDE_FROM_ALL)
-
-    # lz4 - https://github.com/lz4/lz4
-    # - Unable to configure AVX2 support from vcpkg
-    message(STATUS "==> lz4")
-    add_subdirectory(lz4 EXCLUDE_FROM_ALL)
-
-    # discord-rpc - https://github.com/discord/discord-rpc
-    # - Via myMCpp / PCSX2
-    message(STATUS "==> discord-rpc")
-    find_package(nlohmann_json CONFIG REQUIRED)
-    add_subdirectory(discord-rpc EXCLUDE_FROM_ALL)
-endif ()
-
-# Place vendored library projects under a Vendored folder in Visual Studio solutions
-if (MSVC)
-    set_target_properties(chdr-lzma PROPERTIES FOLDER Vendored)
-    set_target_properties(chdr-static PROPERTIES FOLDER Vendored)
-    set_target_properties(xxHash PROPERTIES FOLDER Vendored)
-    if (NOT Ymir_LIBRARY_ONLY)
-        set_target_properties(imgui PROPERTIES FOLDER Vendored)
-        set_target_properties(lz4 PROPERTIES FOLDER Vendored)
-        set_target_properties(discord-rpc PROPERTIES FOLDER Vendored)
-    endif ()
-endif ()
-
 message(STATUS "Done adding vendored libraries")
