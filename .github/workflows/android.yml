@@ -44,7 +44,7 @@ jobs:
           gradle --no-daemon assembleRelease --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
-            msg=$( (grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
             echo "::error title=Build errors::$msg"
           fi
           tail -60 build.log
