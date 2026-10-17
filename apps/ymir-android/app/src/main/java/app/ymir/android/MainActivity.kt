@@ -20,16 +20,23 @@ import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private var padMask = 0
+    private val capHeld = HashSet<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { YmirRoot(onRequestAllFiles = ::requestAllFiles, onImmersive = ::setImmersiveMode) }
+        setContent { YmirRoot(onRequestAllFiles = ::requestAllFiles, onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
     }
 
     override fun onPause() {
         super.onPause()
         if (Emulator.running) Emulator.pause(true)
+    }
+
+    private fun quitApp() {
+        NativeBridge.nativeShutdown()
+        finishAndRemoveTask()
+        android.os.Process.killProcess(android.os.Process.myPid()) // emulator state lives in the process; start clean next time
     }
 
     private fun requestAllFiles() {
@@ -62,7 +69,34 @@ class MainActivity : ComponentActivity() {
                 return true
             }
         }
+        // Hotkey capture: remember every key held until all are released; that set becomes the binding.
+        Emulator.hotkeyCapture?.let { action ->
+            if (event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0 &&
+                event.keyCode != KeyEvent.KEYCODE_BACK
+            ) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    capHeld += event.keyCode
+                    Emulator.hotkeyCaptureKeys = Emulator.hotkeyCaptureKeys + event.keyCode
+                } else if (event.action == KeyEvent.ACTION_UP) {
+                    capHeld -= event.keyCode
+                    if (capHeld.isEmpty() && Emulator.hotkeyCaptureKeys.isNotEmpty()) {
+                        Emulator.bindHotkey(action, Emulator.hotkeyCaptureKeys)
+                        Emulator.hotkeyCapture = null; Emulator.hotkeyCaptureKeys = emptySet()
+                    }
+                }
+                return true
+            }
+        }
         val isPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0
+        if (isPad && Emulator.running && event.repeatCount == 0 &&
+            (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP)
+        ) {
+            val consumed = Hotkeys.onKey(event.keyCode, event.action == KeyEvent.ACTION_DOWN)
+            Hotkeys.suppressedKeys().forEach { padMask = padMask and keyBit(it).inv() }
+            Emulator.setPadMask(padMask)
+            if (consumed) return true
+        }
+        if (isPad && Emulator.running && Hotkeys.isSuppressed(event.keyCode)) return true
         val bit = keyBit(event.keyCode)
         if (isPad && bit != 0 && Emulator.running) {
             when (event.action) {

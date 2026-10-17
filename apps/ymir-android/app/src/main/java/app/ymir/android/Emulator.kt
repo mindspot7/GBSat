@@ -5,7 +5,10 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.view.KeyEvent
 import java.io.File
@@ -32,6 +35,68 @@ object Emulator {
     var cartridge by mutableStateOf(0)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = stretch, 2 = native pixels
+    var fastBoot by mutableStateOf(true)
+    var renderer by mutableStateOf(0) // 0 = software (native window), 1 = OpenGL ES
+    var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
+    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
+    var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
+
+    // Hotkeys: action -> set of keycodes (1 key = button, 2+ = combination)
+    var hotkeys by mutableStateOf<Map<HotkeyAction, Set<Int>>>(emptyMap()); private set
+    var hotkeyCapture by mutableStateOf<HotkeyAction?>(null)
+    var hotkeyCaptureKeys by mutableStateOf<Set<Int>>(emptySet())
+    var menuRequest by mutableStateOf(false)
+    var toast by mutableStateOf<String?>(null); private set
+    private val scope = CoroutineScope(Dispatchers.Main)
+    private var toastJob: kotlinx.coroutines.Job? = null
+
+    fun showToast(msg: String) {
+        toast = msg
+        toastJob?.cancel()
+        toastJob = scope.launch { delay(2000); toast = null }
+    }
+
+    fun bindHotkey(a: HotkeyAction, keys: Set<Int>) {
+        hotkeys = hotkeys.toMutableMap().also { if (keys.isEmpty()) it.remove(a) else it[a] = keys }
+        prefs.edit().putString("hotkeys", hotkeys.entries.joinToString(";") { "${it.key.name}=${it.value.joinToString("+")}" }).apply()
+    }
+
+    fun runHotkey(a: HotkeyAction, down: Boolean) {
+        if (!running) return
+        when (a) {
+            HotkeyAction.QuickSave -> if (down) scope.launch { showToast(saveState(QUICK_SLOT) ?: "Quick saved") }
+            HotkeyAction.QuickLoad -> if (down) scope.launch { showToast(loadState(QUICK_SLOT) ?: "Quick loaded") }
+            HotkeyAction.Menu -> if (down) menuRequest = true
+            HotkeyAction.FastForward ->
+                if (ffToggle) { if (down) toggleFastForward() }
+                else { fastForward = down; NativeBridge.nativeSetFastForward(down) }
+        }
+    }
+
+    // ---- Cheats (per game) ----
+    var cheats by mutableStateOf<List<Cheat>>(emptyList()); private set
+    private fun cheatFile() = NativeBridge.nativeGetDiscHash()?.let { File(appContext.filesDir, "cheats/$it.txt") }
+
+    fun loadCheats() {
+        cheats = cheatFile()?.takeIf { it.exists() }?.readLines()?.mapNotNull { l ->
+            val p = l.split("\t")
+            if (p.size == 3) Cheat(p[1], p[2].replace("\\n", "\n"), p[0] == "1") else null
+        } ?: emptyList()
+        applyCheats()
+    }
+    fun setCheats(list: List<Cheat>) {
+        cheats = list
+        cheatFile()?.let { f ->
+            f.parentFile?.mkdirs()
+            f.writeText(list.joinToString("\n") { "${if (it.enabled) 1 else 0}\t${it.name.replace('\t', ' ')}\t${it.code.replace("\n", "\\n")}" })
+        }
+        applyCheats()
+    }
+    private fun applyCheats() {
+        val w = cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() }
+        NativeBridge.nativeSetCheats(w.map { it.addr }.toLongArray(), w.map { it.value }.toLongArray(), w.map { it.size }.toIntArray())
+    }
+
 
     // ---- Gamepad mapping: Android keycode -> SaturnButton bit (persisted) ----
     private fun defaultKeyMap(): Map<Int, Int> = mapOf(
@@ -60,9 +125,10 @@ object Emulator {
 
     // ---- Save states ----
     const val STATE_SLOTS = 5
+    const val QUICK_SLOT = 99
     private val statesDir get() = File(appContext.filesDir, "states")
     private fun stateFile(slot: Int): File? =
-        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/$slot.savestate") }
+        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/${if (slot == QUICK_SLOT) "quick" else slot.toString()}.savestate") }
 
     /** Last-modified time per slot, or null if empty. */
     fun slotTimes(): List<Long?> = (0 until STATE_SLOTS).map { stateFile(it)?.takeIf { f -> f.exists() }?.lastModified() }
@@ -90,12 +156,24 @@ object Emulator {
         cartridge = prefs.getInt("cartridge", 0)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
+        fastBoot = prefs.getBoolean("fastBoot", true)
+        renderer = prefs.getInt("renderer", 0)
+        filter = prefs.getInt("filter", 1)
+        shader = prefs.getInt("shader", 0)
+        ffToggle = prefs.getBoolean("ffToggle", false)
+        prefs.getString("hotkeys", null)?.let { str ->
+            runCatching {
+                hotkeys = str.split(";").filter { it.contains("=") }.associate { e ->
+                    HotkeyAction.valueOf(e.substringBefore('=')) to e.substringAfter('=').split("+").map { it.toInt() }.toSet()
+                }
+            }
+        }
         prefs.getString("keyMap", null)?.let { str ->
             runCatching { keyMap = str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() } }
         }
 
         val bup = File(appContext.filesDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
-        NativeBridge.nativeInit(bup.absolutePath)
+        NativeBridge.nativeInit(bup.absolutePath, File(appContext.filesDir, "saves/smpc.bin").absolutePath)
         applyOptions()
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
     }
@@ -106,12 +184,17 @@ object Emulator {
         NativeBridge.nativeSetVideoStandard(pal)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetCartridge(cartridge)
+        NativeBridge.nativeSetRenderer(renderer)
+        NativeBridge.nativeSetDisplayOptions(filter, shader)
+        if (fastBoot) NativeBridge.nativeSetFastBoot(true)
     }
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect).apply()
+        .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader)
+        .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */
     suspend fun importBios(context: Context, uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
@@ -128,7 +211,7 @@ object Emulator {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
-            currentGame = path; running = true; pause(false)
+            currentGame = path; running = true; loadCheats(); pause(false)
         }
         err
     }
@@ -138,7 +221,7 @@ object Emulator {
     fun reset(hard: Boolean) = NativeBridge.nativeReset(hard)
     fun toggleTray() { trayOpen = !trayOpen; NativeBridge.nativeSetTrayOpen(trayOpen) }
     fun quitGame() {
-        pause(true); running = false; currentGame = null
+        pause(true); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
         if (trayOpen) { trayOpen = false }
         NativeBridge.nativeEjectDisc()
     }

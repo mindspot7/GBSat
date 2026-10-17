@@ -9,12 +9,15 @@
 
 #include <ymir/ymir.hpp>
 
+#include "gl_renderer.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <memory>
@@ -115,7 +118,15 @@ struct Context {
     std::mutex audioMutex;
     std::atomic<bool> audioOk{false};
 
+    // Display
+    std::atomic<bool> glMode{false};
+
+    // Cheats (emulation thread only): constant memory writes applied after every frame
+    struct Cheat { uint32_t addr; uint32_t value; int size; };
+    std::vector<Cheat> cheats;
+
     // Misc
+    std::string smpcPath;
     std::string lastError;
     std::atomic<float> fps{0.0f};
 };
@@ -164,6 +175,11 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     g->videoW.store(width, std::memory_order_relaxed);
     g->videoH.store(height, std::memory_order_relaxed);
     g->frameCounter.fetch_add(1, std::memory_order_relaxed);
+
+    if (g->glMode.load(std::memory_order_relaxed)) {
+        glr::Submit(fb, width, height);
+        return;
+    }
 
     std::lock_guard lk(g->winMutex);
     if (!g->window) {
@@ -285,6 +301,35 @@ void ConnectPad(bool analog) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// SMPC persistence (clock / language settings): without this the BIOS asks for them on every launch.
+
+void WriteSmpc(const ymir::smpc::PersistentSMPCData &d) {
+    if (g->smpcPath.empty()) {
+        return;
+    }
+    std::ofstream out(g->smpcPath, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char *>(d.SMEM.data()), 4);
+    const uint8_t ste = d.STE ? 1 : 0;
+    out.write(reinterpret_cast<const char *>(&ste), 1);
+    out.write(reinterpret_cast<const char *>(&d.rtc.offset), sizeof(d.rtc.offset));
+    out.write(reinterpret_cast<const char *>(&d.rtc.timestamp), sizeof(d.rtc.timestamp));
+}
+
+bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
+    std::ifstream in(g->smpcPath, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    uint8_t ste = 0;
+    in.read(reinterpret_cast<char *>(d.SMEM.data()), 4);
+    in.read(reinterpret_cast<char *>(&ste), 1);
+    in.read(reinterpret_cast<char *>(&d.rtc.offset), sizeof(d.rtc.offset));
+    in.read(reinterpret_cast<char *>(&d.rtc.timestamp), sizeof(d.rtc.timestamp));
+    d.STE = ste != 0;
+    return static_cast<bool>(in);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
 void EmuLoop() {
@@ -305,6 +350,13 @@ void EmuLoop() {
         }
 
         g->saturn->RunFrame();
+        for (const auto &c : g->cheats) {
+            switch (c.size) {
+            case 1: g->saturn->mainBus.Poke<uint8_t>(c.addr, (uint8_t)c.value); break;
+            case 4: g->saturn->mainBus.Poke<uint32_t>(c.addr, c.value); break;
+            default: g->saturn->mainBus.Poke<uint16_t>(c.addr, (uint16_t)c.value); break;
+            }
+        }
         ++fpsFrames;
 
         const auto now = steady_clock::now();
@@ -359,7 +411,7 @@ jstring NewJStr(JNIEnv *env, const std::string &s) {
 
 #define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_ymir_android_NativeBridge_##name
 
-JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath) {
+JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring smpcPath) {
     if (g) {
         return nullptr;
     }
@@ -373,6 +425,16 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath) {
                                                   OnFrameComplete(fb, w, h);
                                               }});
     ConnectPad(false);
+
+    g->smpcPath = JStr(env, smpcPath);
+    {
+        ymir::smpc::PersistentSMPCData data;
+        if (ReadSmpc(data)) {
+            g->saturn->SMPC.LoadPersistentData(data);
+        }
+    }
+    g->saturn->SMPC.SetPersistDataCallback(
+        {nullptr, [](const ymir::smpc::PersistentSMPCData &d, void *) { WriteSmpc(d); }});
 
     std::string err;
     const std::string bup = JStr(env, backupRamPath);
@@ -400,6 +462,7 @@ JNI_FN(void, nativeShutdown)(JNIEnv *, jclass) {
         g->emuThread.join();
     }
     CloseAudio();
+    glr::Shutdown();
     {
         std::lock_guard lk(g->winMutex);
         if (g->window) {
@@ -414,6 +477,10 @@ JNI_FN(void, nativeShutdown)(JNIEnv *, jclass) {
 
 JNI_FN(void, nativeSetSurface)(JNIEnv *env, jclass, jobject surface) {
     if (!g) {
+        return;
+    }
+    if (g->glMode.load()) {
+        glr::SetWindow(surface ? ANativeWindow_fromSurface(env, surface) : nullptr);
         return;
     }
     std::lock_guard lk(g->winMutex);
@@ -613,4 +680,49 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
                        g->ring.Clear();
                        return err;
                    }));
+}
+
+// Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
+JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
+    if (g) {
+        g->glMode = (mode == 1);
+    }
+}
+JNI_FN(void, nativeSetDisplayOptions)(JNIEnv *, jclass, jint filter, jint shader) {
+    glr::SetOptions(filter, shader);
+}
+
+// Cheats: parallel arrays of address / value / size (1, 2 or 4 bytes).
+JNI_FN(void, nativeSetCheats)(JNIEnv *env, jclass, jlongArray addrs, jlongArray values, jintArray sizes) {
+    if (!g) {
+        return;
+    }
+    const jsize n = env->GetArrayLength(addrs);
+    std::vector<Context::Cheat> list(n);
+    std::vector<jlong> a(n), v(n);
+    std::vector<jint> sz(n);
+    if (n > 0) {
+        env->GetLongArrayRegion(addrs, 0, n, a.data());
+        env->GetLongArrayRegion(values, 0, n, v.data());
+        env->GetIntArrayRegion(sizes, 0, n, sz.data());
+    }
+    for (jsize i = 0; i < n; ++i) {
+        list[i] = {(uint32_t)a[i], (uint32_t)v[i], sz[i]};
+    }
+    Post([list = std::move(list)]() mutable { g->cheats = std::move(list); });
+}
+
+// Fast boot: mark the SMPC clock/language setup as done so the BIOS skips its first-run screens.
+JNI_FN(void, nativeSetFastBoot)(JNIEnv *, jclass, jboolean on) {
+    if (g && on) {
+        Post([] {
+            ymir::smpc::PersistentSMPCData d;
+            g->saturn->SMPC.SavePersistentData(d);
+            if (!d.STE) {
+                d.STE = true;
+                g->saturn->SMPC.LoadPersistentData(d);
+                WriteSmpc(d);
+            }
+        });
+    }
 }

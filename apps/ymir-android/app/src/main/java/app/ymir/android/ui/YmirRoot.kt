@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 private enum class Screen { Library, Settings }
 
 @Composable
-fun YmirRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit) {
+fun YmirRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
     YmirTheme {
         var screen by remember { mutableStateOf(Screen.Library) }
         val snackbar = remember { SnackbarHostState() }
@@ -22,7 +22,7 @@ fun YmirRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit) {
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (inGame) {
-                GameScreen()
+                GameScreen(onQuitApp)
             } else {
                 BackHandler(screen == Screen.Settings) { screen = Screen.Library }
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->

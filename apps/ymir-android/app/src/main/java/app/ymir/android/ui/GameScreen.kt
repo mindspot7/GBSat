@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun GameScreen() {
+fun GameScreen(onQuitApp: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var fps by remember { mutableFloatStateOf(0f) }
     var showStats by remember { mutableStateOf(false) }
@@ -32,6 +32,9 @@ fun GameScreen() {
     BackHandler { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
         while (true) { fps = NativeBridge.nativeGetStats()[0] / 100f; delay(500) }
+    }
+    LaunchedEffect(Emulator.menuRequest) {
+        if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }
     }
     // Resume when returning from background.
     LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
@@ -67,7 +70,15 @@ fun GameScreen() {
             if (showStats) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
         }
 
+        Emulator.toast?.let { msg ->
+            Surface(
+                shape = RoundedCornerShape(20.dp), color = Color.Black.copy(alpha = .7f),
+                modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 12.dp),
+            ) { Text(msg, color = Color.White, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+        }
+
         if (menu) GameMenu(
+            onQuitApp = onQuitApp,
             showStats = showStats, onToggleStats = { showStats = !showStats },
             onDismiss = { menu = false; Emulator.pause(false) },
         )
@@ -76,6 +87,12 @@ fun GameScreen() {
 
 @Composable
 private fun VideoSurface(modifier: Modifier) {
+    // A SurfaceView can only be fed by one kind of producer, so switching renderer recreates it.
+    key(Emulator.renderer) { VideoSurfaceInner(modifier) }
+}
+
+@Composable
+private fun VideoSurfaceInner(modifier: Modifier) {
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -91,7 +108,9 @@ private fun VideoSurface(modifier: Modifier) {
 }
 
 @Composable
-private fun GameMenu(showStats: Boolean, onToggleStats: () -> Unit, onDismiss: () -> Unit) {
+private fun GameMenu(onQuitApp: () -> Unit, showStats: Boolean, onToggleStats: () -> Unit, onDismiss: () -> Unit) {
+    var cheatsOpen by remember { mutableStateOf(false) }
+    if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
     var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -138,7 +157,19 @@ private fun GameMenu(showStats: Boolean, onToggleStats: () -> Unit, onDismiss: (
                 MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
                 }
-                MenuItem(Icons.Default.ExitToApp, "Quit game") { Emulator.quitGame() }
+                MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
+                if (Emulator.renderer == 1) {
+                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots")
+                    val filters = listOf("Nearest", "Bilinear", "Sharp bilinear")
+                    MenuItem(Icons.Default.Tv, "Shader: ${shaders[Emulator.shader]}") {
+                        Emulator.shader = (Emulator.shader + 1) % shaders.size; Emulator.savePrefs(); Emulator.applyOptions()
+                    }
+                    MenuItem(Icons.Default.FilterAlt, "Filter: ${filters[Emulator.filter]}") {
+                        Emulator.filter = (Emulator.filter + 1) % filters.size; Emulator.savePrefs(); Emulator.applyOptions()
+                    }
+                }
+                MenuItem(Icons.Default.Close, "Close game (back to library)") { Emulator.quitGame() }
+                MenuItem(Icons.Default.ExitToApp, "Quit GBSat") { onQuitApp() }
             }
         }
     }

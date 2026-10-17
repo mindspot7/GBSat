@@ -6,7 +6,7 @@ import android.view.Surface
 object NativeBridge {
     init { System.loadLibrary("ymir_android") }
 
-    @JvmStatic external fun nativeInit(backupRamPath: String): String?
+    @JvmStatic external fun nativeInit(backupRamPath: String, smpcPath: String): String?
     @JvmStatic external fun nativeShutdown()
     @JvmStatic external fun nativeSetSurface(surface: Surface?)
     @JvmStatic external fun nativeLoadIpl(path: String): String?
@@ -24,6 +24,10 @@ object NativeBridge {
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
+    @JvmStatic external fun nativeSetRenderer(mode: Int)
+    @JvmStatic external fun nativeSetDisplayOptions(filter: Int, shader: Int)
+    @JvmStatic external fun nativeSetCheats(addrs: LongArray, values: LongArray, sizes: IntArray)
+    @JvmStatic external fun nativeSetFastBoot(on: Boolean)
     @JvmStatic external fun nativeGetDiscHash(): String?
     @JvmStatic external fun nativeSaveState(path: String): String?
     @JvmStatic external fun nativeLoadState(path: String): String?
