@@ -34,7 +34,7 @@ fun CheatsScreen(onBack: () -> Unit) {
             val text = runCatching { ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() }.getOrNull().orEmpty()
             val parsed = CheatParser.parseCht(text)
             if (parsed.isEmpty()) error = "No supported cheats found in that file"
-            else { Emulator.setCheats(Emulator.cheats + parsed); error = null }
+            else { Emulator.updateCheats(Emulator.cheats + parsed); error = null }
         }
     }
 
@@ -58,7 +58,7 @@ fun CheatsScreen(onBack: () -> Unit) {
                         Button(onClick = {
                             if (CheatParser.parse(code) == null) error = "Invalid code"
                             else {
-                                Emulator.setCheats(Emulator.cheats + Cheat(name.ifBlank { "Cheat" }, code.trim(), true))
+                                Emulator.updateCheats(Emulator.cheats + Cheat(name.ifBlank { "Cheat" }, code.trim(), true))
                                 name = ""; code = ""; adding = false; error = null
                             }
                         }) { Text("Add") }
@@ -78,11 +78,11 @@ fun CheatsScreen(onBack: () -> Unit) {
                             supportingContent = { Text(c.code.lines().first()) },
                             leadingContent = {
                                 Switch(checked = c.enabled, onCheckedChange = { on ->
-                                    Emulator.setCheats(Emulator.cheats.toMutableList().also { it[i] = c.copy(enabled = on) })
+                                    Emulator.updateCheats(Emulator.cheats.toMutableList().also { it[i] = c.copy(enabled = on) })
                                 })
                             },
                             trailingContent = {
-                                IconButton(onClick = { Emulator.setCheats(Emulator.cheats.toMutableList().also { it.removeAt(i) }) }) {
+                                IconButton(onClick = { Emulator.updateCheats(Emulator.cheats.toMutableList().also { it.removeAt(i) }) }) {
                                     Icon(Icons.Default.Delete, "Delete")
                                 }
                             },

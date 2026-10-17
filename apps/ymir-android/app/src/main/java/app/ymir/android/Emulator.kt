@@ -84,7 +84,7 @@ object Emulator {
         } ?: emptyList()
         applyCheats()
     }
-    fun setCheats(list: List<Cheat>) {
+    fun updateCheats(list: List<Cheat>) {
         cheats = list
         cheatFile()?.let { f ->
             f.parentFile?.mkdirs()
