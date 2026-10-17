@@ -1,4 +1,4 @@
-# Ymir for Android
+# GBSat (Ymir for Android)
 
 Android frontend for the [Ymir](https://github.com/StrikerX3/Ymir) Sega Saturn emulator. It builds the unmodified
 `ymir-core` library (same software renderer, NEON-optimized VDP paths, threaded VDP, SH-2/SCU/SCSP/CD block emulation)

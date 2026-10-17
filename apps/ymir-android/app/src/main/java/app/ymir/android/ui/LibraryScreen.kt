@@ -41,7 +41,7 @@ fun LibraryScreen(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, lau
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Ymir", style = MaterialTheme.typography.headlineSmall) },
+            title = { Text("GBSat", style = MaterialTheme.typography.headlineSmall) },
             actions = {
                 IconButton(onClick = { refreshKey++ }) { Icon(Icons.Default.Refresh, "Rescan") }
                 IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
@@ -52,7 +52,7 @@ fun LibraryScreen(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, lau
         when {
             !Emulator.iplLoaded -> EmptyState(
                 icon = Icons.Default.Memory, title = "Add a Saturn BIOS",
-                body = "Ymir needs your own Saturn IPL ROM (512 KiB) to boot games.",
+                body = "GBSat needs your own Saturn IPL ROM (512 KiB) to boot games.",
                 action = "Open settings", onAction = onOpenSettings,
             )
             !hasAccess -> EmptyState(

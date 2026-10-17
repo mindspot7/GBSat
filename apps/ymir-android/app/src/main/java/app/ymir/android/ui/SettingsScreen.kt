@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.ymir.android.Emulator
+import app.ymir.android.SaturnButton
 import app.ymir.android.Storage
 import kotlinx.coroutines.launch
 
@@ -34,6 +35,15 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
     }
 
     fun <T> change(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.savePrefs(); Emulator.applyOptions() }
+
+    Emulator.remapTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { Emulator.remapTarget = null },
+            title = { Text("Remap ${target.name}") },
+            text = { Text("Press a button on your controller…") },
+            confirmButton = { TextButton(onClick = { Emulator.remapTarget = null }) { Text("Cancel") } },
+        )
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -72,11 +82,23 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Choice("Controller", listOf("Control Pad", "3D Control Pad"), if (Emulator.analogPad) 1 else 0, change<Int> { Emulator.analogPad = it == 1 })
             Toggle("On-screen controls", "Show touch pad while playing", Emulator.showTouchControls, change<Boolean> { Emulator.showTouchControls = it })
 
+            Section("Gamepad mapping")
+            Text("Tap Remap, then press the controller button you want to use.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+            SaturnButton.entries.forEach { b ->
+                val keys = Emulator.keysFor(b).joinToString(", ") { android.view.KeyEvent.keyCodeToString(it).removePrefix("KEYCODE_") }
+                ListItem(
+                    headlineContent = { Text(b.name) },
+                    supportingContent = { Text(keys.ifEmpty { "Unassigned" }) },
+                    trailingContent = { FilledTonalButton(onClick = { Emulator.remapTarget = b }) { Text("Remap") } },
+                )
+            }
+            TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
+
             Section("Display")
             Choice("Aspect ratio", listOf("4:3", "Stretch", "Pixel-perfect"), Emulator.aspect, change<Int> { Emulator.aspect = it })
 
             Spacer(Modifier.height(24.dp))
-            Text("Ymir is GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license.",
+            Text("GBSat is based on Ymir, GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license.",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(32.dp))
         }

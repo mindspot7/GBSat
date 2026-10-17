@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "YmirAndroid"
+rootProject.name = "GBSat"
 include(":app")

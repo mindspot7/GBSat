@@ -16,7 +16,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory("${YMIR_ROOT}" ymir-build)
 
-add_library(ymir_android SHARED ymir_jni.cpp)
+# cereal (header-only) for save state serialization; the serializers are shared with the desktop app.
+include(FetchContent)
+set(JUST_INSTALL_CEREAL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(cereal GIT_REPOSITORY https://github.com/USCiLab/cereal.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(cereal)
+
+add_library(ymir_android SHARED ymir_jni.cpp savestate_io.cpp)
+target_include_directories(ymir_android PRIVATE "${YMIR_ROOT}/apps/ymir-sdl3/src")
 target_compile_features(ymir_android PRIVATE cxx_std_20)
-target_link_libraries(ymir_android PRIVATE ymir::ymir-core android log nativewindow aaudio)
+target_link_libraries(ymir_android PRIVATE ymir::ymir-core cereal::cereal android log nativewindow aaudio)
 set_target_properties(ymir_android PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)

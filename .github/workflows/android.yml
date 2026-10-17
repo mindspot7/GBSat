@@ -52,5 +52,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ymir-android-arm64
+          name: gbsat-arm64
           path: apps/ymir-android/app/build/outputs/apk/release/*.apk

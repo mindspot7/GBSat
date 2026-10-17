@@ -18,7 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ymir.android.Emulator
 import app.ymir.android.NativeBridge
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun GameScreen() {
@@ -89,11 +92,44 @@ private fun VideoSurface(modifier: Modifier) {
 
 @Composable
 private fun GameMenu(showStats: Boolean, onToggleStats: () -> Unit, onDismiss: () -> Unit) {
+    var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    if (stateMode != null) {
+        val mode = stateMode!!
+        var times by remember { mutableStateOf<List<Long?>>(emptyList()) }
+        LaunchedEffect(mode) { times = withContext(Dispatchers.IO) { Emulator.slotTimes() } }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
+            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("$mode state", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
+                    for (slot in 0 until Emulator.STATE_SLOTS) {
+                        val t = times.getOrNull(slot)
+                        val label = "Slot ${slot + 1} — " + (t?.let { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)) } ?: "empty")
+                        TextButton(
+                            enabled = mode == "Save" || t != null, modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                scope.launch {
+                                    val err = if (mode == "Save") Emulator.saveState(slot) else Emulator.loadState(slot)
+                                    if (err == null) { stateMode = null; onDismiss() } else message = err
+                                }
+                            },
+                        ) { Text(label, Modifier.weight(1f)) }
+                    }
+                    message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+                    TextButton(onClick = { stateMode = null; message = null }, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                }
+            }
+        }
+        return
+    }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Paused", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
                 MenuItem(Icons.Default.PlayArrow, "Resume", onDismiss)
+                MenuItem(Icons.Default.Save, "Save state") { stateMode = "Save" }
+                MenuItem(Icons.Default.Restore, "Load state") { stateMode = "Load" }
                 MenuItem(Icons.Default.FastForward, if (Emulator.fastForward) "Fast-forward: on" else "Fast-forward: off") { Emulator.toggleFastForward() }
                 MenuItem(Icons.Default.RestartAlt, "Soft reset") { Emulator.reset(false); onDismiss() }
                 MenuItem(Icons.Default.PowerSettingsNew, "Hard reset") { Emulator.reset(true); onDismiss() }

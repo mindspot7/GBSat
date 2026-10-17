@@ -14,6 +14,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
@@ -25,6 +26,11 @@
 #define LOG_TAG "YmirAndroid"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+namespace savestate_io {
+std::string Save(ymir::Saturn &saturn, const std::filesystem::path &path);
+std::string Load(ymir::Saturn &saturn, const std::filesystem::path &path);
+} // namespace savestate_io
 
 namespace {
 
@@ -578,4 +584,33 @@ JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
     jlongArray arr = env->NewLongArray(3);
     env->SetLongArrayRegion(arr, 0, 3, v);
     return arr;
+}
+
+// Save states: files live in <dir>/<disc hash>/<slot>.savestate (same layout as the desktop app).
+JNI_FN(jstring, nativeGetDiscHash)(JNIEnv *env, jclass) {
+    if (!g) {
+        return nullptr;
+    }
+    const std::string h = RunSync([] { return ymir::ToString(g->saturn->GetDiscHash()); });
+    return NewJStr(env, h);
+}
+
+JNI_FN(jstring, nativeSaveState)(JNIEnv *env, jclass, jstring path) {
+    if (!g) {
+        return NewJStr(env, "not initialized");
+    }
+    const std::string p = JStr(env, path);
+    return NewJStr(env, RunSync([p] { return savestate_io::Save(*g->saturn, p); }));
+}
+
+JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
+    if (!g) {
+        return NewJStr(env, "not initialized");
+    }
+    const std::string p = JStr(env, path);
+    return NewJStr(env, RunSync([p] {
+                       auto err = savestate_io::Load(*g->saturn, p);
+                       g->ring.Clear();
+                       return err;
+                   }));
 }

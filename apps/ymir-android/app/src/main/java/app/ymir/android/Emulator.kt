@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.view.KeyEvent
 import java.io.File
 
 /** Process-wide emulator controller: owns persistent settings and merges all input sources into one pad. */
@@ -32,6 +33,49 @@ object Emulator {
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = stretch, 2 = native pixels
 
+    // ---- Gamepad mapping: Android keycode -> SaturnButton bit (persisted) ----
+    private fun defaultKeyMap(): Map<Int, Int> = mapOf(
+        KeyEvent.KEYCODE_DPAD_UP to SaturnButton.Up.bit, KeyEvent.KEYCODE_DPAD_DOWN to SaturnButton.Down.bit,
+        KeyEvent.KEYCODE_DPAD_LEFT to SaturnButton.Left.bit, KeyEvent.KEYCODE_DPAD_RIGHT to SaturnButton.Right.bit,
+        KeyEvent.KEYCODE_BUTTON_A to SaturnButton.B.bit, KeyEvent.KEYCODE_BUTTON_B to SaturnButton.A.bit,
+        KeyEvent.KEYCODE_BUTTON_X to SaturnButton.Y.bit, KeyEvent.KEYCODE_BUTTON_Y to SaturnButton.X.bit,
+        KeyEvent.KEYCODE_BUTTON_L1 to SaturnButton.L.bit, KeyEvent.KEYCODE_BUTTON_R1 to SaturnButton.R.bit,
+        KeyEvent.KEYCODE_BUTTON_L2 to SaturnButton.Z.bit, KeyEvent.KEYCODE_BUTTON_R2 to SaturnButton.C.bit,
+        KeyEvent.KEYCODE_BUTTON_START to SaturnButton.Start.bit,
+    )
+    var keyMap by mutableStateOf<Map<Int, Int>>(defaultKeyMap()); private set
+    /** Button currently waiting for a physical key press in the remap dialog (null = not remapping). */
+    var remapTarget by mutableStateOf<SaturnButton?>(null)
+
+    fun keysFor(b: SaturnButton): List<Int> = keyMap.filterValues { it == b.bit }.keys.toList()
+
+    fun bindKey(b: SaturnButton, keyCode: Int) {
+        val m = keyMap.toMutableMap()
+        m.entries.removeAll { it.value == b.bit || it.key == keyCode }
+        m[keyCode] = b.bit
+        keyMap = m; saveKeyMap()
+    }
+    fun resetKeyMap() { keyMap = defaultKeyMap(); saveKeyMap() }
+    private fun saveKeyMap() = prefs.edit().putString("keyMap", keyMap.entries.joinToString(",") { "${it.key}:${it.value}" }).apply()
+
+    // ---- Save states ----
+    const val STATE_SLOTS = 5
+    private val statesDir get() = File(appContext.filesDir, "states")
+    private fun stateFile(slot: Int): File? =
+        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/$slot.savestate") }
+
+    /** Last-modified time per slot, or null if empty. */
+    fun slotTimes(): List<Long?> = (0 until STATE_SLOTS).map { stateFile(it)?.takeIf { f -> f.exists() }?.lastModified() }
+
+    suspend fun saveState(slot: Int): String? = withContext(Dispatchers.IO) {
+        val f = stateFile(slot) ?: return@withContext "No game loaded"
+        NativeBridge.nativeSaveState(f.absolutePath)
+    }
+    suspend fun loadState(slot: Int): String? = withContext(Dispatchers.IO) {
+        val f = stateFile(slot) ?: return@withContext "No game loaded"
+        NativeBridge.nativeLoadState(f.absolutePath)
+    }
+
     val biosFile get() = File(appContext.filesDir, "bios/ipl.bin")
 
     fun init(context: Context) {
@@ -46,6 +90,9 @@ object Emulator {
         cartridge = prefs.getInt("cartridge", 0)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
+        prefs.getString("keyMap", null)?.let { str ->
+            runCatching { keyMap = str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() } }
+        }
 
         val bup = File(appContext.filesDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
         NativeBridge.nativeInit(bup.absolutePath)

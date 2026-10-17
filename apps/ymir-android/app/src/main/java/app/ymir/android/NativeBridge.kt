@@ -24,6 +24,9 @@ object NativeBridge {
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
+    @JvmStatic external fun nativeGetDiscHash(): String?
+    @JvmStatic external fun nativeSaveState(path: String): String?
+    @JvmStatic external fun nativeLoadState(path: String): String?
 }
 
 /** Bit positions match ymir::peripheral::Button. */

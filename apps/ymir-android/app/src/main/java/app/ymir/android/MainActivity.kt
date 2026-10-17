@@ -49,24 +49,19 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---- Physical gamepad support ----
-    private fun keyBit(code: Int): Int = when (code) {
-        KeyEvent.KEYCODE_DPAD_UP -> SaturnButton.Up.bit
-        KeyEvent.KEYCODE_DPAD_DOWN -> SaturnButton.Down.bit
-        KeyEvent.KEYCODE_DPAD_LEFT -> SaturnButton.Left.bit
-        KeyEvent.KEYCODE_DPAD_RIGHT -> SaturnButton.Right.bit
-        KeyEvent.KEYCODE_BUTTON_A -> SaturnButton.B.bit
-        KeyEvent.KEYCODE_BUTTON_B -> SaturnButton.A.bit
-        KeyEvent.KEYCODE_BUTTON_X -> SaturnButton.Y.bit
-        KeyEvent.KEYCODE_BUTTON_Y -> SaturnButton.X.bit
-        KeyEvent.KEYCODE_BUTTON_L1 -> SaturnButton.L.bit
-        KeyEvent.KEYCODE_BUTTON_R1 -> SaturnButton.R.bit
-        KeyEvent.KEYCODE_BUTTON_L2 -> SaturnButton.Z.bit
-        KeyEvent.KEYCODE_BUTTON_R2 -> SaturnButton.C.bit
-        KeyEvent.KEYCODE_BUTTON_START -> SaturnButton.Start.bit
-        else -> 0
-    }
+    private fun keyBit(code: Int): Int = Emulator.keyMap[code] ?: 0
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Remap dialog is open: the next physical button press becomes the binding.
+        Emulator.remapTarget?.let { target ->
+            val fromPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0
+            if (fromPad && event.keyCode != KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    Emulator.bindKey(target, event.keyCode); Emulator.remapTarget = null
+                }
+                return true
+            }
+        }
         val isPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0
         val bit = keyBit(event.keyCode)
         if (isPad && bit != 0 && Emulator.running) {
