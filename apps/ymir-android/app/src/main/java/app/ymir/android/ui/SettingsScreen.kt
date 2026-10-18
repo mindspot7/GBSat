@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.ymir.android.Emulator
+import app.ymir.android.NativeBridge
 import app.ymir.android.SaturnButton
 import app.ymir.android.HotkeyAction
 import app.ymir.android.keyName
@@ -112,15 +113,25 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
             Section("Display")
-            Choice("Renderer", listOf("Software", "OpenGL ES"), Emulator.renderer, change<Int> { Emulator.renderer = it })
+            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan"), Emulator.renderer, change<Int> { Emulator.renderer = it })
             Text(
                 "The Saturn VDP is always emulated in software (Ymir has no GPU renderer yet). OpenGL ES presents the image on the GPU " +
-                    "and enables the filters and shaders below. Vulkan, enhanced resolution and widescreen hacks are not available.",
+                    "and enables the filters and shaders below. Vulkan (presentation only for now) shows the image through the Vulkan API with " +
+                    "nearest/bilinear filtering; it falls back to software output if the device does not support it. " +
+                    "Enhanced resolution and widescreen hacks are not available yet.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
             if (Emulator.renderer == 1) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear", "Sharp bilinear"), Emulator.filter, change<Int> { Emulator.filter = it })
                 Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
+            }
+            if (Emulator.renderer == 2) {
+                Choice("Texture filtering", listOf("Nearest", "Bilinear"), minOf(Emulator.filter, 1), change<Int> { Emulator.filter = it })
+                val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
+                Text(
+                    if (probe.startsWith("ok|")) "Vulkan device: " + probe.split("|").drop(1).joinToString(", ") else "Vulkan unavailable: " + probe.removePrefix("error|"),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
             Choice("Aspect ratio", listOf("4:3", "Stretch", "Pixel-perfect"), Emulator.aspect, change<Int> { Emulator.aspect = it })
 

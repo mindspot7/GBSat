@@ -10,6 +10,7 @@
 #include <ymir/ymir.hpp>
 
 #include "gl_renderer.hpp"
+#include "vk_context.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -120,6 +121,10 @@ struct Context {
 
     // Display
     std::atomic<bool> glMode{false};
+    std::atomic<int> rendererMode{0}; // 0 = CPU window, 1 = GLES, 2 = Vulkan
+    bool vkFailed = false;
+    bool vkLinear = false;
+    std::string vkError;
 
     // Cheats (emulation thread only): constant memory writes applied after every frame
     struct Cheat { uint32_t addr; uint32_t value; int size; };
@@ -184,6 +189,15 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     std::lock_guard lk(g->winMutex);
     if (!g->window) {
         return;
+    }
+    if (g->rendererMode.load(std::memory_order_relaxed) == 2 && !g->vkFailed) {
+        if (!vkctx::IsReady() && !vkctx::Init(g->window, g->vkError)) {
+            g->vkFailed = true; // fall back to CPU presentation
+        }
+        if (vkctx::IsReady()) {
+            vkctx::PresentRGBA(fb, width, height, g->vkLinear);
+            return;
+        }
     }
     if ((int32_t)width != g->curW || (int32_t)height != g->curH) {
         ANativeWindow_setBuffersGeometry(g->window, width, height, WINDOW_FORMAT_RGBA_8888);
@@ -465,6 +479,7 @@ JNI_FN(void, nativeShutdown)(JNIEnv *, jclass) {
     glr::Shutdown();
     {
         std::lock_guard lk(g->winMutex);
+        vkctx::Shutdown();
         if (g->window) {
             ANativeWindow_release(g->window);
             g->window = nullptr;
@@ -489,6 +504,8 @@ JNI_FN(void, nativeSetSurface)(JNIEnv *env, jclass, jobject surface) {
         g->window = nullptr;
     }
     g->curW = g->curH = 0;
+    vkctx::Shutdown();
+    g->vkFailed = false;
     if (surface) {
         g->window = ANativeWindow_fromSurface(env, surface);
     }
@@ -686,10 +703,33 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         g->glMode = (mode == 1);
+        g->rendererMode = mode;
     }
+}
+
+// Returns "ok|<device>|int64" if Vulkan is usable, otherwise an error text starting with "error|".
+JNI_FN(jstring, nativeProbeVulkan)(JNIEnv *env, jclass) {
+    const auto info = vkctx::Probe();
+    if (!info.available) {
+        return NewJStr(env, "error|" + info.error);
+    }
+    return NewJStr(env, "ok|" + info.name + "|" + (info.shaderInt64 ? "int64" : "noint64"));
+}
+
+// Last Vulkan init error (empty if none).
+JNI_FN(jstring, nativeGetVulkanError)(JNIEnv *env, jclass) {
+    if (!g) {
+        return NewJStr(env, "");
+    }
+    std::lock_guard lk(g->winMutex);
+    return NewJStr(env, g->vkFailed ? g->vkError : "");
 }
 JNI_FN(void, nativeSetDisplayOptions)(JNIEnv *, jclass, jint filter, jint shader) {
     glr::SetOptions(filter, shader);
+    if (g) {
+        std::lock_guard lk(g->winMutex);
+        g->vkLinear = filter != 0;
+    }
 }
 
 // Cheats: parallel arrays of address / value / size (1, 2 or 4 bytes).
