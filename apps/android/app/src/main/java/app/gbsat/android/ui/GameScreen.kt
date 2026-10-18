@@ -167,6 +167,12 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
                 }
                 MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
+                MenuItem(Icons.Default.BugReport, "Export debug state") {
+                    scope.launch {
+                        val r = Emulator.exportDebugState()
+                        Emulator.showToast(if (r.startsWith("!")) r.drop(1) else "Saved to $r")
+                    }
+                }
                 if (Emulator.renderer == 1 || Emulator.renderer == 3) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots")
                     val filters = listOf("Nearest", "Bilinear", "Sharp bilinear")

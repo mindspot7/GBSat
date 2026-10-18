@@ -5,8 +5,8 @@ name: Vulkan shader check
 on:
   workflow_dispatch:
   push:
-    branches: [ android-port, vulkan ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/gbsat-core/res/shaders/**', 'libs/gbsat-core/src/ymir/gpu/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/gbsat-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/**', 'libs/gbsat-core/include/ymir/hw/vdp/**' ]
+    branches: [ android-port, vulkan, debug-states ]
+    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/gbsat-core/res/shaders/**', 'libs/gbsat-core/src/ymir/gpu/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/gbsat-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'apps/android/app/src/main/cpp/serdes/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/**', 'libs/gbsat-core/include/ymir/hw/vdp/**' ]
 
 jobs:
   shaders:
@@ -85,3 +85,13 @@ jobs:
           grep -c "Validation Error" cmp.log > /dev/null && echo "::warning title=Validation errors::$(grep -m 15 'Validation Error' cmp.log | cut -c1-600 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
           echo "::notice title=VDP compare (rc=$rc)::$(grep -v 'Validation' cmp.log | head -c 60000 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
           exit 0
+
+      - name: Compare renderers on uploaded save states (apps/vk-test/states)
+        if: hashFiles('apps/vk-test/states/*.state') != ''
+        run: |
+          set +e
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          for f in apps/vk-test/states/*.state; do
+            timeout 600 ./vkt-build/vdp_compare "$f" > st.log 2>&1
+            echo "::notice title=State $(basename "$f") (rc=$?)::$(head -c 60000 st.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+          done

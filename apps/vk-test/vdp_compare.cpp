@@ -212,7 +212,9 @@ static void SetupScene(Saturn &s, int scene) {
     Poke16(s, kVDP1Regs + 0x04, 0x0002);              // PTMR: draw automatically every frame
 }
 
-static bool Run(bool vulkan, int scene, Frame &out, std::string &err) {
+std::string LoadDebugState(Saturn &saturn, const std::string &path);
+
+static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std::string &statePath = {}) {
     auto saturn = std::make_unique<Saturn>();
     std::vector<uint8> ipl(sys::kIPLSize, 0);
     const uint8 boot[] = {0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x40, 0x00}; // PC=0x100, SP=0x06004000
@@ -253,6 +255,23 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err) {
     } else {
         saturn->VDP.UseSoftwareRenderer();
     }
+    if (!statePath.empty()) {
+        err = LoadDebugState(*saturn, statePath);
+        if (!err.empty()) {
+            return false;
+        }
+        for (int i = 0; i < 4; ++i) saturn->RunFrame();
+        if (!vulkan) {
+            std::printf("VDP2 registers:");
+            for (uint32 r = 0; r <= 0x11E; r += 2) {
+                if (r % 32 == 0) std::printf("\n  %03X:", r);
+                std::printf(" %04X", saturn->mainBus.Peek<uint16>(kVDP2Regs + r));
+            }
+            std::printf("\nVDP1 TVMR/FBCR/PTMR: %04X %04X %04X\n", saturn->mainBus.Peek<uint16>(kVDP1Regs + 0),
+                        saturn->mainBus.Peek<uint16>(kVDP1Regs + 2), saturn->mainBus.Peek<uint16>(kVDP1Regs + 4));
+        }
+        return true;
+    }
     SetupScene(*saturn, scene);
     for (int i = 0; i < 12; ++i) {
         if (scene >= 6) {
@@ -292,7 +311,59 @@ static std::string Ascii(const Frame &f, int cols = 64, int rows = 24) {
     return s;
 }
 
-int main() {
+static int CompareState(const std::string &path) {
+    Frame sw, vk;
+    std::string err;
+    if (!Run(false, 0, sw, err, path)) {
+        std::printf("software: %s\n", err.c_str());
+        return 2;
+    }
+    if (!Run(true, 0, vk, err, path)) {
+        std::printf("vulkan: %s\n", err.c_str());
+        return 2;
+    }
+    if (!sw.prev.empty()) sw.px = sw.prev;
+    std::printf("STATE %s: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", path.c_str(), sw.w, sw.h, sw.count,
+                vk.w, vk.h, vk.count);
+    if (sw.w != vk.w || sw.h != vk.h || sw.px.empty() || vk.px.empty()) {
+        std::printf("size mismatch\n");
+        return 1;
+    }
+    const int cols = 80, rows = 30;
+    std::vector<int> cell(cols * rows, 0);
+    size_t big = 0;
+    int shown = 0;
+    for (uint32 y = 0; y < sw.h; ++y)
+        for (uint32 x = 0; x < sw.w; ++x) {
+            const uint32 a = sw.px[y * sw.w + x] & 0xFFFFFF, b = vk.px[y * sw.w + x] & 0xFFFFFF;
+            int maxd = 0;
+            for (int k = 0; k < 24; k += 8) maxd = std::max(maxd, std::abs(int((a >> k) & 0xFF) - int((b >> k) & 0xFF)));
+            if (maxd > 8) {
+                ++big;
+                cell[(y * rows / sw.h) * cols + x * cols / sw.w]++;
+                if (shown < 12 && (x % 7 == 0)) {
+                    std::printf("  px(%u,%u) sw=%06X vk=%06X\n", x, y, a, b);
+                    ++shown;
+                }
+            }
+        }
+    std::printf("differing pixels: %zu of %u\n", big, sw.w * sw.h);
+    std::printf("software:\n%s", Ascii(sw, cols, rows).c_str());
+    std::printf("vulkan:\n%s", Ascii(vk, cols, rows).c_str());
+    std::printf("diff map:\n");
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) std::putchar(cell[r * cols + c] ? 'X' : '.');
+        std::putchar('\n');
+    }
+    return big ? 1 : 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc > 1) {
+        int rc = 0;
+        for (int i = 1; i < argc; ++i) rc |= CompareState(argv[i]);
+        return rc;
+    }
     int failures = 0;
     for (int test = 0; test < 10; ++test) {
         const int scene = test < 6 ? test : test == 6 ? 5 : test - 1;

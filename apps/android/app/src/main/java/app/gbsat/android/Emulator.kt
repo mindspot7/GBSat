@@ -160,6 +160,21 @@ object Emulator {
         NativeBridge.nativeLoadState(f.absolutePath)
     }
 
+    /**
+     * Saves the current state to Download/GBSat so it can be shared for debugging (e.g. renderer issues).
+     * Returns the file path or an error message prefixed with "!".
+     */
+    suspend fun exportDebugState(): String = withContext(Dispatchers.IO) {
+        val game = currentGame ?: return@withContext "!No game loaded"
+        val name = game.substringAfterLast('/').substringBeforeLast('.').replace(Regex("[^A-Za-z0-9()_ -]"), "_")
+        val dir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "GBSat")
+        dir.mkdirs()
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        val f = File(dir, "$name-$stamp.state")
+        val err = NativeBridge.nativeSaveState(f.absolutePath)
+        if (err != null) "!$err" else f.absolutePath
+    }
+
     val biosFile get() = File(appContext.filesDir, "bios/ipl.bin")
 
     fun init(context: Context) {
