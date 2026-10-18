@@ -74,6 +74,11 @@ fun CheatsScreen(onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+                if (app.gbsat.android.RetroAchievements.hardcoreActive) {
+                    Text("Cheats are disabled while RetroAchievements hardcore mode is on.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 4.dp)) }
                 if (Emulator.cheats.isEmpty() && !adding) {
                     Text(

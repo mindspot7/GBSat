@@ -30,6 +30,20 @@ object NativeBridge {
     @JvmStatic external fun nativeGetGpuError(): String?
     @JvmStatic external fun nativeSetCrashFile(path: String)
     @JvmStatic external fun nativeCompareRenderers(): String?
+
+    // RetroAchievements
+    @JvmStatic external fun nativeRaInit(userAgent: String)
+    @JvmStatic external fun nativeRaLogin(user: String, secret: String, isToken: Boolean)
+    @JvmStatic external fun nativeRaLogout()
+    @JvmStatic external fun nativeRaSetHardcore(on: Boolean)
+    @JvmStatic external fun nativeRaPollEvents(): ByteArray
+    @JvmStatic external fun nativeRaState(): ByteArray
+    @JvmStatic external fun nativeRaAchievements(): ByteArray
+    @JvmStatic external fun nativeRaHttpResponse(id: Int, status: Int, body: ByteArray?)
+
+    /** Called from native code (rcheevos) to perform an HTTP request; the response goes back via nativeRaHttpResponse. */
+    @JvmStatic fun raHttp(id: Int, url: String, post: String?, contentType: String?, userAgent: String) =
+        RetroAchievements.httpRequest(id, url, post, contentType, userAgent)
     @JvmStatic external fun nativeSetDisplayOptions(filter: Int, shader: Int)
     @JvmStatic external fun nativeSetCheats(addrs: LongArray, values: LongArray, sizes: IntArray)
     @JvmStatic external fun nativeSetFastBoot(on: Boolean)

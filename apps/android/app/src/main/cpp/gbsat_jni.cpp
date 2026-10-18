@@ -14,7 +14,12 @@
 
 #include <ymir/ymir.hpp>
 
+#include "gbsat_ra.hpp"
 #include "gl_renderer.hpp"
+
+extern "C" {
+#include <md5.h>
+}
 #include "vk_context.hpp"
 
 #include <algorithm>
@@ -24,7 +29,9 @@
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <array>
 #include <fstream>
+#include <iterator>
 #include <functional>
 #include <future>
 #include <memory>
@@ -485,6 +492,8 @@ void EmuLoop() {
         if (g->paused.load()) {
             std::unique_lock lk(g->cmdMutex);
             g->cmdCv.wait_for(lk, milliseconds(20), [] { return !g->commands.empty() || !g->paused.load() || !g->running.load(); });
+            lk.unlock();
+            ra::Idle();
             nextFrame = steady_clock::now();
             fpsWindowStart = nextFrame;
             fpsFrames = 0;
@@ -493,7 +502,11 @@ void EmuLoop() {
 
         g->saturn->RunFrame();
         bool skipNext = false;
+        const bool cheatsAllowed = !ra::IsHardcore();
         for (const auto &c : g->cheats) {
+            if (!cheatsAllowed) {
+                break;
+            }
             if (skipNext) {
                 skipNext = false;
                 continue;
@@ -507,6 +520,7 @@ void EmuLoop() {
             default: g->saturn->mainBus.Poke<uint16_t>(c.addr, (uint16_t)c.value); break;
             }
         }
+        ra::DoFrame();
         ++fpsFrames;
 
         const auto now = steady_clock::now();
@@ -702,11 +716,29 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
     if (!ok) {
         return NewJStr(env, log.empty() ? "Failed to load disc image" : log);
     }
-    RunSync([disc]() -> int {
+    // RetroAchievements hash: MD5 of the first 512 bytes of sector 0 of track 1 (volume + ROM headers)
+    std::string raHash;
+    if (!disc->sessions.empty()) {
+        const auto &session = disc->sessions.front();
+        const auto &track = session.tracks[session.firstTrackIndex];
+        std::array<uint8_t, 2048> sector{};
+        if (track.ReadSectorUserData(track.startFrameAddress, sector)) {
+            md5_state_t md5;
+            md5_byte_t digest[16];
+            md5_init(&md5);
+            md5_append(&md5, sector.data(), 512);
+            md5_finish(&md5, digest);
+            char hex[33];
+            for (int i = 0; i < 16; ++i) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+            raHash = hex;
+        }
+    }
+    RunSync([disc, raHash]() -> int {
         g->saturn->LoadDisc(std::move(*disc));
         g->saturn->AutodetectRegion();
         g->saturn->Reset(true);
         g->ring.Clear();
+        ra::LoadGame(raHash);
         return 0;
     });
     return nullptr;
@@ -714,7 +746,10 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
 
 JNI_FN(void, nativeEjectDisc)(JNIEnv *, jclass) {
     if (g) {
-        Post([] { g->saturn->EjectDisc(); });
+        Post([] {
+            ra::UnloadGame();
+            g->saturn->EjectDisc();
+        });
     }
 }
 JNI_FN(void, nativeSetTrayOpen)(JNIEnv *, jclass, jboolean open) {
@@ -724,7 +759,10 @@ JNI_FN(void, nativeSetTrayOpen)(JNIEnv *, jclass, jboolean open) {
 }
 JNI_FN(void, nativeReset)(JNIEnv *, jclass, jboolean hard) {
     if (g) {
-        Post([hard] { g->saturn->Reset(hard); });
+        Post([hard] {
+            g->saturn->Reset(hard);
+            ra::Reset();
+        });
     }
 }
 JNI_FN(void, nativeSetPaused)(JNIEnv *, jclass, jboolean paused) {
@@ -834,7 +872,16 @@ JNI_FN(jstring, nativeSaveState)(JNIEnv *env, jclass, jstring path) {
         return NewJStr(env, "not initialized");
     }
     const std::string p = JStr(env, path);
-    return NewJStr(env, RunSync([p] { return savestate_io::Save(*g->saturn, p); }));
+    return NewJStr(env, RunSync([p] {
+        auto err = savestate_io::Save(*g->saturn, p);
+        if (err.empty()) {
+            // RetroAchievements progress (achievement hit counts) next to the state
+            const auto progress = ra::SerializeProgress();
+            std::ofstream out{p + ".ra", std::ios::binary | std::ios::trunc};
+            out.write(reinterpret_cast<const char *>(progress.data()), (std::streamsize)progress.size());
+        }
+        return err;
+    }));
 }
 
 JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
@@ -842,8 +889,16 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
         return NewJStr(env, "not initialized");
     }
     const std::string p = JStr(env, path);
-    return NewJStr(env, RunSync([p] {
+    return NewJStr(env, RunSync([p]() -> std::string {
+                       if (ra::IsHardcore()) {
+                           return "Loading states is disabled in RetroAchievements hardcore mode";
+                       }
                        auto err = savestate_io::Load(*g->saturn, p);
+                       if (err.empty()) {
+                           std::ifstream in{p + ".ra", std::ios::binary};
+                           std::vector<uint8_t> progress{std::istreambuf_iterator<char>(in), {}};
+                           ra::DeserializeProgress(progress);
+                       }
                        g->ring.Clear();
                        return err;
                    }));
@@ -971,6 +1026,23 @@ JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
         return out;
     });
     return NewJStr(env, report);
+}
+
+// RetroAchievements: initialization and achievement list (see gbsat_ra.cpp for the rest)
+JNI_FN(void, nativeRaInit)(JNIEnv *env, jclass, jstring userAgent) {
+    if (!g) {
+        return;
+    }
+    ra::Init([](std::function<void()> fn) { Post(std::move(fn)); },
+             [](uint32_t addr) -> uint8_t { return g->saturn->mainBus.Peek<uint8_t>(addr); }, JStr(env, userAgent));
+}
+
+// Returned as UTF-8 bytes: titles may contain characters that JNI's modified UTF-8 strings cannot carry.
+JNI_FN(jbyteArray, nativeRaAchievements)(JNIEnv *env, jclass) {
+    const std::string s = g ? RunSync([] { return ra::AchievementList(); }) : std::string{};
+    jbyteArray arr = env->NewByteArray((jsize)s.size());
+    env->SetByteArrayRegion(arr, 0, (jsize)s.size(), reinterpret_cast<const jbyte *>(s.data()));
+    return arr;
 }
 
 // Last Vulkan GPU (VDP) renderer error, empty if none.

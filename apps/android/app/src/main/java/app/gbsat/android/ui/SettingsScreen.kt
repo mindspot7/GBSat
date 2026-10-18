@@ -125,6 +125,40 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Choice("Display", listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
             Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
+            Section("RetroAchievements")
+            Toggle("Enable RetroAchievements", "Earn achievements from retroachievements.org (needs an account and internet)",
+                app.gbsat.android.RetroAchievements.enabled) { app.gbsat.android.RetroAchievements.setEnabled(it) }
+            if (app.gbsat.android.RetroAchievements.enabled) {
+                val ra = app.gbsat.android.RetroAchievements
+                if (ra.user != null) {
+                    ListItem(
+                        headlineContent = { Text("Logged in as ${ra.user}") },
+                        supportingContent = { Text("${ra.score} points" + (ra.gameTitle?.let { " · playing $it" } ?: "")) },
+                        trailingContent = { TextButton(onClick = { ra.logout() }) { Text("Log out") } },
+                    )
+                } else {
+                    var raUser by remember { mutableStateOf("") }
+                    var raPass by remember { mutableStateOf("") }
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        OutlinedTextField(raUser, { raUser = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(raPass, { raPass = it }, label = { Text("Password") }, singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { ra.login(raUser, raPass); raPass = "" }, enabled = !ra.loginPending && raUser.isNotBlank() && raPass.isNotBlank()) {
+                                Text(if (ra.loginPending) "Logging in…" else "Log in")
+                            }
+                            ra.loginError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(start = 12.dp)) }
+                        }
+                        Text("Your password is only sent to retroachievements.org; GBSat keeps the login token, not the password.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Toggle("Hardcore mode", "More points, but save state loading and cheats are disabled. Enabling it during a game resets the game.",
+                    ra.hardcore) { ra.setHardcore(it) }
+            }
+
             Section("Hotkeys")
             Text("Bind a single button or hold several buttons together (a combination) and release. L3/R3 are supported.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))

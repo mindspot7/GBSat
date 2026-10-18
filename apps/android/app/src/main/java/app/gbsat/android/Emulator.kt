@@ -229,6 +229,7 @@ object Emulator {
         val bup = File(appContext.filesDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
         NativeBridge.nativeInit(bup.absolutePath, File(appContext.filesDir, "saves/smpc.bin").absolutePath)
         applyOptions()
+        RetroAchievements.init(appContext, appVersion().substringBefore(" "))
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
     }
 
@@ -279,6 +280,7 @@ object Emulator {
     fun toggleTray() { trayOpen = !trayOpen; NativeBridge.nativeSetTrayOpen(trayOpen) }
     fun quitGame() {
         pause(true); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
+        RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }
         NativeBridge.nativeEjectDisc()
     }

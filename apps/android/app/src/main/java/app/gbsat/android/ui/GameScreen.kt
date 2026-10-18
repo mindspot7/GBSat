@@ -77,6 +77,8 @@ fun GameScreen(onQuitApp: () -> Unit) {
             if (Emulator.showFps) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
         }
 
+        RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
+
         Emulator.toast?.let { msg ->
             Surface(
                 shape = RoundedCornerShape(20.dp), color = Color.Black.copy(alpha = .7f),
@@ -117,6 +119,8 @@ private fun VideoSurfaceInner(modifier: Modifier) {
 private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var cheatsOpen by remember { mutableStateOf(false) }
     if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
+    var achievementsOpen by remember { mutableStateOf(false) }
+    if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
     var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -181,6 +185,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                 }
                 MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
+                }
+                if (app.gbsat.android.RetroAchievements.enabled) {
+                    MenuItem(Icons.Default.EmojiEvents, "Achievements") { achievementsOpen = true }
                 }
                 MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
                 MenuItem(Icons.Default.Compare, "Compare renderers (debug)") {

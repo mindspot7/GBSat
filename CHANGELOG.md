@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- RetroAchievements (rcheevos): login, hardcore mode, unlock notifications with badges, achievement list in the quick menu, progress saved with save states.
 - Vulkan GPU: fixed sprites going behind backgrounds of equal priority on Adreno GPUs (Three Dirty Dwarves).
 - Quick menu: "Compare renderers (debug)" reports differences between Software and Vulkan GPU on the device.
 - Renderer list: the presentation-only "Vulkan" option was removed (Vulkan GPU replaces it); "Sharp bilinear" filter removed; display mode "Fill" renamed to "Fullscreen".
