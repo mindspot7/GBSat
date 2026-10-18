@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.5.0
+- Vulkan GPU: fixed sprites going behind backgrounds of equal priority on Adreno GPUs (Three Dirty Dwarves).
+- Quick menu: "Compare renderers (debug)" reports differences between Software and Vulkan GPU on the device.
 - Renderer list: the presentation-only "Vulkan" option was removed (Vulkan GPU replaces it); "Sharp bilinear" filter removed; display mode "Fill" renamed to "Fullscreen".
 - Quick menu: "Export debug state" saves the current state to Download/GBSat for bug reports.
 - Built-in cheat database (libretro-database, 190+ Saturn games) shown in the quick menu Cheats screen; supports conditional (D) codes and the libretro `.cht` format.

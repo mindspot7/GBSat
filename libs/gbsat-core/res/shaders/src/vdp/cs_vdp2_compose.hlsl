@@ -286,10 +286,13 @@ uint3 Compose(uint2 basePos) {
         return uint3(0, 0, 0);
     }
 
-    // Determine layer order
-    uint layerStack[3] = { kLayerBack, kLayerBack, kLayerBack };
-    uint layerPrios[3] = { 0, 0, 0 };
+    // Determine layer order.
+    // The top three layers are tracked in scalar variables instead of arrays: some mobile shader compilers (Adreno)
+    // miscompiled the original array insertion sort, breaking priority ties (e.g. sprites vs. NBG0 at equal priority).
+    uint s0 = kLayerBack, s1 = kLayerBack, s2 = kLayerBack;
+    uint p0 = 0, p1 = 0, p2 = 0;
 
+    [unroll]
     for (uint layer = 0; layer < 6; layer++) {
         // Skip disabled layers
         if (!IsLayerEnabled(layer)) {
@@ -315,20 +318,21 @@ uint3 Compose(uint2 basePos) {
         // Insert the layer into the appropriate position in the stack
         // - Higher priority beats lower priority
         // - If same priority, lower Layer index beats higher Layer index
-        // - layerStack[0] is topmost (first) layer
-        for (int i = 0; i < 3; i++) {
-            if (attrs.priority > layerPrios[i] || (attrs.priority == layerPrios[i] && layer < layerStack[i])) {
-                // Push layers back
-                for (int j = 2; j > i; j--) {
-                    layerStack[j] = layerStack[j - 1];
-                    layerPrios[j] = layerPrios[j - 1];
-                }
-                layerStack[i] = layer;
-                layerPrios[i] = attrs.priority;
-                break;
-            }
+        // - s0 is the topmost (first) layer
+        const uint prio = attrs.priority;
+        if (prio > p0 || (prio == p0 && layer < s0)) {
+            s2 = s1; p2 = p1;
+            s1 = s0; p1 = p0;
+            s0 = layer; p0 = prio;
+        } else if (prio > p1 || (prio == p1 && layer < s1)) {
+            s2 = s1; p2 = p1;
+            s1 = layer; p1 = prio;
+        } else if (prio > p2 || (prio == p2 && layer < s2)) {
+            s2 = layer; p2 = prio;
         }
     }
+    uint layerStack[3] = { s0, s1, s2 };
+    uint layerPrios[3] = { p0, p1, p2 };
 
     // Find sprite mesh layer stack position
     uint meshLayer = 0xFF;
