@@ -702,8 +702,11 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 // Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
 JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
-        g->glMode = (mode == 1);
+        g->glMode = (mode == 1 || mode == 3);
         g->rendererMode = mode;
+        if (mode == 1 || mode == 3) {
+            glr::SetBackend(mode == 3); // 3 = OpenGL ES through ANGLE (Vulkan)
+        }
     }
 }
 

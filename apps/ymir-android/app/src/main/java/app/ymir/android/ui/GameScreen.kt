@@ -160,7 +160,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
                 }
                 MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
-                if (Emulator.renderer == 1) {
+                if (Emulator.renderer == 1 || Emulator.renderer == 3) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots")
                     val filters = listOf("Nearest", "Bilinear", "Sharp bilinear")
                     MenuItem(Icons.Default.Tv, "Shader: ${shaders[Emulator.shader]}") {

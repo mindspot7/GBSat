@@ -95,15 +95,16 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
             Section("Display")
-            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan"), Emulator.renderer, change<Int> { Emulator.renderer = it })
+            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan", "ANGLE"), Emulator.renderer, change<Int> { Emulator.renderer = it })
             Text(
                 "The Saturn VDP is always emulated in software (Ymir has no GPU renderer yet). OpenGL ES presents the image on the GPU " +
                     "and enables the filters and shaders below. Vulkan (presentation only for now) shows the image through the Vulkan API with " +
                     "nearest/bilinear filtering; it falls back to software output if the device does not support it. " +
+                    "ANGLE runs the OpenGL ES presentation (with filters and shaders) on top of Vulkan using the ANGLE library bundled in the app. " +
                     "Enhanced resolution and widescreen hacks are not available yet.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (Emulator.renderer == 1) {
+            if (Emulator.renderer == 1 || Emulator.renderer == 3) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear", "Sharp bilinear"), Emulator.filter, change<Int> { Emulator.filter = it })
                 Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
             }

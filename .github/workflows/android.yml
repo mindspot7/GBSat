@@ -30,6 +30,18 @@ jobs:
         with:
           gradle-version: 8.10.2
 
+      - name: Fetch prebuilt ANGLE libraries (optional)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p apps/ymir-android/app/src/main/jniLibs/arm64-v8a
+          if gh release download angle-android-arm64 -p 'angle-android-arm64.tar.gz' -D "$RUNNER_TEMP" 2>/dev/null; then
+            tar xzf "$RUNNER_TEMP/angle-android-arm64.tar.gz" -C apps/ymir-android/app/src/main/jniLibs/arm64-v8a
+            ls -la apps/ymir-android/app/src/main/jniLibs/arm64-v8a
+          else
+            echo "::warning title=ANGLE::no prebuilt ANGLE release yet (run the 'Build ANGLE' workflow); ANGLE option will fall back to system GLES"
+          fi
+
       - name: Create sideload signing key (debug keystore)
         run: |
           mkdir -p ~/.android

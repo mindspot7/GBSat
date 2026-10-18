@@ -22,7 +22,7 @@ set(JUST_INSTALL_CEREAL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(cereal GIT_REPOSITORY https://github.com/USCiLab/cereal.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(cereal)
 
-add_library(ymir_android SHARED ymir_jni.cpp savestate_io.cpp gl_renderer.cpp vk_context.cpp)
+add_library(ymir_android SHARED ymir_jni.cpp savestate_io.cpp gl_renderer.cpp gl_dyn.cpp vk_context.cpp)
 target_include_directories(ymir_android PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_features(ymir_android PRIVATE cxx_std_20)
 target_link_libraries(ymir_android PRIVATE ymir::ymir-core cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)
