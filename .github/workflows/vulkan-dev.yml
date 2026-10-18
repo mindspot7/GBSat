@@ -1,0 +1,51 @@
+name: Vulkan shader check
+
+# Development workflow for the Vulkan renderer: verifies that the VDP HLSL compute shaders compile to SPIR-V
+# and validate for Vulkan 1.1/1.2 on a Linux host. Run manually.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ vulkan ]
+
+jobs:
+  shaders:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build clang libvulkan-dev spirv-tools mesa-vulkan-drivers vulkan-validationlayers vulkan-tools
+          gh release download -R microsoft/DirectXShaderCompiler -p 'linux_dxc_*.tar.gz' -D /tmp/dxc
+          mkdir -p /opt/dxc && tar -xzf /tmp/dxc/linux_dxc_*.tar.gz -C /opt/dxc
+          ls /opt/dxc /opt/dxc/bin
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Configure and build shaders
+        run: |
+          set +e
+          export LD_LIBRARY_PATH=/opt/dxc/lib:$LD_LIBRARY_PATH
+          export PATH=/opt/dxc/bin:$PATH
+          dxc --version
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYmir_LIBRARY_ONLY=ON -DYmir_DEV_BUILD=OFF \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > cfg.log 2>&1
+          rc=$?
+          [ $rc -eq 0 ] && ninja -C build ymir-core-shaders > bld.log 2>&1 ; rc=$?
+          cat cfg.log bld.log > all.log 2>/dev/null
+          find build -name '*.spv' | head -50
+          if [ $rc -ne 0 ]; then
+            msg=$( (grep -nE "error|Error|FAILED|warning: .*int64|Could NOT" -A2 all.log | head -60) | cut -c1-300 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Shader build failed::$msg"
+            exit $rc
+          fi
+          for f in $(find build -name '*.spv'); do
+            spirv-val --target-env vulkan1.2 "$f" > val.log 2>&1 || { echo "::error title=spirv-val failed::$f $(head -c 500 val.log)"; }
+          done
+          echo "SPV count: $(find build -name '*.spv' | wc -l)"
+          for f in $(find build -name '*.spv' | head -3); do echo "== $f"; spirv-dis "$f" | grep -E "OpCapability|OpExtension" | sort -u | tr '\n' ' '; echo; done > caps.log
+          echo "::notice title=SPIR-V capabilities::$(cat caps.log | sed ':a;N;$!ba;s/\n/%0A/g')"
