@@ -475,8 +475,16 @@ void EmuLoop() {
         }
 
         g->saturn->RunFrame();
+        bool skipNext = false;
         for (const auto &c : g->cheats) {
+            if (skipNext) {
+                skipNext = false;
+                continue;
+            }
             switch (c.size) {
+            case -2: // 16-bit "if equal": run the next code only when memory matches
+                skipNext = g->saturn->mainBus.Peek<uint16_t>(c.addr) != (uint16_t)c.value;
+                break;
             case 1: g->saturn->mainBus.Poke<uint8_t>(c.addr, (uint8_t)c.value); break;
             case 4: g->saturn->mainBus.Poke<uint32_t>(c.addr, c.value); break;
             default: g->saturn->mainBus.Poke<uint16_t>(c.addr, (uint16_t)c.value); break;

@@ -28,6 +28,7 @@ fun CheatsScreen(onBack: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    val dbEntry = remember { Emulator.databaseEntry() }
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -44,6 +45,10 @@ fun CheatsScreen(onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
                     Text("Cheats", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    if (dbEntry != null) IconButton(onClick = {
+                        val n = Emulator.addDatabaseCheats()
+                        error = if (n == 0) "All database cheats are already in the list" else null
+                    }) { Icon(Icons.Default.LibraryAdd, "Add cheats from the database") }
                     IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import .cht") }
                     IconButton(onClick = { adding = !adding }) { Icon(Icons.Default.Add, "Add") }
                 }
@@ -56,7 +61,7 @@ fun CheatsScreen(onBack: () -> Unit) {
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Button(onClick = {
-                            if (CheatParser.parse(code) == null) error = "Invalid code"
+                            if (!CheatParser.usable(code)) error = "Invalid code"
                             else {
                                 Emulator.updateCheats(Emulator.cheats + Cheat(name.ifBlank { "Cheat" }, code.trim(), true))
                                 name = ""; code = ""; adding = false; error = null
@@ -64,6 +69,11 @@ fun CheatsScreen(onBack: () -> Unit) {
                         }) { Text("Add") }
                     }
                 }
+                Text(
+                    if (dbEntry != null) "Cheat database: $dbEntry" else "No entry in the cheat database for this game",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 4.dp)) }
                 if (Emulator.cheats.isEmpty() && !adding) {
                     Text(
@@ -75,7 +85,9 @@ fun CheatsScreen(onBack: () -> Unit) {
                     itemsIndexed(Emulator.cheats) { i, c ->
                         ListItem(
                             headlineContent = { Text(c.name) },
-                            supportingContent = { Text(c.code.lines().first()) },
+                            supportingContent = {
+                                Text((if (c.fromDatabase) "Database · " else "") + c.code.lines().first().take(40))
+                            },
                             leadingContent = {
                                 Switch(checked = c.enabled, onCheckedChange = { on ->
                                     Emulator.updateCheats(Emulator.cheats.toMutableList().also { it[i] = c.copy(enabled = on) })

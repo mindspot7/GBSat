@@ -149,7 +149,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             }
             Text("GBSat v$versionName", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
-            Text("GBSat is based on Ymir, GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license.",
+            Text("GBSat is based on Ymir, GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license. " +
+                "Cheat database: libretro-database (CC BY-SA 4.0).",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(32.dp))
         }

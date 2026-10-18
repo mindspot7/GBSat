@@ -157,8 +157,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                 MenuItem(Icons.Default.Save, "Save state") { stateMode = "Save" }
                 MenuItem(Icons.Default.Restore, "Load state") { stateMode = "Load" }
                 MenuItem(Icons.Default.FastForward, if (Emulator.fastForward) "Fast-forward: on" else "Fast-forward: off") { Emulator.toggleFastForward() }
-                MenuItem(Icons.Default.RestartAlt, "Soft reset") { Emulator.reset(false); onDismiss() }
-                MenuItem(Icons.Default.PowerSettingsNew, "Hard reset") { Emulator.reset(true); onDismiss() }
+                MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
                 MenuItem(Icons.Default.Eject, if (Emulator.trayOpen) "Close disc tray" else "Open disc tray") { Emulator.toggleTray() }
                 MenuItem(Icons.Default.Speed, if (Emulator.showFps) "Hide FPS" else "Show FPS") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
                 MenuItem(Icons.Default.AspectRatio, "Display: " + listOf("4:3", "Fill", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {

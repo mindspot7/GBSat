@@ -81,17 +81,32 @@ object Emulator {
     private fun cheatFile() = NativeBridge.nativeGetDiscHash()?.let { File(appContext.filesDir, "cheats/$it.txt") }
 
     fun loadCheats() {
-        cheats = cheatFile()?.takeIf { it.exists() }?.readLines()?.mapNotNull { l ->
+        val saved = cheatFile()?.takeIf { it.exists() }?.readLines()?.mapNotNull { l ->
             val p = l.split("\t")
-            if (p.size == 3) Cheat(p[1], p[2].replace("\\n", "\n"), p[0] == "1") else null
-        } ?: emptyList()
+            if (p.size >= 3) Cheat(p[1], p[2].replace("\\n", "\n"), p[0] == "1", p.getOrNull(3) == "db") else null
+        }
+        // First time with this game: start from the built-in database (all disabled)
+        cheats = saved ?: currentGame?.let { CheatDatabase.load(appContext, it) }.orEmpty()
         applyCheats()
     }
+
+    /** Adds database cheats for the current game that are not in the list yet. Returns how many were added. */
+    fun addDatabaseCheats(): Int {
+        val game = currentGame ?: return 0
+        val known = cheats.map { it.code.trim() }.toSet()
+        val extra = CheatDatabase.load(appContext, game).filter { it.code.trim() !in known }
+        if (extra.isNotEmpty()) updateCheats(cheats + extra)
+        return extra.size
+    }
+
+    fun databaseEntry(): String? = currentGame?.let { CheatDatabase.find(appContext, it) }
     fun updateCheats(list: List<Cheat>) {
         cheats = list
         cheatFile()?.let { f ->
             f.parentFile?.mkdirs()
-            f.writeText(list.joinToString("\n") { "${if (it.enabled) 1 else 0}\t${it.name.replace('\t', ' ')}\t${it.code.replace("\n", "\\n")}" })
+            f.writeText(list.joinToString("\n") {
+                "${if (it.enabled) 1 else 0}\t${it.name.replace('\t', ' ')}\t${it.code.replace("\n", "\\n")}\t${if (it.fromDatabase) "db" else "user"}"
+            })
         }
         applyCheats()
     }
