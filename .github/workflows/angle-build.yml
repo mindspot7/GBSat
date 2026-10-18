@@ -1,7 +1,7 @@
 name: Build ANGLE (Android arm64)
 
-# Builds Google's ANGLE (OpenGL ES over Vulkan) for Android arm64 and publishes the two libraries
-# (libEGL_angle.so, libGLESv2_angle.so) as a release asset that android.yml bundles into the APK.
+# Builds Google's ANGLE (OpenGL ES over Vulkan) for Android arm64 and commits the two libraries
+# (libEGL_angle.so, libGLESv2_angle.so) to apps/android/prebuilt; android.yml bundles them into the APK.
 on:
   workflow_dispatch:
   push:
@@ -92,10 +92,6 @@ jobs:
           git commit -m "Update prebuilt ANGLE libraries" || true
           git pull --rebase origin "${GITHUB_REF_NAME}" || true
           git push origin "HEAD:${GITHUB_REF_NAME}"
-          # Also publish as a release asset (best effort)
-          gh release delete angle-android-arm64 --yes --cleanup-tag 2>/dev/null || true
-          gh release create angle-android-arm64 "$RUNNER_TEMP/pkg/angle-android-arm64.tar.gz" \
-            --title "ANGLE Android arm64" --notes "Prebuilt ANGLE libraries used by GBSat." --target "$GITHUB_SHA" || true
 
       - name: Report errors
         if: failure()

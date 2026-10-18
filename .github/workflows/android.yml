@@ -48,9 +48,6 @@ jobs:
           if [ -f apps/android/prebuilt/angle-android-arm64.tar.gz ]; then
             tar xzf apps/android/prebuilt/angle-android-arm64.tar.gz -C apps/android/app/src/main/jniLibs/arm64-v8a
             ls -la apps/android/app/src/main/jniLibs/arm64-v8a
-          elif gh release download angle-android-arm64 -p 'angle-android-arm64.tar.gz' -D "$RUNNER_TEMP" 2>/dev/null; then
-            tar xzf "$RUNNER_TEMP/angle-android-arm64.tar.gz" -C apps/android/app/src/main/jniLibs/arm64-v8a
-            ls -la apps/android/app/src/main/jniLibs/arm64-v8a
           else
             echo "::warning title=ANGLE::no prebuilt ANGLE libraries yet (run the 'Build ANGLE' workflow); ANGLE option will fall back to system GLES"
           fi
