@@ -463,6 +463,10 @@ function(_shader_make_compile_spirv_command)
                 -T "${ARG_PROFILE}"
                 -E "${ARG_ENTRYPOINT}"
                 -spirv
+                # Vulkan binding layout (single set 0): b# -> #, t# -> #, u# -> 16 + #
+                -fvk-b-shift 0 0
+                -fvk-t-shift 0 0
+                -fvk-u-shift 16 0
                 ${_compile_flags}
                 ${_include_paths_args}
                 ${_macro_args}
