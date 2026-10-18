@@ -18,7 +18,7 @@ gamepad-friendly interface built in Jetpack Compose.
   - Software (CPU)
   - OpenGL ES and ANGLE presentation with texture filtering (nearest, bilinear) and shaders
     (scanlines, CRT, LCD3x, dots)
-  - **Vulkan GPU (beta)**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders
+  - **Vulkan GPU**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders
 - **Display**: 4:3, 16:9 or fullscreen, optional FPS counter
 - **RetroAchievements**: login, hardcore mode, unlock notifications and achievement list
 - Touch controls (can be hidden)

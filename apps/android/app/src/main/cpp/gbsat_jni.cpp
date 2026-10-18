@@ -104,6 +104,7 @@ struct AudioRing {
 
 struct Context {
     std::unique_ptr<ymir::Saturn> saturn;
+    std::string discHeader; // first 256 bytes of the disc's system area (IP.BIN header), printable ASCII
 
     // Threading
     std::thread emuThread;
@@ -732,6 +733,12 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             char hex[33];
             for (int i = 0; i < 16; ++i) snprintf(hex + i * 2, 3, "%02x", digest[i]);
             raHash = hex;
+            std::string hdr(reinterpret_cast<const char *>(sector.data()), 256);
+            for (char &c : hdr) {
+                if (c < 0x20 || c > 0x7E) c = ' ';
+            }
+            std::lock_guard lk(g->winMutex);
+            g->discHeader = hdr;
         }
     }
     RunSync([disc, raHash]() -> int {
@@ -857,6 +864,15 @@ JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
     jlongArray arr = env->NewLongArray(3);
     env->SetLongArrayRegion(arr, 0, 3, v);
     return arr;
+}
+
+// Disc header (IP.BIN): product number at 0x20, area symbols at 0x40, title at 0x60.
+JNI_FN(jstring, nativeGetDiscHeader)(JNIEnv *env, jclass) {
+    if (!g) {
+        return nullptr;
+    }
+    std::lock_guard lk(g->winMutex);
+    return NewJStr(env, g->discHeader);
 }
 
 // Save states: files live in <dir>/<disc hash>/<slot>.savestate (same layout as the desktop app).

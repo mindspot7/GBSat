@@ -181,7 +181,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                 MenuItem(Icons.Default.Eject, if (Emulator.trayOpen) "Close disc tray" else "Open disc tray") { Emulator.toggleTray() }
                 MenuItem(Icons.Default.Speed, if (Emulator.showFps) "Hide FPS" else "Show FPS") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
                 MenuItem(Icons.Default.AspectRatio, "Display: " + listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
-                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs()
+                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
+                    Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
                 }
                 MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
@@ -203,10 +204,11 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     }
                 }
                 if (Emulator.renderer == 1 || Emulator.renderer == 3) {
-                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots")
+                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
+                    val shaderOrder = listOf(0, 2, 4, 3, 1) // menu cycles alphabetically: None, CRT, Dots, LCD3x, Scanlines
                     val filters = listOf("Nearest", "Bilinear")
                     MenuItem(Icons.Default.Tv, "Shader: ${shaders[Emulator.shader]}") {
-                        Emulator.shader = (Emulator.shader + 1) % shaders.size; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
+                        Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                     }
                     MenuItem(Icons.Default.FilterAlt, "Filter: ${filters[Emulator.filter]}") {
                         Emulator.filter = (Emulator.filter + 1) % filters.size; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)

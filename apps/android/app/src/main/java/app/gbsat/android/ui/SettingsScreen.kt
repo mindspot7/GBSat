@@ -97,17 +97,20 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Section("Display")
             // Renderer modes shown (internal ids): Software 0, OpenGL ES 1, ANGLE 3, Vulkan GPU 4
             val rendererIds = listOf(0, 1, 3, 4)
-            Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU (beta)"),
+            Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU"),
                 rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0), change<Int> { Emulator.renderer = rendererIds[it] })
             Text(
                 "Software, OpenGL ES and ANGLE emulate the Saturn graphics on the CPU; OpenGL ES and ANGLE add the filters and shaders below. " +
-                    "Vulkan GPU (beta) renders the graphics on the GPU with Vulkan and shows them through Vulkan; " +
+                    "Vulkan GPU renders the graphics on the GPU with Vulkan and shows them through Vulkan; " +
                     "it falls back to software rendering if the GPU cannot run it.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
             if (Emulator.renderer == 1 || Emulator.renderer == 3) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), change<Int> { Emulator.filter = it })
-                Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
+                // Shown alphabetically; internal ids: 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dots
+                val shaderIds = listOf(0, 2, 4, 3, 1)
+                Choice("Shader", listOf("None", "CRT", "Dots", "LCD3x", "Scanlines"), shaderIds.indexOf(Emulator.shader).coerceAtLeast(0),
+                    change<Int> { Emulator.shader = shaderIds[it] })
             }
             if (Emulator.renderer == 4) {
                 val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
@@ -131,6 +134,11 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 )
             }
             Choice("Display", listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
+            Text(
+                "16:9 also turns on the built-in widescreen hacks for supported games (about 20, e.g. Panzer Dragoon, " +
+                    "Sega Rally, Virtual-On, Last Bronx, Quake). Other games are stretched. Not used in RetroAchievements hardcore mode.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
             Section("RetroAchievements")

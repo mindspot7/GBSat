@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.5.0
+- Built-in widescreen hacks for about 20 games (codes from the SegaXtreme "Saturn Widescreen Codes & Patches" collection), enabled automatically with the 16:9 display mode.
+- Gamepad: default bindings are restored for buttons without a key, six-button pads (C/Z) are mapped, analog-only L2/R2 triggers work as buttons, and face buttons reported as keyboard keys are accepted.
+- Shaders listed alphabetically; "(beta)" dropped from the Vulkan GPU label.
 - Vulkan GPU: sprite shadows now respect the per-layer shadow enable (fixed darkened backgrounds, e.g. Three Dirty Dwarves on Mali).
 - Vulkan GPU: internal resolution up to 4x (Settings → Display → Internal resolution). VDP1 sprites and polygons are rasterized at the higher resolution; backgrounds stay native. Applies to non-interlaced, standard-resolution screens.
 - RetroAchievements (rcheevos): login, hardcore mode, unlock notifications with badges, achievement list in the quick menu, progress saved with save states.

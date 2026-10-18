@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
 
     // ---- Physical gamepad support ----
     private fun keyBit(code: Int): Int = Emulator.keyMap[code] ?: 0
+    private var l2Key = false
+    private var r2Key = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Remap dialog is open: the next physical button press becomes the binding.
@@ -87,7 +89,9 @@ class MainActivity : ComponentActivity() {
                 return true
             }
         }
-        val isPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0
+        // Some handhelds report face buttons with a keyboard source; accept any gamepad button keycode
+        val isPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0 ||
+            KeyEvent.isGamepadButton(event.keyCode) || Emulator.keyMap.containsKey(event.keyCode)
         if (isPad && Emulator.running && event.repeatCount == 0 &&
             (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP)
         ) {
@@ -97,6 +101,8 @@ class MainActivity : ComponentActivity() {
             if (consumed) return true
         }
         if (isPad && Emulator.running && Hotkeys.isSuppressed(event.keyCode)) return true
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_L2) l2Key = event.action == KeyEvent.ACTION_DOWN
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_R2) r2Key = event.action == KeyEvent.ACTION_DOWN
         val bit = keyBit(event.keyCode)
         if (isPad && bit != 0 && Emulator.running) {
             when (event.action) {
@@ -127,9 +133,18 @@ class MainActivity : ComponentActivity() {
                 if (y > 0.5f || hy > 0.5f) m = m or SaturnButton.Down.bit
                 padMask = m; Emulator.setPadMask(m)
             }
-            val lt = (event.getAxisValue(MotionEvent.AXIS_LTRIGGER) * 255).toInt()
-            val rt = (event.getAxisValue(MotionEvent.AXIS_RTRIGGER) * 255).toInt()
-            Emulator.setTriggers(lt, rt)
+            val ltv = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
+            val rtv = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
+            Emulator.setTriggers((ltv * 255).toInt(), (rtv * 255).toInt())
+            // Pads whose L2/R2 only report axes: press the buttons bound to L2/R2
+            val l2 = keyBit(KeyEvent.KEYCODE_BUTTON_L2)
+            val r2 = keyBit(KeyEvent.KEYCODE_BUTTON_R2)
+            if (l2 != 0 || r2 != 0) {
+                var m = padMask
+                if (l2 != 0) m = if (ltv > 0.5f) m or l2 else if (ltv < 0.3f && !l2Key) m and l2.inv() else m
+                if (r2 != 0) m = if (rtv > 0.5f) m or r2 else if (rtv < 0.3f && !r2Key) m and r2.inv() else m
+                if (m != padMask) { padMask = m; Emulator.setPadMask(m) }
+            }
             return true
         }
         return super.dispatchGenericMotionEvent(event)

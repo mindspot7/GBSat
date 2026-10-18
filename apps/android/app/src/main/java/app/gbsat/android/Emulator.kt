@@ -111,8 +111,18 @@ object Emulator {
         }
         applyCheats()
     }
+    /** Name of the built-in widescreen hack active for the current game (null if none). */
+    var widescreenHack by mutableStateOf<String?>(null); private set
+
+    /** Re-applies cheats and the widescreen hack (call after changing the display mode). */
+    fun refreshCheats() = applyCheats()
+
     private fun applyCheats() {
-        val w = cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() }
+        val hardcore = RetroAchievements.hardcoreActive
+        val ws = if (aspect == 2 && running && !hardcore) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
+        widescreenHack = ws?.first
+        val w = cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() } +
+            (ws?.let { CheatParser.parse(it.second).orEmpty() } ?: emptyList())
         NativeBridge.nativeSetCheats(w.map { it.addr }.toLongArray(), w.map { it.value }.toLongArray(), w.map { it.size }.toIntArray())
     }
 
@@ -126,7 +136,18 @@ object Emulator {
         KeyEvent.KEYCODE_BUTTON_L1 to SaturnButton.L.bit, KeyEvent.KEYCODE_BUTTON_R1 to SaturnButton.R.bit,
         KeyEvent.KEYCODE_BUTTON_L2 to SaturnButton.Z.bit, KeyEvent.KEYCODE_BUTTON_R2 to SaturnButton.C.bit,
         KeyEvent.KEYCODE_BUTTON_START to SaturnButton.Start.bit,
+        // Six-button pads (Saturn-style) report C and Z directly
+        KeyEvent.KEYCODE_BUTTON_C to SaturnButton.C.bit, KeyEvent.KEYCODE_BUTTON_Z to SaturnButton.Z.bit,
     )
+
+    /** Adds the default binding of every button that has no key yet (when that key is also unused). */
+    private fun withDefaults(m: Map<Int, Int>): Map<Int, Int> {
+        val out = m.toMutableMap()
+        defaultKeyMap().forEach { (key, bit) ->
+            if (key !in out && bit !in out.values) out[key] = bit
+        }
+        return out
+    }
     var keyMap by mutableStateOf<Map<Int, Int>>(defaultKeyMap()); private set
     /** Button currently waiting for a physical key press in the remap dialog (null = not remapping). */
     var remapTarget by mutableStateOf<SaturnButton?>(null)
@@ -206,7 +227,7 @@ object Emulator {
             }
         }
         prefs.getString("keyMap", null)?.let { str ->
-            runCatching { keyMap = str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() } }
+            runCatching { keyMap = withDefaults(str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() }) }
         }
 
         // Crash report from the previous session. If it happened with the Vulkan GPU renderer, fall back to software.
@@ -217,7 +238,7 @@ object Emulator {
             if (text.isNotBlank()) {
                 val gpu = text.contains("renderer=4")
                 if (gpu) { renderer = 0; prefs.edit().putInt("renderer", 0).apply() }
-                lastCrash = (if (gpu) "GBSat closed while using the Vulkan GPU (beta) renderer, so the renderer was switched back to Software.\n\n" else "") +
+                lastCrash = (if (gpu) "GBSat closed while using the Vulkan GPU renderer, so the renderer was switched back to Software.\n\n" else "") +
                     "GBSat ${appVersion()} crashed last time. Please send this report:\n\n" + text
             }
         }
@@ -247,6 +268,7 @@ object Emulator {
         NativeBridge.nativeSetResolutionScale(resScale)
         NativeBridge.nativeSetRenderer(renderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
+        if (running) applyCheats()
         if (fastBoot) NativeBridge.nativeSetFastBoot(true)
     }
 
@@ -273,6 +295,7 @@ object Emulator {
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
             currentGame = path; running = true; loadCheats(); pause(false)
+            widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
         }
         err
     }
