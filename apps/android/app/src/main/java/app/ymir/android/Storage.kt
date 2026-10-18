@@ -6,7 +6,7 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import java.io.File
 
-/** Helpers for turning SAF tree URIs into real paths (Ymir's loaders need file paths, e.g. for CUE+BIN sets). */
+/** Helpers for turning SAF tree URIs into real paths (the core's loaders need file paths, e.g. for CUE+BIN sets). */
 object Storage {
     fun hasAllFilesAccess() =
         if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager() else true

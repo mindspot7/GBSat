@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF) # avoid host clang-scan-deps vs NDK clang PCH mismatch
-project(ymir_android LANGUAGES C CXX)
+project(gbsat LANGUAGES C CXX)
 
-# <repo>/apps/ymir-android/app/src/main/cpp -> <repo>
+# <repo>/apps/android/app/src/main/cpp -> <repo>
 get_filename_component(YMIR_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../.." ABSOLUTE)
 
 # Build ymir-core as a library (not the SDL3 desktop app). The software renderer is the default; the Vulkan
@@ -21,8 +21,8 @@ set(JUST_INSTALL_CEREAL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(cereal GIT_REPOSITORY https://github.com/USCiLab/cereal.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(cereal)
 
-add_library(ymir_android SHARED ymir_jni.cpp savestate_io.cpp gl_renderer.cpp gl_dyn.cpp vk_context.cpp)
-target_include_directories(ymir_android PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
-target_compile_features(ymir_android PRIVATE cxx_std_20)
-target_link_libraries(ymir_android PRIVATE ymir::ymir-core cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)
-set_target_properties(ymir_android PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+add_library(gbsat SHARED gbsat_jni.cpp savestate_io.cpp gl_renderer.cpp gl_dyn.cpp vk_context.cpp)
+target_include_directories(gbsat PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+target_compile_features(gbsat PRIVATE cxx_std_20)
+target_link_libraries(gbsat PRIVATE ymir::ymir-core cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)
+set_target_properties(gbsat PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)

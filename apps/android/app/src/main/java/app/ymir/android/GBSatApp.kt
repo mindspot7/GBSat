@@ -2,7 +2,7 @@ package app.ymir.android
 
 import android.app.Application
 
-class YmirApp : Application() {
+class GBSatApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Emulator.init(this)

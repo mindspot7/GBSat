@@ -11,8 +11,8 @@ import kotlinx.coroutines.launch
 private enum class Screen { Library, Settings }
 
 @Composable
-fun YmirRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
-    YmirTheme {
+fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
+    GBSatTheme {
         var screen by remember { mutableStateOf(Screen.Library) }
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()

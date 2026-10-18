@@ -99,7 +99,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Text(
                 "Software, OpenGL ES, Vulkan and ANGLE emulate the Saturn VDP on the CPU and only differ in how the image is shown: " +
                     "OpenGL ES and ANGLE enable the filters and shaders below, Vulkan shows the image through the Vulkan API. " +
-                    "Vulkan GPU (beta) renders the VDP1/VDP2 graphics with Vulkan compute shaders (port of Ymir's Direct3D 12 renderer); " +
+                    "Vulkan GPU (beta) renders the VDP1/VDP2 graphics with Vulkan compute shaders; " +
                     "it falls back to the software renderer if the GPU cannot run it. " +
                     "Enhanced resolution and widescreen hacks are not available yet.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
@@ -143,6 +143,12 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Choice("Fast-forward hotkey", listOf("Hold", "Toggle"), if (Emulator.ffToggle) 1 else 0, change<Int> { Emulator.ffToggle = it == 1 })
 
             Spacer(Modifier.height(24.dp))
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val versionName = remember {
+                runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"
+            }
+            Text("GBSat v$versionName", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
             Text("GBSat is based on Ymir, GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license.",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(32.dp))

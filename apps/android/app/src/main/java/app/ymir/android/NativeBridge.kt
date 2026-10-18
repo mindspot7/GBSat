@@ -2,9 +2,9 @@ package app.ymir.android
 
 import android.view.Surface
 
-/** JNI surface of libymir_android.so (see cpp/ymir_jni.cpp). */
+/** JNI surface of libgbsat.so (see cpp/gbsat_jni.cpp). */
 object NativeBridge {
-    init { System.loadLibrary("ymir_android") }
+    init { System.loadLibrary("gbsat") }
 
     @JvmStatic external fun nativeInit(backupRamPath: String, smpcPath: String): String?
     @JvmStatic external fun nativeShutdown()
@@ -36,7 +36,7 @@ object NativeBridge {
     @JvmStatic external fun nativeLoadState(path: String): String?
 }
 
-/** Bit positions match ymir::peripheral::Button. */
+/** Bit positions match the core peripheral::Button. */
 enum class SaturnButton(val bit: Int) {
     Right(1 shl 15), Left(1 shl 14), Down(1 shl 13), Up(1 shl 12), Start(1 shl 11),
     A(1 shl 10), C(1 shl 9), B(1 shl 8), R(1 shl 7), X(1 shl 6), Y(1 shl 5), Z(1 shl 4), L(1 shl 3)

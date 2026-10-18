@@ -8,11 +8,11 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:name=".YmirApp"
+        android:name=".GBSatApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="GBSat"
-        android:theme="@style/Theme.Ymir"
+        android:theme="@style/Theme.GBSat"
         android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"

@@ -1,3 +1,7 @@
+// Version: apps/android/VERSION holds the release version (x.y.z); CI adds the build number (GitHub run number).
+val gbsatVersion = rootProject.file("VERSION").readText().trim()
+val gbsatBuild = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,10 +17,10 @@ android {
         applicationId = "app.ymir.android"
         minSdk = 28 // iconv in libc, AAudio, ANativeWindow
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.4.0-android.1"
+        versionCode = gbsatBuild
+        versionName = "$gbsatVersion (build $gbsatBuild)"
 
-        // Ymir's hot paths are NEON-optimized; 32-bit ARM and x86 are not supported.
+        // The emulator core's hot paths are NEON-optimized; 32-bit ARM and x86 are not supported.
         ndk { abiFilters += "arm64-v8a" }
 
         externalNativeBuild {

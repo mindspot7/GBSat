@@ -3,7 +3,7 @@ name: Android APK
 on:
   push:
     branches: [ main, master, android, android-port ]
-    paths: [ 'apps/ymir-android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
+    paths: [ 'apps/android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
   workflow_dispatch:
 
 jobs:
@@ -44,10 +44,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p apps/ymir-android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p apps/android/app/src/main/jniLibs/arm64-v8a
           if gh release download angle-android-arm64 -p 'angle-android-arm64.tar.gz' -D "$RUNNER_TEMP" 2>/dev/null; then
-            tar xzf "$RUNNER_TEMP/angle-android-arm64.tar.gz" -C apps/ymir-android/app/src/main/jniLibs/arm64-v8a
-            ls -la apps/ymir-android/app/src/main/jniLibs/arm64-v8a
+            tar xzf "$RUNNER_TEMP/angle-android-arm64.tar.gz" -C apps/android/app/src/main/jniLibs/arm64-v8a
+            ls -la apps/android/app/src/main/jniLibs/arm64-v8a
           else
             echo "::warning title=ANGLE::no prebuilt ANGLE release yet (run the 'Build ANGLE' workflow); ANGLE option will fall back to system GLES"
           fi
@@ -60,7 +60,7 @@ jobs:
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build release APK
-        working-directory: apps/ymir-android
+        working-directory: apps/android
         run: |
           set +e
           gradle --no-daemon assembleRelease --stacktrace > build.log 2>&1
@@ -72,8 +72,18 @@ jobs:
           tail -60 build.log
           exit $rc
 
+      - name: Name APK with version
+        id: ver
+        run: |
+          VER=$(tr -d '[:space:]' < apps/android/VERSION)
+          NAME="GBSat-v${VER}-build${GITHUB_RUN_NUMBER}"
+          cd apps/android/app/build/outputs/apk/release
+          mv *.apk "${NAME}.apk"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=APK::${NAME}.apk"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: gbsat-arm64
-          path: apps/ymir-android/app/build/outputs/apk/release/*.apk
+          name: ${{ steps.ver.outputs.name }}
+          path: apps/android/app/build/outputs/apk/release/*.apk
 # angle bundled

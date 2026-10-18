@@ -172,10 +172,10 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots")
                     val filters = listOf("Nearest", "Bilinear", "Sharp bilinear")
                     MenuItem(Icons.Default.Tv, "Shader: ${shaders[Emulator.shader]}") {
-                        Emulator.shader = (Emulator.shader + 1) % shaders.size; Emulator.savePrefs(); Emulator.applyOptions()
+                        Emulator.shader = (Emulator.shader + 1) % shaders.size; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                     }
                     MenuItem(Icons.Default.FilterAlt, "Filter: ${filters[Emulator.filter]}") {
-                        Emulator.filter = (Emulator.filter + 1) % filters.size; Emulator.savePrefs(); Emulator.applyOptions()
+                        Emulator.filter = (Emulator.filter + 1) % filters.size; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                     }
                 }
                 MenuItem(Icons.Default.Close, "Close game (back to library)") { Emulator.quitGame() }

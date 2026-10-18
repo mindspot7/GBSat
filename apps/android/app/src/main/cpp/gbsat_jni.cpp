@@ -652,6 +652,11 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
 JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
     if (g) {
         Post([type] {
+            static int current = -1;
+            if (type == current) {
+                return; // unchanged: don't reset the running game
+            }
+            current = type;
             switch (type) {
             case 1: g->saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>(); break;
             case 2: g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>(); break;

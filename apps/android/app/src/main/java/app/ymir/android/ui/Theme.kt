@@ -17,5 +17,5 @@ private val light = lightColorScheme(
 )
 
 @Composable
-fun YmirTheme(content: @Composable () -> Unit) =
+fun GBSatTheme(content: @Composable () -> Unit) =
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) dark else light, content = content)
