@@ -1084,6 +1084,11 @@ struct VulkanVDPRenderer::Impl {
             return util::ErrorMessage{fmt::format("The GPU's texel buffers are too small ({} elements)",
                                                   props.limits.maxTexelBufferElements)};
         }
+        if (props.limits.maxComputeWorkGroupInvocations < 256 || props.limits.maxComputeWorkGroupSize[0] < 64 ||
+            props.limits.maxComputeWorkGroupSize[1] < 8 || props.limits.maxComputeWorkGroupSize[2] < 7) {
+            return util::ErrorMessage{fmt::format("The GPU's compute work groups are too small ({} invocations)",
+                                                  props.limits.maxComputeWorkGroupInvocations)};
+        }
         uboAlign = std::max<VkDeviceSize>(props.limits.minUniformBufferOffsetAlignment, 4);
         return {};
     }

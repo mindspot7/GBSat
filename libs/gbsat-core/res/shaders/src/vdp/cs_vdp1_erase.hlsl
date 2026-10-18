@@ -34,8 +34,7 @@ static const uint eraseY3 = BitExtract(g_eraseParams.coords, 22, 9) << eraseScal
 // ---------------------------------------------------------------------------------------------------------------------
 // Entrypoint
 
-[numthreads(32, 32, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID) {
+void EraseAt(uint2 id) {
     // VDP1 erase process writes 16-bit words, but this shader works on 32-bit units to avoid interlocked writes.
     const uint2 pos = uint2(id.x * 2 + eraseX1, id.y + eraseY1);
 
@@ -77,5 +76,17 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
         if (transparentMeshes) {
             g_fbramOut.Store(address + kVDP1FBRAMSize * 3, 0);
         }
+    }
+}
+
+// Each group covers 32x32 pixels (as dispatched by the renderer) with 32x8 threads processing four rows each, keeping
+// the group at 256 invocations so that it runs on GPUs limited to fewer than 1024 invocations per group (e.g. Mali).
+[numthreads(32, 8, 1)]
+void CSMain(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID) {
+    const uint x = groupID.x * 32 + groupThreadID.x;
+    const uint baseY = groupID.y * 32 + groupThreadID.y;
+    [unroll]
+    for (uint row = 0; row < 4; ++row) {
+        EraseAt(uint2(x, baseY + row * 8));
     }
 }
