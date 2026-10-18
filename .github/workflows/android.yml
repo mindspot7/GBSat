@@ -52,6 +52,12 @@ jobs:
             echo "::warning title=ANGLE::no prebuilt ANGLE release yet (run the 'Build ANGLE' workflow); ANGLE option will fall back to system GLES"
           fi
 
+      - name: Restore signing key (same key across builds so new APKs install over old ones)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: gbsat-signing-key-v1
+
       - name: Create sideload signing key (debug keystore)
         run: |
           mkdir -p ~/.android
