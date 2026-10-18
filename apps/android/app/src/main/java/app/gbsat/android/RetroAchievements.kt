@@ -72,7 +72,7 @@ object RetroAchievements {
         }
     }
 
-    fun setEnabled(on: Boolean) {
+    fun changeEnabled(on: Boolean) {
         enabled = on
         prefs.edit().putBoolean("enabled", on).apply()
         NativeBridge.nativeRaSetHardcore(on && hardcore)
@@ -90,7 +90,7 @@ object RetroAchievements {
         }
     }
 
-    fun setHardcore(on: Boolean) {
+    fun changeHardcore(on: Boolean) {
         hardcore = on
         prefs.edit().putBoolean("hardcore", on).apply()
         NativeBridge.nativeRaSetHardcore(enabled && on)

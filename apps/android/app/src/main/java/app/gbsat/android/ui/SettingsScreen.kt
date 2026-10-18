@@ -127,7 +127,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
 
             Section("RetroAchievements")
             Toggle("Enable RetroAchievements", "Earn achievements from retroachievements.org (needs an account and internet)",
-                app.gbsat.android.RetroAchievements.enabled) { app.gbsat.android.RetroAchievements.setEnabled(it) }
+                app.gbsat.android.RetroAchievements.enabled) { app.gbsat.android.RetroAchievements.changeEnabled(it) }
             if (app.gbsat.android.RetroAchievements.enabled) {
                 val ra = app.gbsat.android.RetroAchievements
                 if (ra.user != null) {
@@ -156,7 +156,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     }
                 }
                 Toggle("Hardcore mode", "More points, but save state loading and cheats are disabled. Enabling it during a game resets the game.",
-                    ra.hardcore) { ra.setHardcore(it) }
+                    ra.hardcore) { ra.changeHardcore(it) }
             }
 
             Section("Hotkeys")
