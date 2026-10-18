@@ -142,6 +142,13 @@ struct VulkanVDPRenderer::Impl {
     VkDeviceSize uboAlign = 256;
     VkDescriptorPool descPool = VK_NULL_HANDLE;
     bool initialized = false;
+    void (*progress)(const char *stage) = nullptr;
+    std::string stageText;
+    void Step(const char *stage) {
+        if (progress != nullptr) {
+            progress(stage);
+        }
+    }
     /// @brief Use the background shader variant that emulates 64-bit integer math (GPUs without shaderInt64).
     bool noInt64 = false;
 
@@ -637,6 +644,8 @@ struct VulkanVDPRenderer::Impl {
 
     [[nodiscard]] util::VoidResult<> CreatePipeline(GpuPipeline &pipe, const std::string &path,
                                                     const std::string &name) {
+        stageText = "vk: compile pipeline " + name;
+        Step(stageText.c_str());
         auto shaderResult = LoadShader(path);
         if (!shaderResult) {
             return util::ErrorMessage{
@@ -920,6 +929,8 @@ struct VulkanVDPRenderer::Impl {
     // Initialization
 
     util::VoidResult<> CreateDevice(const VulkanRendererContext &context) {
+        progress = context.progress;
+        Step("vk: create instance/device");
         if (context.device != nullptr) {
             instance = static_cast<VkInstance>(context.instance);
             physDevice = static_cast<VkPhysicalDevice>(context.physicalDevice);
@@ -1081,11 +1092,13 @@ struct VulkanVDPRenderer::Impl {
         if (auto result = CreateDevice(context); !result) {
             return result;
         }
+        Step("vk: check formats");
         vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
         if (auto result = CheckFormats(); !result) {
             return result;
         }
 
+        Step("vk: command buffers");
         // Command pools, command buffers and fences
         for (size_t i = 0; i < frames.Count(); ++i) {
             FrameContext &frameCtx = frames[i];
@@ -1132,6 +1145,7 @@ struct VulkanVDPRenderer::Impl {
 
         // =============================================================================================================
         // VDP1 common resources
+        Step("vk: VDP1 buffers");
 
         if (auto r = CreateBuffer(vdp1.vramBuffer, kVDP1VRAMSize, kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 VRAM"); !r) {
             return r;
@@ -1154,6 +1168,7 @@ struct VulkanVDPRenderer::Impl {
         }
 
         // VDP1 pipelines
+        Step("vk: VDP1 pipelines");
         if (auto r = CreatePipeline(vdp1.fbramWritePipe, "src/vdp/cs_vdp1_fbram_write.spv", "VDP1 FBRAM write"); !r) {
             return r;
         }
@@ -1181,6 +1196,7 @@ struct VulkanVDPRenderer::Impl {
 
         // =============================================================================================================
         // VDP2 common resources
+        Step("vk: VDP2 resources and pipelines");
 
         if (auto r = CreateBuffer(vdp2.vramBuffer, kVDP2VRAMSize, kSSBO, false, VK_FORMAT_UNDEFINED, "VDP2 VRAM"); !r) {
             return r;
@@ -1206,6 +1222,7 @@ struct VulkanVDPRenderer::Impl {
 
         // =============================================================================================================
         // Per-frame resources
+        Step("vk: per-frame resources and descriptor sets");
 
         constexpr VkImageUsageFlags kImgUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
@@ -1319,11 +1336,14 @@ struct VulkanVDPRenderer::Impl {
 #undef YMIR_VK_TRY
         }
 
+        Step("vk: initial upload");
         initialized = true;
         Reset();
 
         // Run the initialization commands right away so that failures surface early
+        Step("vk: first submit");
         SubmitAndWait();
+        Step("vk: ready");
 
         return {};
     }

@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import app.gbsat.android.Emulator
 import kotlinx.coroutines.launch
 
@@ -19,6 +22,24 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
         val inGame = Emulator.running
 
         LaunchedEffect(inGame) { onImmersive(inGame) }
+
+        Emulator.lastCrash?.let { report ->
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            AlertDialog(
+                onDismissRequest = { Emulator.lastCrash = null },
+                title = { Text("Crash report") },
+                text = {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(report, style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()))
+                    }
+                },
+                confirmButton = { TextButton(onClick = { Emulator.lastCrash = null }) { Text("OK") } },
+                dismissButton = {
+                    TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(report)) }) { Text("Copy") }
+                },
+            )
+        }
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (inGame) {

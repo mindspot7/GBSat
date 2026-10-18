@@ -4,6 +4,11 @@
 #include <jni.h>
 
 #include <aaudio/AAudio.h>
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
+#include <unwind.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
 
@@ -138,6 +143,110 @@ struct Context {
 };
 
 Context *g = nullptr;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Crash diagnostics: a fatal signal writes a small report (signal, current stage, backtrace) to a file that the app
+// shows on the next launch. Everything in the handler is async-signal-safe except dladdr, which is fine in practice.
+
+char g_crashPath[512] = {};
+char g_stage[192] = "starting";
+std::atomic<int> g_crashRenderer{0};
+
+void SetStage(const char *stage) {
+    std::strncpy(g_stage, stage, sizeof(g_stage) - 1);
+    g_stage[sizeof(g_stage) - 1] = 0;
+}
+
+void WriteStr(int fd, const char *s) {
+    if (s) write(fd, s, std::strlen(s));
+}
+
+void WriteHex(int fd, uintptr_t v) {
+    char buf[2 + 16 + 1];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 16; ++i) {
+        const int nib = (v >> ((15 - i) * 4)) & 0xF;
+        buf[2 + i] = "0123456789abcdef"[nib];
+    }
+    buf[18] = 0;
+    WriteStr(fd, buf);
+}
+
+void WriteDec(int fd, long v) {
+    char buf[24];
+    int n = 0;
+    bool neg = v < 0;
+    unsigned long u = neg ? -v : v;
+    do { buf[n++] = '0' + (u % 10); u /= 10; } while (u && n < 20);
+    if (neg) buf[n++] = '-';
+    for (int i = n - 1; i >= 0; --i) write(fd, &buf[i], 1);
+}
+
+struct BacktraceState {
+    uintptr_t pcs[32];
+    int count = 0;
+};
+
+_Unwind_Reason_Code UnwindCb(struct _Unwind_Context *ctx, void *arg) {
+    auto *st = static_cast<BacktraceState *>(arg);
+    const uintptr_t pc = _Unwind_GetIP(ctx);
+    if (pc != 0 && st->count < 32) {
+        st->pcs[st->count++] = pc;
+    }
+    return st->count < 32 ? _URC_NO_REASON : _URC_END_OF_STACK;
+}
+
+void CrashHandler(int sig, siginfo_t *info, void *) {
+    int fd = open(g_crashPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        WriteStr(fd, "signal=");
+        WriteDec(fd, sig);
+        WriteStr(fd, " (");
+        WriteStr(fd, sig == SIGSEGV ? "SIGSEGV" : sig == SIGABRT ? "SIGABRT" : sig == SIGBUS ? "SIGBUS" : sig == SIGILL ? "SIGILL" : sig == SIGFPE ? "SIGFPE" : "?");
+        WriteStr(fd, ") addr=");
+        WriteHex(fd, info ? (uintptr_t)info->si_addr : 0);
+        WriteStr(fd, "\nrenderer=");
+        WriteDec(fd, g_crashRenderer.load());
+        WriteStr(fd, "\nstage=");
+        WriteStr(fd, g_stage);
+        WriteStr(fd, "\nbacktrace:\n");
+        BacktraceState st;
+        _Unwind_Backtrace(UnwindCb, &st);
+        for (int i = 0; i < st.count; ++i) {
+            Dl_info dli{};
+            WriteStr(fd, "  #");
+            WriteDec(fd, i);
+            WriteStr(fd, " ");
+            if (dladdr((void *)st.pcs[i], &dli) && dli.dli_fname) {
+                const char *base = std::strrchr(dli.dli_fname, '/');
+                WriteStr(fd, base ? base + 1 : dli.dli_fname);
+                WriteStr(fd, "+");
+                WriteHex(fd, st.pcs[i] - (uintptr_t)dli.dli_fbase);
+                if (dli.dli_sname) {
+                    WriteStr(fd, " ");
+                    WriteStr(fd, dli.dli_sname);
+                }
+            } else {
+                WriteHex(fd, st.pcs[i]);
+            }
+            WriteStr(fd, "\n");
+        }
+        close(fd);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void InstallCrashHandler() {
+    struct sigaction sa {};
+    sa.sa_sigaction = CrashHandler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    for (int sig : {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE}) {
+        sigaction(sig, &sa, nullptr);
+    }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Command queue helpers
@@ -426,6 +535,12 @@ jstring NewJStr(JNIEnv *env, const std::string &s) {
 // JNI exports — class app.gbsat.android.NativeBridge
 
 #define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_android_NativeBridge_##name
+
+JNI_FN(void, nativeSetCrashFile)(JNIEnv *env, jclass, jstring path) {
+    const std::string p = JStr(env, path);
+    std::strncpy(g_crashPath, p.c_str(), sizeof(g_crashPath) - 1);
+    InstallCrashHandler();
+}
 
 JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring smpcPath) {
     if (g) {
@@ -719,7 +834,14 @@ void ApplyVdpRenderer(bool gpu) {
         return;
     }
     if (gpu) {
-        auto result = vdp.UseVulkanRenderer(ymir::vdp::VulkanRendererContext{});
+        SetStage("vk: switching to the Vulkan GPU renderer");
+        ymir::vdp::VulkanRendererContext ctx{};
+        ctx.progress = [](const char *stage) {
+            SetStage(stage);
+            __android_log_print(ANDROID_LOG_INFO, "GBSat", "%s", stage);
+        };
+        auto result = vdp.UseVulkanRenderer(ctx);
+        SetStage(result ? "running (Vulkan GPU renderer)" : "running (software renderer, GPU init failed)");
         std::lock_guard lk(g->winMutex);
         if (!result) {
             g->gpuError = result.Error().message;
@@ -728,7 +850,9 @@ void ApplyVdpRenderer(bool gpu) {
             g->gpuError.clear();
         }
     } else {
+        SetStage("switching to the software renderer");
         vdp.UseSoftwareRenderer();
+        SetStage("running (software renderer)");
     }
 }
 
@@ -736,6 +860,7 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         g->glMode = (mode == 1 || mode == 3);
         g->rendererMode = mode;
+        g_crashRenderer = mode;
         if (mode == 1 || mode == 3) {
             glr::SetBackend(mode == 3); // 3 = OpenGL ES through ANGLE (Vulkan)
         }

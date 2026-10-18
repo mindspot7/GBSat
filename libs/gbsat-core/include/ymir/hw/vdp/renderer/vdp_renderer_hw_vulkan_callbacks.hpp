@@ -14,6 +14,8 @@ struct VulkanRendererContext {
     void *device = nullptr;         ///< VkDevice (must have shaderInt64 enabled)
     void *queue = nullptr;          ///< VkQueue with compute support
     uint32 queueFamily = 0;         ///< queue family index of `queue`
+    /// Optional: receives a short description of each initialization step (for crash diagnostics).
+    void (*progress)(const char *stage) = nullptr;
 };
 
 /// @brief Invoked when the Vulkan renderer finishes a frame. `pixels` points to `width * height` RGBA8 pixels (rows

@@ -19,6 +19,8 @@ object Emulator {
     private lateinit var appContext: Context
 
     var iplLoaded by mutableStateOf(false); private set
+    /** Report of the crash that ended the previous session (shown once), or null. */
+    var lastCrash by mutableStateOf<String?>(null)
     var running by mutableStateOf(false); private set
     var paused by mutableStateOf(true); private set
     var fastForward by mutableStateOf(false); private set
@@ -174,11 +176,33 @@ object Emulator {
             runCatching { keyMap = str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() } }
         }
 
+        // Crash report from the previous session. If it happened with the Vulkan GPU renderer, fall back to software.
+        val crashFile = File(appContext.filesDir, "crash.txt")
+        if (crashFile.exists()) {
+            val text = runCatching { crashFile.readText() }.getOrDefault("")
+            crashFile.delete()
+            if (text.isNotBlank()) {
+                val gpu = text.contains("renderer=4")
+                if (gpu) { renderer = 0; prefs.edit().putInt("renderer", 0).apply() }
+                lastCrash = (if (gpu) "GBSat closed while using the Vulkan GPU (beta) renderer, so the renderer was switched back to Software.\n\n" else "") +
+                    "GBSat ${appVersion()} crashed last time. Please send this report:\n\n" + text
+            }
+        }
+        NativeBridge.nativeSetCrashFile(crashFile.absolutePath)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            runCatching { crashFile.writeText("renderer=$renderer\nkotlin exception in ${t.name}:\n" + android.util.Log.getStackTraceString(e)) }
+            previous?.uncaughtException(t, e)
+        }
+
         val bup = File(appContext.filesDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
         NativeBridge.nativeInit(bup.absolutePath, File(appContext.filesDir, "saves/smpc.bin").absolutePath)
         applyOptions()
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
     }
+
+    fun appVersion(): String =
+        runCatching { appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName }.getOrNull() ?: "?"
 
     fun applyOptions() {
         NativeBridge.nativeSetPadType(analogPad)
