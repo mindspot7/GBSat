@@ -45,7 +45,7 @@ jobs:
             exit $rc
           fi
           for f in $(find build -name '*.spv'); do
-            spirv-val --target-env vulkan1.2 "$f" > val.log 2>&1 || { echo "::error title=spirv-val failed::$f $(head -c 500 val.log)"; }
+            spirv-val --target-env vulkan1.2 --scalar-block-layout "$f" > val.log 2>&1 || { echo "::error title=spirv-val failed::$f $(head -c 500 val.log)"; }
           done
           echo "SPV count: $(find build -name '*.spv' | wc -l)"
           for f in $(find build -name '*.spv' | head -3); do echo "== $f"; spirv-dis "$f" | grep -E "OpCapability|OpExtension" | sort -u | tr '\n' ' '; echo; done > caps.log
