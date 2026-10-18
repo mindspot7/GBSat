@@ -9,6 +9,7 @@ extern decltype(&::eglCreateContext) p_eglCreateContext;
 extern decltype(&::eglCreateWindowSurface) p_eglCreateWindowSurface;
 extern decltype(&::eglDestroyContext) p_eglDestroyContext;
 extern decltype(&::eglDestroySurface) p_eglDestroySurface;
+extern decltype(&::eglGetProcAddress) p_eglGetProcAddress;
 extern decltype(&::eglGetDisplay) p_eglGetDisplay;
 extern decltype(&::eglInitialize) p_eglInitialize;
 extern decltype(&::eglMakeCurrent) p_eglMakeCurrent;
@@ -86,3 +87,4 @@ bool IsAngle();
 #define glUniform2f gld::p_glUniform2f
 #define glUseProgram gld::p_glUseProgram
 #define glViewport gld::p_glViewport
+#define eglGetProcAddress gld::p_eglGetProcAddress

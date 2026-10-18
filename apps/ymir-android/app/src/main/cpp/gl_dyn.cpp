@@ -10,6 +10,7 @@ decltype(&::eglCreateContext) p_eglCreateContext = nullptr;
 decltype(&::eglCreateWindowSurface) p_eglCreateWindowSurface = nullptr;
 decltype(&::eglDestroyContext) p_eglDestroyContext = nullptr;
 decltype(&::eglDestroySurface) p_eglDestroySurface = nullptr;
+decltype(&::eglGetProcAddress) p_eglGetProcAddress = nullptr;
 decltype(&::eglGetDisplay) p_eglGetDisplay = nullptr;
 decltype(&::eglInitialize) p_eglInitialize = nullptr;
 decltype(&::eglMakeCurrent) p_eglMakeCurrent = nullptr;
@@ -91,6 +92,7 @@ bool Load(bool angle) {
     ok &= Sym(g_egl, "eglCreateWindowSurface", p_eglCreateWindowSurface);
     ok &= Sym(g_egl, "eglDestroyContext", p_eglDestroyContext);
     ok &= Sym(g_egl, "eglDestroySurface", p_eglDestroySurface);
+    ok &= Sym(g_egl, "eglGetProcAddress", p_eglGetProcAddress);
     ok &= Sym(g_egl, "eglGetDisplay", p_eglGetDisplay);
     ok &= Sym(g_egl, "eglInitialize", p_eglInitialize);
     ok &= Sym(g_egl, "eglMakeCurrent", p_eglMakeCurrent);

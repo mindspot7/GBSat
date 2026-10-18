@@ -26,6 +26,7 @@ jobs:
       - name: Fetch depot_tools and ANGLE
         run: |
           set -e
+          exec > >(tee -a "$RUNNER_TEMP/angle.log") 2>&1
           cd "$RUNNER_TEMP"
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
           export PATH="$PWD/depot_tools:$PATH"
@@ -41,6 +42,7 @@ jobs:
       - name: Build
         run: |
           set -e
+          exec > >(tee -a "$RUNNER_TEMP/angle.log") 2>&1
           export PATH="$RUNNER_TEMP/depot_tools:$PATH"
           export DEPOT_TOOLS_UPDATE=0
           cd "$RUNNER_TEMP/angle-src/angle"
@@ -83,4 +85,7 @@ jobs:
 
       - name: Report errors
         if: failure()
-        run: echo "::error title=ANGLE build failed::see workflow logs"
+        run: |
+          sleep 2
+          msg=$(tail -n 40 "$RUNNER_TEMP/angle.log" | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=ANGLE log tail::$msg"
