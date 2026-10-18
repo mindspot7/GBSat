@@ -34,7 +34,8 @@ object Emulator {
     var preloadDisc by mutableStateOf(false)
     var cartridge by mutableStateOf(0)
     var showTouchControls by mutableStateOf(true)
-    var aspect by mutableStateOf(0) // 0 = 4:3, 1 = stretch, 2 = native pixels
+    var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
+    var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software (native window), 1 = OpenGL ES
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
@@ -156,6 +157,7 @@ object Emulator {
         cartridge = prefs.getInt("cartridge", 0)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
+        showFps = prefs.getBoolean("showFps", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         renderer = prefs.getInt("renderer", 0)
         filter = prefs.getInt("filter", 1)
@@ -192,7 +194,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect)
+        .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader)
         .putBoolean("ffToggle", ffToggle).apply()
 

@@ -4,6 +4,8 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,7 +29,6 @@ import kotlinx.coroutines.withContext
 fun GameScreen(onQuitApp: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var fps by remember { mutableFloatStateOf(0f) }
-    var showStats by remember { mutableStateOf(false) }
 
     BackHandler { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
@@ -42,10 +43,8 @@ fun GameScreen(onQuitApp: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val screenW = maxWidth
         val landscape = maxWidth > maxHeight
-        val videoMod = when (Emulator.aspect) {
-            1 -> Modifier.fillMaxSize()
-            else -> Modifier.aspectRatio(4f / 3f)
-        }
+        val ratio = if (Emulator.aspect == 2) 16f / 9f else 4f / 3f
+        val videoMod = if (Emulator.aspect == 1) Modifier.fillMaxSize() else Modifier.aspectRatio(ratio)
 
         if (landscape) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -55,7 +54,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
         } else {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Box(Modifier.fillMaxWidth().weight(1f, fill = false), contentAlignment = Alignment.TopCenter) {
-                    VideoSurface(if (Emulator.aspect == 1) Modifier.fillMaxWidth().height(screenW * 0.75f) else Modifier.fillMaxWidth().aspectRatio(4f / 3f))
+                    VideoSurface(if (Emulator.aspect == 1) Modifier.fillMaxWidth().height(screenW * 0.75f) else Modifier.fillMaxWidth().aspectRatio(ratio))
                 }
                 if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxWidth().weight(1f), landscape = false)
             }
@@ -67,7 +66,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 onClick = { menu = true; Emulator.pause(true) },
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
             ) { Icon(Icons.Default.Menu, "Menu") }
-            if (showStats) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
+            if (Emulator.showFps) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
         }
 
         Emulator.toast?.let { msg ->
@@ -79,7 +78,6 @@ fun GameScreen(onQuitApp: () -> Unit) {
 
         if (menu) GameMenu(
             onQuitApp = onQuitApp,
-            showStats = showStats, onToggleStats = { showStats = !showStats },
             onDismiss = { menu = false; Emulator.pause(false) },
         )
     }
@@ -108,7 +106,7 @@ private fun VideoSurfaceInner(modifier: Modifier) {
 }
 
 @Composable
-private fun GameMenu(onQuitApp: () -> Unit, showStats: Boolean, onToggleStats: () -> Unit, onDismiss: () -> Unit) {
+private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var cheatsOpen by remember { mutableStateOf(false) }
     if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
     var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
@@ -142,9 +140,10 @@ private fun GameMenu(onQuitApp: () -> Unit, showStats: Boolean, onToggleStats: (
         }
         return
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
+        val maxMenuHeight = maxHeight
+        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).heightIn(max = maxMenuHeight).padding(16.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Paused", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
                 MenuItem(Icons.Default.PlayArrow, "Resume", onDismiss)
                 MenuItem(Icons.Default.Save, "Save state") { stateMode = "Save" }
@@ -153,7 +152,10 @@ private fun GameMenu(onQuitApp: () -> Unit, showStats: Boolean, onToggleStats: (
                 MenuItem(Icons.Default.RestartAlt, "Soft reset") { Emulator.reset(false); onDismiss() }
                 MenuItem(Icons.Default.PowerSettingsNew, "Hard reset") { Emulator.reset(true); onDismiss() }
                 MenuItem(Icons.Default.Eject, if (Emulator.trayOpen) "Close disc tray" else "Open disc tray") { Emulator.toggleTray() }
-                MenuItem(Icons.Default.Speed, if (showStats) "Hide FPS" else "Show FPS", onToggleStats)
+                MenuItem(Icons.Default.Speed, if (Emulator.showFps) "Hide FPS" else "Show FPS") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+                MenuItem(Icons.Default.AspectRatio, "Display: " + listOf("4:3", "Fill", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
+                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs()
+                }
                 MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
                 }

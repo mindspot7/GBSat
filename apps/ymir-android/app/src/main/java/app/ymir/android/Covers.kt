@@ -48,6 +48,35 @@ object Covers {
         tmp.renameTo(to)
     }.getOrDefault(false)
 
+    private const val BASE = "https://thumbnails.libretro.com/Sega%20-%20Saturn/Named_Boxarts/"
+    @Volatile private var index: List<String>? = null
+
+    private fun norm(t: String) = t.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ").lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    // Lists the thumbnail server's file names once, so titles can be matched even when the disc image name differs.
+    private fun loadIndex(): List<String> {
+        index?.let { return it }
+        val list = runCatching {
+            val c = URL(BASE).openConnection() as HttpURLConnection
+            c.connectTimeout = 8000; c.readTimeout = 20000
+            if (c.responseCode != 200) return@runCatching emptyList<String>()
+            val html = c.inputStream.bufferedReader().readText()
+            Regex("href=\"([^\"]+\\.png)\"").findAll(html).map { Uri.decode(it.groupValues[1]).removeSuffix(".png") }.toList()
+        }.getOrDefault(emptyList())
+        if (list.isNotEmpty()) index = list
+        return list
+    }
+
+    private fun fuzzy(title: String): String? {
+        val want = norm(title)
+        if (want.isEmpty()) return null
+        val cands = loadIndex().filter { norm(it) == want }
+        if (cands.isEmpty()) return null
+        // Prefer USA, then Europe, then anything else.
+        return cands.firstOrNull { "(USA" in it } ?: cands.firstOrNull { "(Europe" in it } ?: cands.first()
+    }
+
     suspend fun load(title: String): ImageBitmap? = withContext(Dispatchers.IO) {
         memory.get(title)?.let { return@withContext it }
         val img = custom(title).takeIf { it.exists() }?.let(::decode)
@@ -55,7 +84,8 @@ object Covers {
             ?: run {
                 if (miss(title).exists()) return@run null
                 val stripped = title.replace(Regex("\\s*\\((Disc|Disk)\\s*\\d+\\)"), "").trim()
-                val ok = download(title, cached(title)) || (stripped != title && download(stripped, cached(title)))
+                val ok = download(title, cached(title)) || (stripped != title && download(stripped, cached(title))) ||
+                    (fuzzy(title)?.let { download(it, cached(title)) } ?: false)
                 if (ok) decode(cached(title)) else { miss(title).writeText("1"); null }
             }
         if (img != null) memory.put(title, img)

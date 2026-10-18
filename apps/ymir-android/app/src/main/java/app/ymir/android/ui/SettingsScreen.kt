@@ -3,7 +3,11 @@ package app.ymir.android.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -39,29 +43,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
 
     fun <T> change(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.savePrefs(); Emulator.applyOptions() }
 
-    Emulator.remapTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { Emulator.remapTarget = null },
-            title = { Text("Remap ${target.name}") },
-            text = { Text("Press a button on your controller…") },
-            confirmButton = { TextButton(onClick = { Emulator.remapTarget = null }) { Text("Cancel") } },
-        )
-    }
-
-    Emulator.hotkeyCapture?.let { action ->
-        AlertDialog(
-            onDismissRequest = { Emulator.hotkeyCapture = null },
-            title = { Text("Set ${action.label}") },
-            text = {
-                Text(
-                    if (Emulator.hotkeyCaptureKeys.isEmpty()) "Press a button, or hold several buttons together, then release."
-                    else Emulator.hotkeyCaptureKeys.joinToString(" + ") { keyName(it) },
-                )
-            },
-            confirmButton = { TextButton(onClick = { Emulator.hotkeyCapture = null }) { Text("Cancel") } },
-        )
-    }
-
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Settings") },
@@ -133,7 +115,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            Choice("Aspect ratio", listOf("4:3", "Stretch", "Pixel-perfect"), Emulator.aspect, change<Int> { Emulator.aspect = it })
+            Choice("Display", listOf("4:3", "Fill", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
+            Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
             Section("Hotkeys")
             Text("Bind a single button or hold several buttons together (a combination) and release. L3/R3 are supported.",
@@ -158,6 +141,30 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(32.dp))
         }
+    }
+    // Capture prompts are drawn in this window (not a Dialog) so physical button events reach MainActivity.
+    val remap = Emulator.remapTarget
+    val hk = Emulator.hotkeyCapture
+    if (remap != null || hk != null) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)), contentAlignment = Alignment.Center) {
+            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (remap != null) {
+                        Text("Remap ${remap.name}", style = MaterialTheme.typography.titleLarge)
+                        Text("Press a button on your controller…")
+                        TextButton(onClick = { Emulator.remapTarget = null }) { Text("Cancel") }
+                    } else if (hk != null) {
+                        Text("Set ${hk.label}", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            if (Emulator.hotkeyCaptureKeys.isEmpty()) "Press a button, or hold several buttons together, then release."
+                            else Emulator.hotkeyCaptureKeys.joinToString(" + ") { keyName(it) },
+                        )
+                        TextButton(onClick = { Emulator.hotkeyCapture = null }) { Text("Cancel") }
+                    }
+                }
+            }
+        }
+    }
     }
 }
 
