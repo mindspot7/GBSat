@@ -37,7 +37,7 @@ object Emulator {
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
-    var renderer by mutableStateOf(0) // 0 = software (native window), 1 = OpenGL ES
+    var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
     var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle

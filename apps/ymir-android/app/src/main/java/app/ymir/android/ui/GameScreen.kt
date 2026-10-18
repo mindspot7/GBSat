@@ -37,6 +37,14 @@ fun GameScreen(onQuitApp: () -> Unit) {
     LaunchedEffect(Emulator.menuRequest) {
         if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }
     }
+    // Report if the Vulkan GPU renderer could not start (the software renderer keeps running).
+    LaunchedEffect(Emulator.renderer) {
+        if (Emulator.renderer == 4) {
+            delay(1500)
+            val err = NativeBridge.nativeGetGpuError()
+            if (err.isNotEmpty()) Emulator.showToast("Vulkan GPU unavailable, using software: $err")
+        }
+    }
     // Resume when returning from background.
     LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
 

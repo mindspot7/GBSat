@@ -1,3 +1,8 @@
+#ifdef __spirv__
+#define VK_IMAGE_FORMAT(f) [[vk::image_format(f)]]
+#else
+#define VK_IMAGE_FORMAT(f)
+#endif
 #include "vdp2_common_params.hlsli"
 #include "vdp2_compose_params.hlsli"
 
@@ -17,7 +22,7 @@ Texture2DArray<uint4> g_rbgLineColorIn : register(t4);
 Texture2DArray<uint> g_spriteAttrsIn : register(t5);
 Texture2D<uint> g_colorCalcWindowIn : register(t6);
 
-RWTexture2D<float4> g_compositeOut : register(u1);
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> g_compositeOut : register(u1);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Definitions

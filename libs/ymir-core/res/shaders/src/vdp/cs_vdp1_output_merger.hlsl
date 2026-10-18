@@ -1,3 +1,8 @@
+#ifdef __spirv__
+#define VK_IMAGE_FORMAT(f) [[vk::image_format(f)]]
+#else
+#define VK_IMAGE_FORMAT(f)
+#endif
 #include "vdp1_defs.hlsli"
 #include "vdp1_common_params.hlsli"
 
@@ -38,10 +43,10 @@ cbuffer RenderParamsBuffer : register(b0) {
 StructuredBuffer<OITFragment> g_fragments : register(t1);
 
 RWByteAddressBuffer g_fbramOut : register(u1);
-RWBuffer<uint> g_listHeads : register(u2);
+VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_listHeads : register(u2);
 #else
 RWByteAddressBuffer g_fbramOut : register(u1);
-RWBuffer<uint> g_internalSpriteOut : register(u2);
+VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u2);
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------

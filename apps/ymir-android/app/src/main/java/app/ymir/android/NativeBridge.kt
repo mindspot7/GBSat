@@ -27,6 +27,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetRenderer(mode: Int)
     @JvmStatic external fun nativeProbeVulkan(): String
     @JvmStatic external fun nativeGetVulkanError(): String
+    @JvmStatic external fun nativeGetGpuError(): String
     @JvmStatic external fun nativeSetDisplayOptions(filter: Int, shader: Int)
     @JvmStatic external fun nativeSetCheats(addrs: LongArray, values: LongArray, sizes: IntArray)
     @JvmStatic external fun nativeSetFastBoot(on: Boolean)

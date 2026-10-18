@@ -95,12 +95,12 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
             Section("Display")
-            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan", "ANGLE"), Emulator.renderer, change<Int> { Emulator.renderer = it })
+            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan", "ANGLE", "Vulkan GPU (beta)"), Emulator.renderer, change<Int> { Emulator.renderer = it })
             Text(
-                "The Saturn VDP is always emulated in software (Ymir has no GPU renderer yet). OpenGL ES presents the image on the GPU " +
-                    "and enables the filters and shaders below. Vulkan (presentation only for now) shows the image through the Vulkan API with " +
-                    "nearest/bilinear filtering; it falls back to software output if the device does not support it. " +
-                    "ANGLE runs the OpenGL ES presentation (with filters and shaders) on top of Vulkan using the ANGLE library bundled in the app. " +
+                "Software, OpenGL ES, Vulkan and ANGLE emulate the Saturn VDP on the CPU and only differ in how the image is shown: " +
+                    "OpenGL ES and ANGLE enable the filters and shaders below, Vulkan shows the image through the Vulkan API. " +
+                    "Vulkan GPU (beta) renders the VDP1/VDP2 graphics with Vulkan compute shaders (port of Ymir's Direct3D 12 renderer); " +
+                    "it needs a GPU with 64-bit integer shader support and falls back to the software renderer otherwise. " +
                     "Enhanced resolution and widescreen hacks are not available yet.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -108,7 +108,12 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 Choice("Texture filtering", listOf("Nearest", "Bilinear", "Sharp bilinear"), Emulator.filter, change<Int> { Emulator.filter = it })
                 Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
             }
-            if (Emulator.renderer == 2) {
+            if (Emulator.renderer == 4) {
+                val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError() }.getOrDefault("") }
+                if (gpuErr.isNotEmpty()) Text("Last GPU renderer error: $gpuErr",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            if (Emulator.renderer == 2 || Emulator.renderer == 4) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), minOf(Emulator.filter, 1), change<Int> { Emulator.filter = it })
                 val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
                 Text(

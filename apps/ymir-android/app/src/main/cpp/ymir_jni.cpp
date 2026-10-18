@@ -121,7 +121,8 @@ struct Context {
 
     // Display
     std::atomic<bool> glMode{false};
-    std::atomic<int> rendererMode{0}; // 0 = CPU window, 1 = GLES, 2 = Vulkan
+    std::atomic<int> rendererMode{0}; // 0 = CPU window, 1 = GLES, 2 = Vulkan, 3 = ANGLE, 4 = Vulkan GPU VDP
+    std::string gpuError; // last Vulkan VDP renderer error (guarded by winMutex)
     bool vkFailed = false;
     bool vkLinear = false;
     std::string vkError;
@@ -190,7 +191,8 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     if (!g->window) {
         return;
     }
-    if (g->rendererMode.load(std::memory_order_relaxed) == 2 && !g->vkFailed) {
+    const int presentMode = g->rendererMode.load(std::memory_order_relaxed);
+    if ((presentMode == 2 || presentMode == 4) && !g->vkFailed) {
         if (!vkctx::IsReady() && !vkctx::Init(g->window, g->vkError)) {
             g->vkFailed = true; // fall back to CPU presentation
         }
@@ -438,6 +440,9 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     g->saturn->VDP.SetSoftwareRenderCallback({nullptr, [](uint32_t *fb, uint32_t w, uint32_t h, void *) {
                                                   OnFrameComplete(fb, w, h);
                                               }});
+    g->saturn->VDP.SetVulkanFrameReadyCallback({nullptr, [](const uint32_t *fb, uint32_t w, uint32_t h, void *) {
+                                                    OnFrameComplete(const_cast<uint32_t *>(fb), w, h);
+                                                }});
     ConnectPad(false);
 
     g->smpcPath = JStr(env, smpcPath);
@@ -700,6 +705,28 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 }
 
 // Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
+// Switches the VDP emulation between the software renderer and the Vulkan compute (GPU) renderer.
+// Runs on the emulation thread. If the GPU renderer cannot be created the software renderer stays active.
+void ApplyVdpRenderer(bool gpu) {
+    auto &vdp = g->saturn->VDP;
+    const bool isGpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
+    if (gpu == isGpu) {
+        return;
+    }
+    if (gpu) {
+        auto result = vdp.UseVulkanRenderer(ymir::vdp::VulkanRendererContext{});
+        std::lock_guard lk(g->winMutex);
+        if (!result) {
+            g->gpuError = result.Error().message;
+            __android_log_print(ANDROID_LOG_WARN, "GBSat", "Vulkan VDP renderer failed: %s", g->gpuError.c_str());
+        } else {
+            g->gpuError.clear();
+        }
+    } else {
+        vdp.UseSoftwareRenderer();
+    }
+}
+
 JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         g->glMode = (mode == 1 || mode == 3);
@@ -707,7 +734,18 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
         if (mode == 1 || mode == 3) {
             glr::SetBackend(mode == 3); // 3 = OpenGL ES through ANGLE (Vulkan)
         }
+        const bool gpu = mode == 4;
+        Post([gpu] { ApplyVdpRenderer(gpu); });
     }
+}
+
+// Last Vulkan GPU (VDP) renderer error, empty if none.
+JNI_FN(jstring, nativeGetGpuError)(JNIEnv *env, jclass) {
+    if (!g) {
+        return NewJStr(env, "");
+    }
+    std::lock_guard lk(g->winMutex);
+    return NewJStr(env, g->gpuError);
 }
 
 // Returns "ok|<device>|int64" if Vulkan is usable, otherwise an error text starting with "error|".

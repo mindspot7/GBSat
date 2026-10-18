@@ -1,25 +1,117 @@
+// Vulkan port of the Direct3D 12 VDP renderer.
+//
+// GENERATED FILE TEMPLATE. The API-agnostic parts (VDP1 command decoding, span generation, VDP2 parameter computation)
+// are copied verbatim from vdp_renderer_hw_d3d12.cpp by tools/gen_vulkan_renderer.py using the @@COPY markers below,
+// so both backends stay in sync. Only the GPU resource management, uploads, barriers and dispatches are Vulkan-specific.
+
+#include <atomic>
+#include <memory>
+
 #include <ymir/hw/vdp/renderer/vdp_renderer_hw_vulkan.hpp>
 
+#include <ymir/hw/vdp/renderer/common/vdp1_steppers.hpp>
+#include <ymir/hw/vdp/renderer/vulkan/spirv_reflect.hpp>
+
+#include "common_hw/common_hw_defs.hpp"
+#include "common_hw/memory_usage_tracker.hpp"
+
+#include "d3d12/d3d12_dev_log.hpp" // backend-agnostic dev log groups
+
+#include <ymir/util/bit_ops.hpp>
+#include <ymir/util/dev_assert.hpp>
 #include <ymir/util/dev_log.hpp>
+#include <ymir/util/dirty_bitmap.hpp>
+#include <ymir/util/scope_guard.hpp>
+#include <ymir/util/string.hpp>
 
 #include <vulkan/vulkan.h>
 
-#include <atomic>
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <concepts>
+#include <cstring>
+#include <functional>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace ymir::vdp {
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Vulkan port of the Direct3D 12 renderer (vdp_renderer_hw_d3d12.cpp).
-//
-// Porting status (see docs in the Android port):
-//   [x] renderer type plumbing, context handoff, frame callback
-//   [ ] Vulkan helper layer (buffers, barriers, descriptors, pipelines, upload ring)
-//   [ ] VDP1 passes (erase, FBRAM write, polygon draw, output merger)
-//   [ ] VDP2 passes (BGs, sprites, compose)
-//   [ ] enhancements (resolution scale, deinterlace, transparent meshes)
-//
-// Until the passes are implemented, IsValid() returns false so the frontend keeps using the software renderer.
+/// @brief Packs up boolean values into the least significant bits of an unsigned integer.
+template <std::unsigned_integral T>
+static uint32 PackBools(std::span<const bool> bools) {
+    T value = 0;
+    size_t count = std::min(bools.size(), sizeof(T) * 8);
+    for (size_t i = 0; i < count; ++i) {
+        if (bools[i]) {
+            value |= static_cast<T>(1u) << static_cast<T>(i);
+        }
+    }
+    return value;
+}
+
+namespace {
+
+/// @brief Number of frames in flight. Frames are delivered to the frontend with one frame of latency so that GPU work
+/// overlaps with emulation of the next frame.
+constexpr size_t kNumFrames = 2;
+
+/// @brief Size of each per-frame host-visible upload buffer, in bytes. Also holds the per-dispatch shader constants.
+constexpr VkDeviceSize kUploadBufferSize = 8 * 1024 * 1024;
+
+/// @brief Size reserved for the shader constants of each dispatch (D3D12 root constants are limited to 256 bytes).
+constexpr VkDeviceSize kConstRange = 256;
+
+static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1PolyDrawParams) <= kConstRange);
+static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1EraseParams) <= kConstRange);
+static_assert(sizeof(VDP2CommonRenderParams) <= kConstRange);
+
+struct GpuBuffer {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkBufferView view = VK_NULL_HANDLE;
+    VkDeviceSize size = 0;
+    void *mapped = nullptr;
+};
+
+struct GpuImage {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+};
+
+struct GpuPipeline {
+    VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    std::vector<vulkan::SpvBinding> bindings;
+    std::string name;
+};
+
+/// @brief A shader resource reference used to fill descriptor sets.
+struct Res {
+    const GpuBuffer *buf = nullptr;
+    const GpuImage *img = nullptr;
+    Res(const GpuBuffer &b)
+        : buf(&b) {}
+    Res(const GpuImage &i)
+        : img(&i) {}
+};
+
+struct UploadAllocation {
+    void *data = nullptr;
+    VkDeviceSize offset = 0;
+};
+
+inline VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize align) {
+    return (value + align - 1) / align * align;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 struct VulkanVDPRenderer::Impl {
@@ -29,27 +121,3357 @@ struct VulkanVDPRenderer::Impl {
         : vdpState(state)
         , enhancements(enhancements)
         , hwCallbacks(hwCallbacks)
-        , vdp2AccessPatterns(vdp2AccessPatternsConfig)
-        , vdp2DebugRender(vdp2DebugRenderOptions) {}
+        , vdp2(vdp2AccessPatternsConfig, vdp2DebugRenderOptions) {}
 
     VDPState &vdpState;
     const config::Enhancements &enhancements;
+
     const VulkanRendererCallbacks &hwCallbacks;
-    const config::VDP2AccessPatternsConfig &vdp2AccessPatterns;
-    const config::VDP2DebugRender &vdp2DebugRender;
 
-    VulkanRendererContext ctx{};
-    bool implemented = false;
+    // =================================================================================================================
+    // Vulkan objects
 
-    util::VoidResult<> Initialize(const VulkanRendererContext &context) {
-        ctx = context;
-        if (ctx.device == nullptr || ctx.queue == nullptr) {
-            return util::ErrorMessage{"Incomplete Vulkan context"};
+    VkInstance instance = VK_NULL_HANDLE;
+    VkPhysicalDevice physDevice = VK_NULL_HANDLE;
+    VkDevice device = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;
+    uint32 queueFamily = 0;
+    bool ownsDevice = false;
+    VkPhysicalDeviceMemoryProperties memProps{};
+    VkDeviceSize uboAlign = 256;
+    VkDescriptorPool descPool = VK_NULL_HANDLE;
+    bool initialized = false;
+
+    /// @brief Whether a memory barrier must be emitted before the next GPU operation.
+    bool pendingBarrier = true;
+
+    std::vector<GpuBuffer *> ownedBuffers;
+    std::vector<GpuImage *> ownedImages;
+    std::vector<GpuPipeline *> ownedPipelines;
+
+    // =================================================================================================================
+    // VDP1 rendering
+
+    /// @brief Current action being processed on the VDP1 side.
+    enum class VDP1Action {
+        None,       ///< No action -- just reset or flushed everything
+        Erase,      ///< Erasing frame
+        Swap,       ///< Swapping frame
+        Draw,       ///< Executing drawing commands
+        FBRAMWrite, ///< Writing to FBRAM
+        RegWrite,   ///< Writing to registers
+    };
+
+    struct VDP1Resources {
+        VDP1Resources() {
+            memset(&cpuCommonRenderParams, 0, sizeof(cpuCommonRenderParams));
+            memset(&cpuEraseParams, 0, sizeof(cpuEraseParams));
+            memset(&cpuPolyDrawParams, 0, sizeof(cpuPolyDrawParams));
+        }
+
+        /// @brief VRAM buffer (ByteAddressBuffer).
+        GpuBuffer vramBuffer;
+
+        static constexpr size_t kVRAMDirtyBitmapChunkSizeShift = 8;
+        static constexpr size_t kVRAMDirtyBitmapChunkSize = static_cast<size_t>(1) << kVRAMDirtyBitmapChunkSizeShift;
+        static constexpr size_t kVRAMDirtyBitmapSize = kVDP1VRAMSize / kVRAMDirtyBitmapChunkSize;
+
+        util::DirtyBitmap<kVRAMDirtyBitmapSize> vramDirty;
+        MemoryUsageTracker<kVDP1VRAMSize> vramTexUsageTracker;
+
+        // FBRAM buffer: [0] main field, [1] alternate field (deinterlace), [2] main mesh, [3] alternate mesh
+        GpuBuffer fbramBuffer;
+
+        util::DirtyBitmap<kVDP1FBRAMSize> fbramDirty;
+        GpuBuffer fbramWritesBuffer;
+        std::vector<VDP1FBRAMWrite> cpuFBRAMWritesList;
+
+        /// @brief FBRAM download buffer (host-visible).
+        GpuBuffer fbramDownloadBuffer;
+        std::atomic_bool fbramDebugSyncRequest{false};
+        bool fbramReadbackDirty = false;
+        uint32 fbramReadbackCopyPending = false;
+
+        VDP1CommonRenderParams cpuCommonRenderParams{};
+        VDP1EraseParams cpuEraseParams{};
+        VDP1PolyDrawParams cpuPolyDrawParams{};
+
+        GpuPipeline fbramWritePipe;
+        GpuPipeline erasePipe;
+        std::array<GpuPipeline, 2 * 4> polyDrawPipes;
+        std::array<GpuPipeline, 2 * 3> outputMergerPipes;
+
+        size_t currPolyDrawShaderIndex = -1;
+        size_t currOutputMergerShaderIndex = -1;
+        bool transparentMeshDrawn = false;
+        bool doubleV = false;
+
+        VDP1Action action = VDP1Action::None;
+    } vdp1;
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 354-494 ----
+    /// @brief Constructs a polygon drawing shader index from its variant options.
+    /// @param[in] mode polygon drawing mode
+    /// @return the shader index
+    size_t MakeVDP1PolyDrawShaderIndex(VDP1Command::DrawMode mode) const {
+        size_t value = 0;
+        bit::deposit_into<0>(value, enhancements.transparentMeshes);
+        if (mode.msbOn) {
+            // MSB -> mode 3 (MSB)
+            bit::deposit_into<1, 2>(value, 3);
+        } else if (vdpState.regs1.tvmr.pixel8Bits) {
+            // 8-bit sprite data -> mode 0 (Copy) -- shading modes not supported
+            bit::deposit_into<1, 2>(value, 0);
+        } else if (mode.colorCalcBits == 3) {
+            // Half-Transparency -> mode 2 (OIT)
+            bit::deposit_into<1, 2>(value, 2);
+        } else if (mode.colorCalcBits == 1) {
+            // Shadow -> mode 1 (Shift)
+            bit::deposit_into<1, 2>(value, 1);
+        }
+        // Other modes -> mode 0 (Copy)
+        return value;
+    }
+
+    struct PolyDrawShaderIndex {
+        size_t meshMode;
+        size_t shadingMode;
+    };
+
+    /// @brief Expands a bit-packed VDP1 polygon drawing shader index into its components.
+    /// @param[in] index the shader index
+    /// @return the index's components
+    PolyDrawShaderIndex ExpandVDP1PolyDrawShaderIndex(size_t index) {
+        return {
+            .meshMode = bit::extract<0>(index),
+            .shadingMode = bit::extract<1, 2>(index),
+        };
+    }
+
+    /// @brief Updates the current VDP1 action, flushing any pending work if necessary.
+    /// @param[in] newAction the new action
+    void VDP1UpdateAction(VDP1Action newAction) {
+        if (vdp1.action != newAction) {
+            switch (vdp1.action) {
+            case VDP1Action::None: break;
+            case VDP1Action::Erase: /* nothing to sync */ break;
+            case VDP1Action::Swap: vdp1.cpuCommonRenderParams.displayParams.drawFB = vdpState.fbIndex.draw; break;
+            case VDP1Action::Draw:
+                if (auto result = VDP1SubmitSpans(); !result) {
+                    devlog::warn<grp::dx12_vdp1>("Failed to submit VDP1 spans: {}", result.Error().message);
+                }
+                break;
+            case VDP1Action::FBRAMWrite:
+                if (auto result = VDP1FlushFBRAM(); !result) {
+                    devlog::warn<grp::dx12_vdp1>("Failed to submit VDP1 FBRAM writes: {}", result.Error().message);
+                }
+
+                break;
+            case VDP1Action::RegWrite: VDP1UpdateCommonRenderParams(); break;
+            }
+
+            vdp1.action = newAction;
+        }
+    }
+
+    /// @brief Flushes any pending VDP1 work.
+    void VDP1FlushWork() {
+        VDP1UpdateAction(VDP1Action::None);
+    }
+
+    /// @brief Determines if the given polygon drawing shader variant uses OIT shading mode.
+    /// @param[in] index the shader index
+    /// @return `true` if the shader uses OIT shading mode, `false` otherwise
+    bool IsVDP1PolyDrawShaderOIT(size_t index) {
+        return bit::extract<1, 2>(index) == 2;
+    }
+
+    /// @brief Determines if the given polygon drawing shader variant uses MSB shading mode.
+    /// @param[in] index the shader index
+    /// @return `true` if the shader uses MSB shading mode, `false` otherwise
+    bool IsVDP1PolyDrawShaderMSB(size_t index) {
+        return bit::extract<1, 2>(index) == 3;
+    }
+
+    /// @brief Retrieves the name of a polygon drawing shader variant.
+    /// @param[in] index the shader index
+    /// @return the shader variant name of the form "Ms#-Sh#"
+    std::string GetVDP1PolyDrawShaderVariantName(size_t index) {
+        const PolyDrawShaderIndex components = ExpandVDP1PolyDrawShaderIndex(index);
+        return fmt::format("Ms{}-Sh{}", components.meshMode, components.shadingMode);
+    }
+
+    /// @brief Constructs an output merger shader index from its variant options.
+    /// @param[in] mode polygon drawing mode
+    /// @return the shader index
+    size_t MakeVDP1OutputMergerShaderIndex(VDP1Command::DrawMode mode) const {
+        size_t value = 0;
+        bit::deposit_into<0>(value, enhancements.transparentMeshes);
+        if (vdpState.regs1.tvmr.pixel8Bits) {
+            // 8-bit sprite data -> mode 0 (Copy) -- shading modes not supported
+            bit::deposit_into<1, 2>(value, 0);
+        } else if (mode.colorCalcBits == 1) {
+            // Shadow -> mode 1
+            bit::deposit_into<1, 2>(value, 1);
+        } else if (mode.colorCalcBits == 3) {
+            // Half-Luminance -> mode 2
+            bit::deposit_into<1, 2>(value, 2);
+        }
+        // Other modes -> mode 0
+        // MSB doesn't invoke this shader.
+        return value;
+    }
+
+    struct OutputMergerShaderIndex {
+        size_t meshMode;
+        size_t mergeMode;
+    };
+
+    /// @brief Expands a bit-packed VDP1 output merger shader index into its components.
+    /// @param[in] index the shader index
+    /// @return the index's components
+    OutputMergerShaderIndex ExpandVDP1OutputMergerShaderIndex(size_t index) {
+        return {
+            .meshMode = bit::extract<0>(index),
+            .mergeMode = bit::extract<1, 2>(index),
+        };
+    }
+
+    /// @brief Determines if the given output merger shader variant uses OIT merging mode.
+    /// @param[in] index the shader index
+    /// @return `true` if the shader uses OIT merging mode, `false` otherwise
+    bool IsVDP1OutputMergerShaderOIT(size_t index) {
+        return bit::extract<1, 2>(index) == 2;
+    }
+
+    /// @brief Retrieves the name of an output merger shader variant.
+    /// @param[in] index the shader index
+    /// @return the shader variant name of the form "Ms#-Mg#"
+    std::string GetVDP1OutputMergerShaderVariantName(size_t index) {
+        const OutputMergerShaderIndex components = ExpandVDP1OutputMergerShaderIndex(index);
+        return fmt::format("Ms{}-Mg{}", components.meshMode, components.mergeMode);
+    }
+    // ---- end copy ----
+
+    // =================================================================================================================
+    // VDP2 rendering
+
+    struct VDP2Resources {
+        VDP2Resources(const config::VDP2AccessPatternsConfig &accessPatternsConfig,
+                      const config::VDP2DebugRender &debugRenderOptions)
+            : accessPatternsConfig(accessPatternsConfig)
+            , debugRenderOptions(debugRenderOptions) {}
+
+        GpuBuffer vramBuffer;
+
+        static constexpr size_t kVRAMDirtyBitmapChunkSizeShift = 8;
+        static constexpr size_t kVRAMDirtyBitmapChunkSize = static_cast<size_t>(1) << kVRAMDirtyBitmapChunkSizeShift;
+        static constexpr size_t kVRAMDirtyBitmapSize = kVDP2VRAMSize / kVRAMDirtyBitmapChunkSize;
+
+        util::DirtyBitmap<kVRAMDirtyBitmapSize> vramDirty;
+
+        CRAMColorCache cpuCRAMColorCache{};
+        uint32 cramGeneration = 0;
+
+        std::array<std::array<ColorR8G8B8A8, kMaxNormalResV>, 2> cpuLnclBack{};
+        std::array<VDP2RotParamBase, kMaxNormalResV * 2> cpuRotParamBases{};
+
+        /// @brief Composited VDP2 output (RGBA8 UNORM).
+        GpuImage compositeOutTexture;
+
+        VDP2CommonRenderParams cpuCommonRenderParams{};
+        VDP2LayerRenderParams cpuLayerRenderParams{};
+        VDP2ComposeParams cpuComposeParams{};
+
+        std::array<bool, 2> resetNBGScrollY;
+
+        GpuPipeline drawSpritePipe;
+        GpuPipeline drawBGsPipe;
+        GpuPipeline composePipe;
+
+        uint32 nextLayerRenderLine = 0;
+        uint32 nextComposeLine = 0;
+
+        uint32 layerRenderParamsGeneration = 0;
+        uint32 composeParamsGeneration = 0;
+
+        const config::VDP2AccessPatternsConfig &accessPatternsConfig;
+        const config::VDP2DebugRender &debugRenderOptions;
+    } vdp2;
+
+    // =================================================================================================================
+    // Per-frame resources
+
+    struct FrameContext {
+        VkCommandPool cmdPool = VK_NULL_HANDLE;
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        bool submitted = false;
+
+        GpuBuffer uploadBuffer;
+        VkDeviceSize uploadOffset = 0;
+
+        GpuBuffer readbackBuffer;
+        bool readbackPending = false;
+        uint32 readbackW = 0;
+        uint32 readbackH = 0;
+
+        // VDP1
+        GpuBuffer spanParamsBuffer;
+        GpuBuffer spanPrefixSumsBuffer;
+        std::array<VDP1SpanParams, kMaxVDP1Spans> cpuSpanParams{};
+        std::array<HLSLuint, kMaxVDP1Spans + 1> cpuSpanPrefixSums{};
+        size_t cpuSpanCount = 0;
+        GpuBuffer cmdParamsBuffer;
+        std::array<VDP1CommandParams, kMaxVDP1Commands> cpuCmdParams{};
+        size_t cpuCmdCount = 0;
+        GpuBuffer internalSpriteOutBuffer;
+        GpuBuffer oitListHeadsBuffer;
+        GpuBuffer oitFragmentsBuffer;
+        GpuBuffer oitCounterBuffer;
+
+        VkDescriptorSet fbramWriteSet = VK_NULL_HANDLE;
+        VkDescriptorSet eraseSet = VK_NULL_HANDLE;
+        std::array<VkDescriptorSet, 2 * 4> polyDrawSets{};
+        std::array<VkDescriptorSet, 2 * 3> outputMergerSets{};
+
+        // VDP2
+        GpuBuffer cramColorBuffer;
+        GpuBuffer cramRotCoeffBuffer;
+        uint32 cramGeneration = 0xFFFFFFFF;
+        GpuImage layerOutTexture;
+        GpuImage rbgLineColorOutTexture;
+        GpuImage colorCalcWindowTexture;
+        GpuBuffer lnclBackBuffer;
+        GpuBuffer rotParamBasesBuffer;
+        GpuImage spriteAttrsTexture;
+        GpuBuffer layerRenderParamsBuffer;
+        uint32 layerRenderParamsGeneration = 0xFFFFFFFF;
+        GpuBuffer composeParamsBuffer;
+        uint32 composeParamsGeneration = 0xFFFFFFFF;
+
+        VkDescriptorSet drawSpriteSet = VK_NULL_HANDLE;
+        VkDescriptorSet drawBGsSet = VK_NULL_HANDLE;
+        VkDescriptorSet composeSet = VK_NULL_HANDLE;
+    };
+
+    struct FrameSet {
+        std::array<FrameContext, kNumFrames> frames;
+        size_t frameIndex = 0;
+
+        FrameContext &GetCurrentFrame() {
+            return frames[frameIndex];
+        }
+        const FrameContext &GetCurrentFrame() const {
+            return frames[frameIndex];
+        }
+        FrameContext &operator[](size_t index) {
+            return frames[index];
+        }
+        constexpr size_t Count() const {
+            return kNumFrames;
+        }
+    };
+
+    FrameSet frames;
+
+    // =================================================================================================================
+    // Vulkan helpers
+
+    VkCommandBuffer Cmd() {
+        return frames.GetCurrentFrame().cmd;
+    }
+
+    int FindMemoryType(uint32 typeBits, VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred = 0) {
+        int fallback = -1;
+        for (uint32 i = 0; i < memProps.memoryTypeCount; ++i) {
+            if (!(typeBits & (1u << i))) {
+                continue;
+            }
+            const VkMemoryPropertyFlags flags = memProps.memoryTypes[i].propertyFlags;
+            if ((flags & required) != required) {
+                continue;
+            }
+            if ((flags & preferred) == preferred) {
+                return (int)i;
+            }
+            if (fallback < 0) {
+                fallback = (int)i;
+            }
+        }
+        return fallback;
+    }
+
+    [[nodiscard]] util::VoidResult<> CreateBuffer(GpuBuffer &buf, VkDeviceSize size, VkBufferUsageFlags usage,
+                                                  bool hostVisible, VkFormat viewFormat, const std::string &name,
+                                                  bool hostCached = false) {
+        size = AlignUp(std::max<VkDeviceSize>(size, 4), 4);
+        VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bci.size = size;
+        bci.usage = usage;
+        bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (VkResult r = vkCreateBuffer(device, &bci, nullptr, &buf.buffer); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create buffer \"{}\" ({})", name, (int)r)};
+        }
+        ownedBuffers.push_back(&buf);
+        buf.size = size;
+
+        VkMemoryRequirements req;
+        vkGetBufferMemoryRequirements(device, buf.buffer, &req);
+        const VkMemoryPropertyFlags required = hostVisible
+                                                   ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                                                   : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        const VkMemoryPropertyFlags preferred = hostCached ? VK_MEMORY_PROPERTY_HOST_CACHED_BIT : 0;
+        int memType = FindMemoryType(req.memoryTypeBits, required, preferred);
+        if (memType < 0 && !hostVisible) {
+            memType = FindMemoryType(req.memoryTypeBits, 0);
+        }
+        if (memType < 0) {
+            return util::ErrorMessage{fmt::format("No suitable memory type for buffer \"{}\"", name)};
+        }
+        VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        mai.allocationSize = req.size;
+        mai.memoryTypeIndex = (uint32)memType;
+        if (VkResult r = vkAllocateMemory(device, &mai, nullptr, &buf.memory); r != VK_SUCCESS) {
+            return util::ErrorMessage{
+                fmt::format("Could not allocate {} bytes for buffer \"{}\" ({})", req.size, name, (int)r)};
+        }
+        vkBindBufferMemory(device, buf.buffer, buf.memory, 0);
+        if (hostVisible) {
+            if (VkResult r = vkMapMemory(device, buf.memory, 0, VK_WHOLE_SIZE, 0, &buf.mapped); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("Could not map buffer \"{}\" ({})", name, (int)r)};
+            }
+        }
+        if (viewFormat != VK_FORMAT_UNDEFINED) {
+            VkBufferViewCreateInfo vci{VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
+            vci.buffer = buf.buffer;
+            vci.format = viewFormat;
+            vci.offset = 0;
+            vci.range = VK_WHOLE_SIZE;
+            if (VkResult r = vkCreateBufferView(device, &vci, nullptr, &buf.view); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("Could not create buffer view for \"{}\" ({})", name, (int)r)};
+            }
         }
         return {};
     }
 
-    void Shutdown() {}
+    static constexpr VkBufferUsageFlags kSSBO = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    static constexpr VkBufferUsageFlags kUniformTexel = VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+                                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    static constexpr VkBufferUsageFlags kStorageTexel = VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
+                                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    [[nodiscard]] util::VoidResult<> CreateImage(GpuImage &img, VkFormat format, uint32 width, uint32 height,
+                                                 uint32 layers, bool arrayView, VkImageUsageFlags usage,
+                                                 const std::string &name) {
+        VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        ici.imageType = VK_IMAGE_TYPE_2D;
+        ici.format = format;
+        ici.extent = {width, height, 1};
+        ici.mipLevels = 1;
+        ici.arrayLayers = layers;
+        ici.samples = VK_SAMPLE_COUNT_1_BIT;
+        ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ici.usage = usage;
+        ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (VkResult r = vkCreateImage(device, &ici, nullptr, &img.image); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create image \"{}\" ({})", name, (int)r)};
+        }
+        ownedImages.push_back(&img);
+
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(device, img.image, &req);
+        int memType = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (memType < 0) {
+            memType = FindMemoryType(req.memoryTypeBits, 0);
+        }
+        if (memType < 0) {
+            return util::ErrorMessage{fmt::format("No suitable memory type for image \"{}\"", name)};
+        }
+        VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        mai.allocationSize = req.size;
+        mai.memoryTypeIndex = (uint32)memType;
+        if (VkResult r = vkAllocateMemory(device, &mai, nullptr, &img.memory); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not allocate memory for image \"{}\" ({})", name, (int)r)};
+        }
+        vkBindImageMemory(device, img.image, img.memory, 0);
+
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = img.image;
+        vci.viewType = arrayView ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = format;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers};
+        if (VkResult r = vkCreateImageView(device, &vci, nullptr, &img.view); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create image view for \"{}\" ({})", name, (int)r)};
+        }
+
+        // Transition to GENERAL; all images stay in this layout for their whole lifetime
+        VkImageMemoryBarrier imb{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        imb.srcAccessMask = 0;
+        imb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+        imb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imb.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        imb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imb.image = img.image;
+        imb.subresourceRange = vci.subresourceRange;
+        vkCmdPipelineBarrier(Cmd(), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &imb);
+        return {};
+    }
+
+    util::ValueResult<std::vector<char>> LoadShader(const std::string &path) {
+        if (!g_fsShaders.is_file(path)) {
+            return util::ErrorMessage{fmt::format("Embedded file not found: {}", path)};
+        }
+        auto file = g_fsShaders.open(path);
+        return std::vector<char>{file.begin(), file.end()};
+    }
+
+    [[nodiscard]] util::VoidResult<> CreatePipeline(GpuPipeline &pipe, const std::string &path,
+                                                    const std::string &name) {
+        auto shaderResult = LoadShader(path);
+        if (!shaderResult) {
+            return util::ErrorMessage{
+                fmt::format("Could not load compute shader \"{}\": {}", path, shaderResult.Error().message)};
+        }
+        const std::vector<char> &bytes = shaderResult.Value();
+        std::vector<uint32_t> code(bytes.size() / 4);
+        std::memcpy(code.data(), bytes.data(), code.size() * 4);
+
+        const vulkan::SpvReflection refl = vulkan::ReflectSpirv(code.data(), code.size());
+        if (!refl.valid) {
+            return util::ErrorMessage{fmt::format("Invalid SPIR-V in \"{}\"", path)};
+        }
+        pipe.bindings = refl.bindings;
+        pipe.name = name;
+        ownedPipelines.push_back(&pipe);
+
+        std::vector<VkDescriptorSetLayoutBinding> lbs;
+        for (const auto &b : refl.bindings) {
+            if (b.set != 0) {
+                return util::ErrorMessage{fmt::format("Unexpected descriptor set {} in \"{}\"", b.set, path)};
+            }
+            VkDescriptorSetLayoutBinding lb{};
+            lb.binding = b.binding;
+            lb.descriptorType = static_cast<VkDescriptorType>(b.kind);
+            if (b.binding == 0 && b.kind == vulkan::SpvDescriptorKind::UniformBuffer) {
+                lb.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+            }
+            lb.descriptorCount = 1;
+            lb.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            lbs.push_back(lb);
+        }
+        VkDescriptorSetLayoutCreateInfo dlci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        dlci.bindingCount = (uint32)lbs.size();
+        dlci.pBindings = lbs.data();
+        if (VkResult r = vkCreateDescriptorSetLayout(device, &dlci, nullptr, &pipe.setLayout); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create descriptor set layout for {} ({})", name, (int)r)};
+        }
+        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        plci.setLayoutCount = 1;
+        plci.pSetLayouts = &pipe.setLayout;
+        if (VkResult r = vkCreatePipelineLayout(device, &plci, nullptr, &pipe.layout); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create pipeline layout for {} ({})", name, (int)r)};
+        }
+        VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        smci.codeSize = code.size() * 4;
+        smci.pCode = code.data();
+        VkShaderModule module = VK_NULL_HANDLE;
+        if (VkResult r = vkCreateShaderModule(device, &smci, nullptr, &module); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create shader module for {} ({})", name, (int)r)};
+        }
+        VkComputePipelineCreateInfo cpci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        cpci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        cpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        cpci.stage.module = module;
+        cpci.stage.pName = kCSEntrypoint;
+        cpci.layout = pipe.layout;
+        VkResult r = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipe.pipeline);
+        vkDestroyShaderModule(device, module, nullptr);
+        if (r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not create compute pipeline {} ({})", name, (int)r)};
+        }
+        return {};
+    }
+
+    /// @brief Allocates and fills a descriptor set for the given pipeline.
+    /// Binding 0 is the per-dispatch constants (dynamic uniform buffer pointing into the frame's upload buffer).
+    /// SRVs map to bindings 1.. (t1..), UAVs map to bindings 17.. (u1..), mirroring the D3D12 descriptor tables.
+    [[nodiscard]] util::ValueResult<VkDescriptorSet> MakeSet(const GpuPipeline &pipe, const GpuBuffer &constBuffer,
+                                                             std::initializer_list<Res> srvs,
+                                                             std::initializer_list<Res> uavs) {
+        VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dsai.descriptorPool = descPool;
+        dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts = &pipe.setLayout;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (VkResult r = vkAllocateDescriptorSets(device, &dsai, &set); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("Could not allocate descriptor set for {} ({})", pipe.name, (int)r)};
+        }
+
+        const std::vector<Res> srvList{srvs};
+        const std::vector<Res> uavList{uavs};
+
+        std::vector<VkWriteDescriptorSet> writes;
+        std::vector<VkDescriptorBufferInfo> bufInfos;
+        std::vector<VkDescriptorImageInfo> imgInfos;
+        bufInfos.reserve(pipe.bindings.size());
+        imgInfos.reserve(pipe.bindings.size());
+        writes.reserve(pipe.bindings.size());
+
+        for (const auto &b : pipe.bindings) {
+            VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstSet = set;
+            w.dstBinding = b.binding;
+            w.descriptorCount = 1;
+            w.descriptorType = static_cast<VkDescriptorType>(b.kind);
+
+            if (b.binding == 0) {
+                w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                bufInfos.push_back({constBuffer.buffer, 0, kConstRange});
+                w.pBufferInfo = &bufInfos.back();
+                writes.push_back(w);
+                continue;
+            }
+
+            const Res *res = nullptr;
+            if (b.binding >= 17) {
+                if (b.binding - 17 < uavList.size()) {
+                    res = &uavList[b.binding - 17];
+                }
+            } else if (b.binding - 1 < srvList.size()) {
+                res = &srvList[b.binding - 1];
+            }
+            if (res == nullptr) {
+                return util::ErrorMessage{
+                    fmt::format("No resource provided for binding {} of {}", b.binding, pipe.name)};
+            }
+
+            switch (b.kind) {
+            case vulkan::SpvDescriptorKind::StorageBuffer:
+            case vulkan::SpvDescriptorKind::UniformBuffer:
+                if (res->buf == nullptr) {
+                    return util::ErrorMessage{fmt::format("Binding {} of {} needs a buffer", b.binding, pipe.name)};
+                }
+                bufInfos.push_back({res->buf->buffer, 0, VK_WHOLE_SIZE});
+                w.pBufferInfo = &bufInfos.back();
+                break;
+            case vulkan::SpvDescriptorKind::UniformTexelBuffer:
+            case vulkan::SpvDescriptorKind::StorageTexelBuffer:
+                if (res->buf == nullptr || res->buf->view == VK_NULL_HANDLE) {
+                    return util::ErrorMessage{
+                        fmt::format("Binding {} of {} needs a texel buffer view", b.binding, pipe.name)};
+                }
+                w.pTexelBufferView = &res->buf->view;
+                break;
+            case vulkan::SpvDescriptorKind::SampledImage:
+            case vulkan::SpvDescriptorKind::StorageImage:
+                if (res->img == nullptr) {
+                    return util::ErrorMessage{fmt::format("Binding {} of {} needs an image", b.binding, pipe.name)};
+                }
+                imgInfos.push_back({VK_NULL_HANDLE, res->img->view, VK_IMAGE_LAYOUT_GENERAL});
+                w.pImageInfo = &imgInfos.back();
+                break;
+            }
+            writes.push_back(w);
+        }
+        vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, nullptr);
+        return set;
+    }
+
+    /// @brief Emits a global memory barrier if any GPU operation was recorded since the last barrier.
+    /// This conservatively replaces the fine-grained resource state tracking of the D3D12 backend.
+    void FlushBarriers() {
+        if (!pendingBarrier) {
+            return;
+        }
+        pendingBarrier = false;
+        VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT |
+                           VK_ACCESS_TRANSFER_READ_BIT;
+        mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT |
+                           VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_UNIFORM_READ_BIT;
+        vkCmdPipelineBarrier(Cmd(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mb, 0,
+                             nullptr, 0, nullptr);
+    }
+
+    /// @brief Allocates a chunk of the current frame's upload buffer, flushing the GPU if it's full.
+    util::VoidResult<> AllocateUploadBuffer(VkDeviceSize size, VkDeviceSize alignment, UploadAllocation &outAlloc) {
+        if (size > kUploadBufferSize) {
+            return util::ErrorMessage{fmt::format("Upload of {} bytes exceeds the upload buffer size", size)};
+        }
+        FrameContext *frameCtx = &frames.GetCurrentFrame();
+        VkDeviceSize offset = AlignUp(frameCtx->uploadOffset, alignment);
+        if (offset + size > kUploadBufferSize) {
+            SubmitAndWait();
+            frameCtx = &frames.GetCurrentFrame();
+            offset = 0;
+        }
+        frameCtx->uploadOffset = offset + size;
+        outAlloc.data = static_cast<uint8 *>(frameCtx->uploadBuffer.mapped) + offset;
+        outAlloc.offset = offset;
+        return {};
+    }
+
+    /// @brief Uploads data to a region of a device buffer.
+    util::VoidResult<> UploadToBuffer(GpuBuffer &dst, VkDeviceSize dstOffset, const void *src, size_t size) {
+        if (size == 0) {
+            return {};
+        }
+        UploadAllocation alloc{};
+        if (auto result = AllocateUploadBuffer(size, 4, alloc); !result) {
+            return result;
+        }
+        std::memcpy(alloc.data, src, size);
+        FlushBarriers();
+        const VkBufferCopy region{alloc.offset, dstOffset, size};
+        vkCmdCopyBuffer(Cmd(), frames.GetCurrentFrame().uploadBuffer.buffer, dst.buffer, 1, &region);
+        pendingBarrier = true;
+        return {};
+    }
+
+    /// @brief Records a compute dispatch. The constants are concatenated in order, mirroring D3D12 root constants.
+    util::VoidResult<> Dispatch(const GpuPipeline &pipe, VkDescriptorSet set,
+                                std::initializer_list<std::pair<const void *, size_t>> constants, uint32 x, uint32 y,
+                                uint32 z) {
+        if (x == 0 || y == 0 || z == 0) {
+            return {};
+        }
+        UploadAllocation alloc{};
+        if (auto result = AllocateUploadBuffer(kConstRange, uboAlign, alloc); !result) {
+            return result;
+        }
+        size_t offset = 0;
+        for (const auto &[ptr, size] : constants) {
+            std::memcpy(static_cast<uint8 *>(alloc.data) + offset, ptr, size);
+            offset += size;
+        }
+        FlushBarriers();
+        VkCommandBuffer cmd = Cmd();
+        const uint32 dynOffset = static_cast<uint32>(alloc.offset);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout, 0, 1, &set, 1, &dynOffset);
+        vkCmdDispatch(cmd, x, y, z);
+        pendingBarrier = true;
+        return {};
+    }
+
+    void FillBuffer(GpuBuffer &dst, VkDeviceSize offset, VkDeviceSize size, uint32 value) {
+        FlushBarriers();
+        vkCmdFillBuffer(Cmd(), dst.buffer, offset, size, value);
+        pendingBarrier = true;
+    }
+
+    void BeginCommands(FrameContext &frameCtx) {
+        vkResetCommandPool(device, frameCtx.cmdPool, 0);
+        VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(frameCtx.cmd, &cbbi);
+        frameCtx.uploadOffset = 0;
+        pendingBarrier = true; // order against work from previous submissions
+    }
+
+    void SubmitCommands(FrameContext &frameCtx) {
+        // Make all writes visible to the host (readbacks)
+        VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        vkCmdPipelineBarrier(frameCtx.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+        vkEndCommandBuffer(frameCtx.cmd);
+
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &frameCtx.cmd;
+        if (VkResult r = vkQueueSubmit(queue, 1, &si, frameCtx.fence); r != VK_SUCCESS) {
+            devlog::warn<grp::dx12_base>("vkQueueSubmit failed ({})", (int)r);
+            frameCtx.submitted = false;
+            return;
+        }
+        frameCtx.submitted = true;
+    }
+
+    void WaitFrame(FrameContext &frameCtx) {
+        if (frameCtx.submitted) {
+            vkWaitForFences(device, 1, &frameCtx.fence, VK_TRUE, UINT64_MAX);
+            vkResetFences(device, 1, &frameCtx.fence);
+            frameCtx.submitted = false;
+        }
+    }
+
+    /// @brief Submits the commands recorded so far, waits for them and restarts recording in the same frame.
+    void SubmitAndWait() {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        SubmitCommands(frameCtx);
+        WaitFrame(frameCtx);
+        BeginCommands(frameCtx);
+    }
+
+    // =================================================================================================================
+    // Initialization
+
+    util::VoidResult<> CreateDevice(const VulkanRendererContext &context) {
+        if (context.device != nullptr) {
+            instance = static_cast<VkInstance>(context.instance);
+            physDevice = static_cast<VkPhysicalDevice>(context.physicalDevice);
+            device = static_cast<VkDevice>(context.device);
+            queue = static_cast<VkQueue>(context.queue);
+            queueFamily = context.queueFamily;
+            ownsDevice = false;
+            return {};
+        }
+
+        ownsDevice = true;
+
+        uint32 loaderVersion = VK_API_VERSION_1_0;
+        vkEnumerateInstanceVersion(&loaderVersion);
+        const uint32 apiVersion = loaderVersion >= VK_API_VERSION_1_2 ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1;
+
+        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+        app.pApplicationName = "GBSat VDP renderer";
+        app.pEngineName = "Ymir";
+        app.apiVersion = apiVersion;
+        VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+        ici.pApplicationInfo = &app;
+        if (VkResult r = vkCreateInstance(&ici, nullptr, &instance); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("vkCreateInstance failed ({})", (int)r)};
+        }
+
+        uint32 count = 0;
+        vkEnumeratePhysicalDevices(instance, &count, nullptr);
+        if (count == 0) {
+            return util::ErrorMessage{"No Vulkan devices found"};
+        }
+        std::vector<VkPhysicalDevice> devices(count);
+        vkEnumeratePhysicalDevices(instance, &count, devices.data());
+
+        bool found = false;
+        for (VkPhysicalDevice pd : devices) {
+            uint32 qCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(pd, &qCount, nullptr);
+            std::vector<VkQueueFamilyProperties> qprops(qCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(pd, &qCount, qprops.data());
+            for (uint32 i = 0; i < qCount; ++i) {
+                if (qprops[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                    physDevice = pd;
+                    queueFamily = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (!found) {
+            return util::ErrorMessage{"No Vulkan device with a compute queue"};
+        }
+
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physDevice, &props);
+        const uint32 deviceApi = std::min(props.apiVersion, apiVersion);
+
+        // Query features
+        uint32 extCount = 0;
+        vkEnumerateDeviceExtensionProperties(physDevice, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> exts(extCount);
+        vkEnumerateDeviceExtensionProperties(physDevice, nullptr, &extCount, exts.data());
+        auto hasExt = [&](const char *name) {
+            return std::any_of(exts.begin(), exts.end(),
+                               [&](const VkExtensionProperties &e) { return std::strcmp(e.extensionName, name) == 0; });
+        };
+
+        VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        VkPhysicalDeviceScalarBlockLayoutFeaturesEXT fsbl{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT};
+        VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        const bool use12 = deviceApi >= VK_API_VERSION_1_2;
+        const bool useExtSBL = !use12 && hasExt(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
+        if (use12) {
+            f2.pNext = &f12;
+        } else if (useExtSBL) {
+            f2.pNext = &fsbl;
+        }
+        vkGetPhysicalDeviceFeatures2(physDevice, &f2);
+
+        if (!f2.features.shaderInt64) {
+            return util::ErrorMessage{"The GPU does not support 64-bit integers in shaders (shaderInt64)"};
+        }
+
+        VkPhysicalDeviceFeatures enabled{};
+        enabled.shaderInt64 = VK_TRUE;
+        enabled.shaderStorageImageExtendedFormats = f2.features.shaderStorageImageExtendedFormats;
+
+        VkPhysicalDeviceVulkan12Features e12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        VkPhysicalDeviceScalarBlockLayoutFeaturesEXT esbl{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT};
+        std::vector<const char *> enabledExts;
+        const void *pNext = nullptr;
+        if (use12) {
+            e12.scalarBlockLayout = f12.scalarBlockLayout;
+            pNext = &e12;
+        } else if (useExtSBL) {
+            esbl.scalarBlockLayout = fsbl.scalarBlockLayout;
+            enabledExts.push_back(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
+            pNext = &esbl;
+        }
+
+        float priority = 1.0f;
+        VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        qci.queueFamilyIndex = queueFamily;
+        qci.queueCount = 1;
+        qci.pQueuePriorities = &priority;
+        VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        dci.pNext = pNext;
+        dci.queueCreateInfoCount = 1;
+        dci.pQueueCreateInfos = &qci;
+        dci.pEnabledFeatures = &enabled;
+        dci.enabledExtensionCount = (uint32)enabledExts.size();
+        dci.ppEnabledExtensionNames = enabledExts.data();
+        if (VkResult r = vkCreateDevice(physDevice, &dci, nullptr, &device); r != VK_SUCCESS) {
+            return util::ErrorMessage{fmt::format("vkCreateDevice failed ({})", (int)r)};
+        }
+        vkGetDeviceQueue(device, queueFamily, 0, &queue);
+        return {};
+    }
+
+    util::VoidResult<> CheckFormats() {
+        struct Need {
+            VkFormat format;
+            VkFormatFeatureFlags image;
+            VkFormatFeatureFlags buffer;
+            const char *name;
+        };
+        const Need needs[] = {
+            {VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT,
+             VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT, "R8G8B8A8_UINT"},
+            {VK_FORMAT_R8_UINT, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT, 0,
+             "R8_UINT"},
+            {VK_FORMAT_R16_UINT, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT, 0,
+             "R16_UINT"},
+            {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT, 0, "R8G8B8A8_UNORM"},
+            {VK_FORMAT_R32_UINT, 0,
+             VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT, "R32_UINT"},
+        };
+        for (const Need &n : needs) {
+            VkFormatProperties fp;
+            vkGetPhysicalDeviceFormatProperties(physDevice, n.format, &fp);
+            if ((fp.optimalTilingFeatures & n.image) != n.image || (fp.bufferFeatures & n.buffer) != n.buffer) {
+                return util::ErrorMessage{fmt::format("The GPU lacks required support for format {}", n.name)};
+            }
+        }
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physDevice, &props);
+        if (props.limits.maxTexelBufferElements < kVDP1FBRAMSize * 2 * 2) {
+            return util::ErrorMessage{fmt::format("The GPU's texel buffers are too small ({} elements)",
+                                                  props.limits.maxTexelBufferElements)};
+        }
+        uboAlign = std::max<VkDeviceSize>(props.limits.minUniformBufferOffsetAlignment, 4);
+        return {};
+    }
+
+    util::VoidResult<> Initialize(const VulkanRendererContext &context) {
+        if (auto result = CreateDevice(context); !result) {
+            return result;
+        }
+        vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
+        if (auto result = CheckFormats(); !result) {
+            return result;
+        }
+
+        // Command pools, command buffers and fences
+        for (size_t i = 0; i < frames.Count(); ++i) {
+            FrameContext &frameCtx = frames[i];
+            VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+            cpci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+            cpci.queueFamilyIndex = queueFamily;
+            if (VkResult r = vkCreateCommandPool(device, &cpci, nullptr, &frameCtx.cmdPool); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("vkCreateCommandPool failed ({})", (int)r)};
+            }
+            VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+            cbai.commandPool = frameCtx.cmdPool;
+            cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cbai.commandBufferCount = 1;
+            if (VkResult r = vkAllocateCommandBuffers(device, &cbai, &frameCtx.cmd); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("vkAllocateCommandBuffers failed ({})", (int)r)};
+            }
+            VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+            if (VkResult r = vkCreateFence(device, &fci, nullptr, &frameCtx.fence); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("vkCreateFence failed ({})", (int)r)};
+            }
+        }
+        BeginCommands(frames.GetCurrentFrame());
+
+        // Descriptor pool
+        {
+            const uint32 sets = 64 * kNumFrames;
+            const VkDescriptorPoolSize sizes[] = {
+                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, sets},
+                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sets},
+                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, sets * 8},
+                {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, sets * 4},
+                {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, sets * 4},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, sets * 8},
+                {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, sets * 4},
+            };
+            VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            dpci.maxSets = sets;
+            dpci.poolSizeCount = (uint32)std::size(sizes);
+            dpci.pPoolSizes = sizes;
+            if (VkResult r = vkCreateDescriptorPool(device, &dpci, nullptr, &descPool); r != VK_SUCCESS) {
+                return util::ErrorMessage{fmt::format("vkCreateDescriptorPool failed ({})", (int)r)};
+            }
+        }
+
+        // =============================================================================================================
+        // VDP1 common resources
+
+        if (auto r = CreateBuffer(vdp1.vramBuffer, kVDP1VRAMSize, kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 VRAM"); !r) {
+            return r;
+        }
+        // *2 framebuffers, *2 deinterlace alternate field, *2 transparent mesh buffers
+        if (auto r = CreateBuffer(vdp1.fbramBuffer, kVDP1FBRAMSize * 2 * 2 * 2, kSSBO, false, VK_FORMAT_UNDEFINED,
+                                  "VDP1 FBRAM");
+            !r) {
+            return r;
+        }
+        if (auto r = CreateBuffer(vdp1.fbramWritesBuffer, sizeof(VDP1FBRAMWrite) * kVDP1VRAMSize, kSSBO, false,
+                                  VK_FORMAT_UNDEFINED, "VDP1 FBRAM writes");
+            !r) {
+            return r;
+        }
+        if (auto r = CreateBuffer(vdp1.fbramDownloadBuffer, kVDP1FBRAMSize * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                                  VK_FORMAT_UNDEFINED, "VDP1 FBRAM download", true);
+            !r) {
+            return r;
+        }
+
+        // VDP1 pipelines
+        if (auto r = CreatePipeline(vdp1.fbramWritePipe, "src/vdp/cs_vdp1_fbram_write.spv", "VDP1 FBRAM write"); !r) {
+            return r;
+        }
+        if (auto r = CreatePipeline(vdp1.erasePipe, "src/vdp/cs_vdp1_erase.spv", "VDP1 erase"); !r) {
+            return r;
+        }
+        for (size_t shaderIndex = 0; shaderIndex < vdp1.polyDrawPipes.size(); ++shaderIndex) {
+            const auto [meshMode, shadingMode] = ExpandVDP1PolyDrawShaderIndex(shaderIndex);
+            const std::string filename = fmt::format("src/vdp/cs_vdp1_polydraw_{}_{}.spv", meshMode, shadingMode);
+            if (auto r = CreatePipeline(vdp1.polyDrawPipes[shaderIndex], filename,
+                                        "VDP1 polygon drawing " + GetVDP1PolyDrawShaderVariantName(shaderIndex));
+                !r) {
+                return r;
+            }
+        }
+        for (size_t shaderIndex = 0; shaderIndex < vdp1.outputMergerPipes.size(); ++shaderIndex) {
+            const auto [meshMode, mergeMode] = ExpandVDP1OutputMergerShaderIndex(shaderIndex);
+            const std::string filename = fmt::format("src/vdp/cs_vdp1_output_merger_{}_{}.spv", meshMode, mergeMode);
+            if (auto r = CreatePipeline(vdp1.outputMergerPipes[shaderIndex], filename,
+                                        "VDP1 output merger " + GetVDP1OutputMergerShaderVariantName(shaderIndex));
+                !r) {
+                return r;
+            }
+        }
+
+        // =============================================================================================================
+        // VDP2 common resources
+
+        if (auto r = CreateBuffer(vdp2.vramBuffer, kVDP2VRAMSize, kSSBO, false, VK_FORMAT_UNDEFINED, "VDP2 VRAM"); !r) {
+            return r;
+        }
+        if (auto r = CreateImage(vdp2.compositeOutTexture, VK_FORMAT_R8G8B8A8_UNORM, kMaxResH, kMaxResV, 1, false,
+                                 VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, "VDP2 composite output");
+            !r) {
+            return r;
+        }
+        if (auto r = CreatePipeline(vdp2.drawSpritePipe, "src/vdp/cs_vdp2_render_sprite.spv", "VDP2 sprite layer");
+            !r) {
+            return r;
+        }
+        if (auto r = CreatePipeline(vdp2.drawBGsPipe, "src/vdp/cs_vdp2_render_bgs.spv", "VDP2 background layers"); !r) {
+            return r;
+        }
+        if (auto r = CreatePipeline(vdp2.composePipe, "src/vdp/cs_vdp2_compose.spv", "VDP2 compose"); !r) {
+            return r;
+        }
+
+        // =============================================================================================================
+        // Per-frame resources
+
+        constexpr VkImageUsageFlags kImgUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+        for (size_t i = 0; i < frames.Count(); ++i) {
+            FrameContext &f = frames[i];
+            const std::string sfx = fmt::format(" #{}", i);
+
+#define YMIR_VK_TRY(expr)                                                                                              \
+    if (auto _r = (expr); !_r) {                                                                                       \
+        return _r;                                                                                                     \
+    }
+
+            YMIR_VK_TRY(CreateBuffer(f.uploadBuffer, kUploadBufferSize,
+                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true,
+                                     VK_FORMAT_UNDEFINED, "Upload" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.readbackBuffer, kMaxResH * kMaxResV * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                                     VK_FORMAT_UNDEFINED, "Readback" + sfx, true));
+
+            // VDP1
+            YMIR_VK_TRY(CreateBuffer(f.spanParamsBuffer, sizeof(VDP1SpanParams) * f.cpuSpanParams.size(), kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP1 span params" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.spanPrefixSumsBuffer, sizeof(HLSLuint) * f.cpuSpanPrefixSums.size(),
+                                     kUniformTexel | kSSBO, false, VK_FORMAT_R32_UINT, "VDP1 span prefix sums" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.cmdParamsBuffer, sizeof(VDP1CommandParams) * f.cpuCmdParams.size(), kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP1 command params" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.internalSpriteOutBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2,
+                                     kStorageTexel, false, VK_FORMAT_R32_UINT, "VDP1 internal sprite output" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.oitListHeadsBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2, kStorageTexel,
+                                     false, VK_FORMAT_R32_UINT, "VDP1 OIT list heads" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.oitFragmentsBuffer, sizeof(VDP1OITFragment) * kMaxVDP1OITFragmentsPerDispatch,
+                                     kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 OIT fragments" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.oitCounterBuffer, sizeof(HLSLuint), kSSBO, false, VK_FORMAT_UNDEFINED,
+                                     "VDP1 OIT counter" + sfx));
+
+            // VDP2
+            YMIR_VK_TRY(CreateBuffer(f.cramColorBuffer, kVDP2CRAMColorBufferSize, kUniformTexel, false,
+                                     VK_FORMAT_R8G8B8A8_UINT, "VDP2 CRAM colors" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.cramRotCoeffBuffer, kVDP2CRAMRotCoeffBufferSize, kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP2 CRAM rotation coefficients" + sfx));
+            YMIR_VK_TRY(CreateImage(f.layerOutTexture, VK_FORMAT_R8G8B8A8_UINT, kMaxResH, kMaxResV, 4 + 2 + 1 + 1, true,
+                                    kImgUsage, "VDP2 layer outputs" + sfx));
+            YMIR_VK_TRY(CreateImage(f.rbgLineColorOutTexture, VK_FORMAT_R8G8B8A8_UINT, kMaxNormalResH, kMaxNormalResV,
+                                    2, true, kImgUsage, "VDP2 RBG line colors" + sfx));
+            YMIR_VK_TRY(CreateImage(f.colorCalcWindowTexture, VK_FORMAT_R8_UINT, kMaxResH, kMaxResV, 1, false,
+                                    kImgUsage, "VDP2 color calc window" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.lnclBackBuffer, sizeof(ColorR8G8B8A8) * kMaxNormalResV * 2, kUniformTexel, false,
+                                     VK_FORMAT_R8G8B8A8_UINT, "VDP2 LNCL/BACK" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.rotParamBasesBuffer, sizeof(VDP2RotParamBase) * kMaxNormalResV * 2, kSSBO,
+                                     false, VK_FORMAT_UNDEFINED, "VDP2 rotation parameter bases" + sfx));
+            YMIR_VK_TRY(CreateImage(f.spriteAttrsTexture, VK_FORMAT_R16_UINT, kMaxResH, kMaxResV, 2, true, kImgUsage,
+                                    "VDP2 sprite attributes" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.layerRenderParamsBuffer, sizeof(VDP2LayerRenderParams), kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP2 layer render params" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.composeParamsBuffer, sizeof(VDP2ComposeParams), kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP2 compose params" + sfx));
+
+            // Descriptor sets (resource order mirrors the D3D12 descriptor tables: SRVs then UAVs)
+            auto set = [&](VkDescriptorSet &out, const GpuPipeline &pipe, std::initializer_list<Res> srvs,
+                           std::initializer_list<Res> uavs) -> util::VoidResult<> {
+                auto result = MakeSet(pipe, f.uploadBuffer, srvs, uavs);
+                if (!result) {
+                    return result.Error();
+                }
+                out = result.Value();
+                return {};
+            };
+
+            YMIR_VK_TRY(set(f.fbramWriteSet, vdp1.fbramWritePipe, {vdp1.fbramWritesBuffer}, {vdp1.fbramBuffer}));
+            YMIR_VK_TRY(set(f.eraseSet, vdp1.erasePipe, {}, {vdp1.fbramBuffer}));
+            for (size_t s = 0; s < vdp1.polyDrawPipes.size(); ++s) {
+                const GpuPipeline &pipe = vdp1.polyDrawPipes[s];
+                if (IsVDP1PolyDrawShaderOIT(s)) {
+                    YMIR_VK_TRY(set(f.polyDrawSets[s], pipe,
+                                    {f.spanParamsBuffer, f.spanPrefixSumsBuffer, f.cmdParamsBuffer, vdp1.vramBuffer},
+                                    {f.oitListHeadsBuffer, f.oitFragmentsBuffer, f.oitCounterBuffer}));
+                } else if (IsVDP1PolyDrawShaderMSB(s)) {
+                    YMIR_VK_TRY(set(f.polyDrawSets[s], pipe,
+                                    {f.spanParamsBuffer, f.spanPrefixSumsBuffer, f.cmdParamsBuffer, vdp1.vramBuffer},
+                                    {vdp1.fbramBuffer}));
+                } else {
+                    YMIR_VK_TRY(set(f.polyDrawSets[s], pipe,
+                                    {f.spanParamsBuffer, f.spanPrefixSumsBuffer, f.cmdParamsBuffer, vdp1.vramBuffer},
+                                    {f.internalSpriteOutBuffer}));
+                }
+            }
+            for (size_t s = 0; s < vdp1.outputMergerPipes.size(); ++s) {
+                const GpuPipeline &pipe = vdp1.outputMergerPipes[s];
+                if (IsVDP1OutputMergerShaderOIT(s)) {
+                    YMIR_VK_TRY(set(f.outputMergerSets[s], pipe, {f.oitFragmentsBuffer},
+                                    {vdp1.fbramBuffer, f.oitListHeadsBuffer}));
+                } else {
+                    YMIR_VK_TRY(
+                        set(f.outputMergerSets[s], pipe, {}, {vdp1.fbramBuffer, f.internalSpriteOutBuffer}));
+                }
+            }
+            YMIR_VK_TRY(set(f.drawSpriteSet, vdp2.drawSpritePipe,
+                            {f.layerRenderParamsBuffer, vdp2.vramBuffer, f.cramColorBuffer, f.rotParamBasesBuffer,
+                             vdp1.fbramBuffer},
+                            {f.layerOutTexture, f.spriteAttrsTexture}));
+            YMIR_VK_TRY(set(f.drawBGsSet, vdp2.drawBGsPipe,
+                            {f.layerRenderParamsBuffer, vdp2.vramBuffer, f.cramColorBuffer, f.cramRotCoeffBuffer,
+                             f.rotParamBasesBuffer, f.spriteAttrsTexture},
+                            {f.layerOutTexture, f.rbgLineColorOutTexture, f.colorCalcWindowTexture}));
+            YMIR_VK_TRY(set(f.composeSet, vdp2.composePipe,
+                            {f.composeParamsBuffer, f.layerOutTexture, f.lnclBackBuffer, f.rbgLineColorOutTexture,
+                             f.spriteAttrsTexture, f.colorCalcWindowTexture},
+                            {vdp2.compositeOutTexture}));
+
+            // Initialize OIT fragment list heads
+            FillBuffer(f.oitListHeadsBuffer, 0, VK_WHOLE_SIZE, 0xFFFFFFFF);
+#undef YMIR_VK_TRY
+        }
+
+        initialized = true;
+        Reset();
+
+        // Run the initialization commands right away so that failures surface early
+        SubmitAndWait();
+
+        return {};
+    }
+
+    void Shutdown() {
+        if (device == VK_NULL_HANDLE) {
+            return;
+        }
+        vkDeviceWaitIdle(device);
+        for (GpuPipeline *p : ownedPipelines) {
+            if (p->pipeline) vkDestroyPipeline(device, p->pipeline, nullptr);
+            if (p->layout) vkDestroyPipelineLayout(device, p->layout, nullptr);
+            if (p->setLayout) vkDestroyDescriptorSetLayout(device, p->setLayout, nullptr);
+        }
+        for (GpuImage *img : ownedImages) {
+            if (img->view) vkDestroyImageView(device, img->view, nullptr);
+            if (img->image) vkDestroyImage(device, img->image, nullptr);
+            if (img->memory) vkFreeMemory(device, img->memory, nullptr);
+        }
+        for (GpuBuffer *buf : ownedBuffers) {
+            if (buf->view) vkDestroyBufferView(device, buf->view, nullptr);
+            if (buf->buffer) vkDestroyBuffer(device, buf->buffer, nullptr);
+            if (buf->memory) vkFreeMemory(device, buf->memory, nullptr); // implicitly unmaps
+        }
+        ownedPipelines.clear();
+        ownedImages.clear();
+        ownedBuffers.clear();
+        if (descPool) vkDestroyDescriptorPool(device, descPool, nullptr);
+        for (size_t i = 0; i < frames.Count(); ++i) {
+            FrameContext &f = frames[i];
+            if (f.fence) vkDestroyFence(device, f.fence, nullptr);
+            if (f.cmdPool) vkDestroyCommandPool(device, f.cmdPool, nullptr);
+        }
+        if (ownsDevice) {
+            vkDestroyDevice(device, nullptr);
+            if (instance) vkDestroyInstance(instance, nullptr);
+        }
+        device = VK_NULL_HANDLE;
+        instance = VK_NULL_HANDLE;
+        initialized = false;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // State
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2057-2076 ----
+    void Reset() {
+        // VDP1
+        vdp1.vramDirty.SetAll();
+        if (auto result = VDP1UploadFBRAM(); !result) {
+            devlog::warn<grp::dx12_base>("Failed to upload VDP1 FBRAM: {}", result.Error().message);
+        }
+        vdp1.action = VDP1Action::None;
+
+        // VDP2
+        vdp2.vramDirty.SetAll();
+        ++vdp2.cramGeneration;
+        ++vdp2.layerRenderParamsGeneration;
+        ++vdp2.composeParamsGeneration;
+
+        vdp2.nextLayerRenderLine = 0;
+        vdp2.nextComposeLine = 0;
+
+        VDP2CacheAllCRAMColors();
+        VDP2UpdateEnabledLayers();
+    }
+    // ---- end copy ----
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Common
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2111-2117 ----
+    void UpdateEnhancements() {
+        VDP1CommonRenderParams &params1 = vdp1.cpuCommonRenderParams;
+        params1.enhancements.deinterlace = enhancements.deinterlace;
+        params1.enhancements.transparentMeshes = enhancements.transparentMeshes;
+
+        vdp2.cpuCommonRenderParams.enhancements = params1.enhancements;
+    }
+    // ---- end copy ----
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // VDP1 rendering
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2122-2130 ----
+    void VDP1WriteVRAM(uint32 address) {
+        // Submit spans if the target address is in use by a textured polygon in the current batch
+        if (vdp1.vramTexUsageTracker.IsInUse(address)) [[unlikely]] {
+            devlog::trace<grp::dx12_vdp1>("VDP1 VRAM write to {:05X} which is in use by pending spans; submitting now",
+                                          address);
+            VDP1SubmitSpans();
+        }
+        vdp1.vramDirty.Set(address >> VDP1Resources::kVRAMDirtyBitmapChunkSizeShift);
+    }
+    // ---- end copy ----
+
+    void VDP1DownloadFBRAM() {
+        // Bail out if there have been no changes
+        if (!vdp1.fbramReadbackCopyPending) {
+            return;
+        }
+        vdp1.fbramReadbackCopyPending = false;
+
+        // Submit the pending GPU work and wait for it to complete
+        SubmitAndWait();
+
+        // Copy downloaded FBRAM
+        memcpy(vdpState.mem1.FBRAM.data(), vdp1.fbramDownloadBuffer.mapped, kVDP1FBRAMSize * 2);
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2153-2175 ----
+    void VDP1SyncFB() {
+        // NOTE: intentionally not syncing FBRAM writes because these happened before the reads
+        if (vdp1.action != VDP1Action::FBRAMWrite) {
+            VDP1FlushWork();
+        }
+        VDP1CopyFBRAMToReadback();
+        VDP1DownloadFBRAM();
+    }
+
+    void VDP1DebugSyncFB() {
+        vdp1.fbramDebugSyncRequest.store(true, std::memory_order_release);
+    }
+
+    void VDP1WriteFB(uint32 address, uint32 size) {
+        VDP1UpdateAction(VDP1Action::FBRAMWrite);
+        for (uint32 i = 0; i < size; ++i) {
+            vdp1.fbramDirty.Set(address + i);
+        }
+    }
+
+    void VDP1WriteReg() {
+        VDP1UpdateAction(VDP1Action::RegWrite);
+    }
+    // ---- end copy ----
+
+    [[nodiscard]] util::VoidResult<> VDP1FlushVRAM() {
+        if (!vdp1.vramDirty) {
+            return {};
+        }
+
+        // Upload all modified VRAM chunks in a single copy command
+        std::vector<VkBufferCopy> regions;
+        size_t pos, count = 0;
+        for (pos = vdp1.vramDirty.FindNext(count); pos < vdp1.vramDirty.Size();
+             pos = vdp1.vramDirty.FindNext(count, pos + count)) {
+            const uint32 vramOffset = pos << VDP1Resources::kVRAMDirtyBitmapChunkSizeShift;
+            const uint32 size = count << VDP1Resources::kVRAMDirtyBitmapChunkSizeShift;
+
+            UploadAllocation alloc{};
+            if (auto result = AllocateUploadBuffer(size, 4, alloc); !result) {
+                return util::ErrorMessage{
+                    fmt::format("Failed to allocate upload buffer for VDP1 VRAM chunk: {}", result.Error().message)};
+            }
+            memcpy(alloc.data, &vdpState.mem1.VRAM[vramOffset], size);
+            regions.push_back({alloc.offset, vramOffset, size});
+        }
+        vdp1.vramDirty.ClearAll();
+
+        if (!regions.empty()) {
+            FlushBarriers();
+            vkCmdCopyBuffer(Cmd(), frames.GetCurrentFrame().uploadBuffer.buffer, vdp1.vramBuffer.buffer,
+                            (uint32)regions.size(), regions.data());
+            pendingBarrier = true;
+        }
+        return {};
+    }
+
+    /// @brief Uploads the entire VDP1 FBRAM to the GPU.
+    [[nodiscard]] util::VoidResult<> VDP1UploadFBRAM() {
+        static constexpr size_t kFrameSize = kVDP1FBRAMSize * 2;
+
+        if (auto result = UploadToBuffer(vdp1.fbramBuffer, kFrameSize * 0, vdpState.mem1.FBRAM.data(), kFrameSize);
+            !result) {
+            return util::ErrorMessage{fmt::format("Failed to upload VDP1 FBRAM: {}", result.Error().message)};
+        }
+        if (enhancements.deinterlace) {
+            if (auto result =
+                    UploadToBuffer(vdp1.fbramBuffer, kFrameSize * 1, vdpState.mem1.FBRAM.data(), kFrameSize);
+                !result) {
+                return util::ErrorMessage{fmt::format("Failed to upload VDP1 FBRAM: {}", result.Error().message)};
+            }
+        }
+        if (enhancements.transparentMeshes) {
+            // Clear mesh buffers (2 = main mesh, 3 = alternate mesh)
+            FillBuffer(vdp1.fbramBuffer, kFrameSize * 2, kFrameSize * (enhancements.deinterlace ? 2 : 1), 0);
+        }
+
+        vdp1.fbramDirty.ClearAll();
+        vdp1.fbramReadbackDirty = true;
+        return {};
+    }
+
+    /// @brief Uploads modified portions of VDP1 FBRAM to the GPU
+    [[nodiscard]] util::VoidResult<> VDP1FlushFBRAM() {
+        if (!vdp1.fbramDirty) {
+            return {};
+        }
+
+        auto &fb = vdpState.mem1.FBRAM[vdpState.fbIndex.draw];
+
+        // Group modified FBRAM writes into 32-bit chunks
+        size_t pos, count = 0;
+        const uint64 *bitmapData = vdp1.fbramDirty.GetData();
+        for (pos = vdp1.fbramDirty.FindNextGroup<4>(count); pos < vdp1.fbramDirty.Size();
+             pos = vdp1.fbramDirty.FindNextGroup<4>(count, pos + count)) {
+            const uint32 baseAddress = pos;
+
+            for (size_t i = 0; i < count; i += 4) {
+                VDP1FBRAMWrite &write = vdp1.cpuFBRAMWritesList.emplace_back();
+                write.address = baseAddress + i;
+
+                const uint8 bits = bitmapData[write.address >> 6u] >> (write.address & 63u);
+                write.andMask = 0;
+                for (uint32 j = 0; j < 4; ++j) {
+                    const uint32 shift = j * 8u;
+                    if (((bits >> j) & 1u) == 0u) {
+                        write.andMask |= (0xFFu << shift);
+                    }
+                }
+                write.orMask = util::ReadLE<uint32>(&fb[write.address]);
+                write.orMask &= ~write.andMask;
+            }
+        }
+        vdp1.fbramDirty.ClearAll();
+
+        util::ScopeGuard sgClear{[&] { vdp1.cpuFBRAMWritesList.clear(); }};
+        if (vdp1.cpuFBRAMWritesList.empty()) {
+            return {};
+        }
+
+        const size_t size = vdp1.cpuFBRAMWritesList.size() * sizeof(VDP1FBRAMWrite);
+        if (auto result = UploadToBuffer(vdp1.fbramWritesBuffer, 0, vdp1.cpuFBRAMWritesList.data(), size); !result) {
+            return util::ErrorMessage{
+                fmt::format("Failed to upload VDP1 FBRAM writes list: {}", result.Error().message)};
+        }
+
+        const uint32 writeCount = vdp1.cpuFBRAMWritesList.size();
+        if (auto result = Dispatch(vdp1.fbramWritePipe, frames.GetCurrentFrame().fbramWriteSet,
+                                   {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)},
+                                    {&writeCount, sizeof(writeCount)}},
+                                   (writeCount + 63) / 64, 1, 1);
+            !result) {
+            return result;
+        }
+
+        vdp1.fbramReadbackDirty = true;
+        return {};
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2350-2395 ----
+    void VDP1EraseFramebuffer(uint64 cycles) {
+        VDP1UpdateAction(VDP1Action::Erase);
+
+        const VDP1Regs &regs1 = vdpState.regs1;
+
+        if (regs1.eraseX1Latch == regs1.eraseX3Latch || regs1.eraseY1Latch == regs1.eraseY3Latch) {
+            // Nothing to erase
+            return;
+        }
+
+        const VDP2Regs &regs2 = vdpState.regs2;
+
+        // Vertical scale is doubled in double-interlace mode
+        const bool doubleDensity = regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity;
+        const uint32 scaleV = doubleDensity ? 1u : 0u;
+
+        // Constrain erase area to certain limits based on current resolution
+        const uint32 maxH = (regs2.TVMD.HRESOn & 1) ? 428 : 400;
+        const uint32 maxV = VRes >> scaleV;
+
+        vdp1.cpuEraseParams.coords.x1 = std::min<uint32>(regs1.eraseX1Latch, maxH) >> 3u;
+        vdp1.cpuEraseParams.coords.y1 = std::min<uint32>(regs1.eraseY1Latch, maxV);
+        vdp1.cpuEraseParams.coords.x3 = std::min<uint32>(regs1.eraseX3Latch, maxH) >> 3u;
+        vdp1.cpuEraseParams.coords.y3 = std::min<uint32>(regs1.eraseY3Latch, maxV);
+        vdp1.cpuEraseParams.coords.scaleV = scaleV;
+
+        vdp1.cpuEraseParams.erase.writeValue = bit::byte_swap<uint16>(regs1.eraseWriteValueLatch);
+        vdp1.cpuEraseParams.erase.addressShift = regs1.tvmr.eraseOffsetShift - 8;
+
+        vdp1.cpuEraseParams.vblank.enable = cycles != 0;
+        if (vdp1.cpuEraseParams.vblank.enable) {
+            // Compute last line and pixel that can be drawn with the given cycle budget
+            const uint32 lineWidth = (vdp1.cpuEraseParams.coords.x3 << 3u) - (vdp1.cpuEraseParams.coords.x1 << 3u);
+            if (lineWidth > 0) {
+                vdp1.cpuEraseParams.vblank.maxY = cycles / lineWidth + vdp1.cpuEraseParams.coords.y1;
+                vdp1.cpuEraseParams.vblank.maxX = cycles % lineWidth + vdp1.cpuEraseParams.coords.x1;
+            } else {
+                vdp1.cpuEraseParams.vblank.maxY = 0;
+                vdp1.cpuEraseParams.vblank.maxX = 0;
+            }
+        }
+
+        // Do framebuffer erase
+        const auto &erase = vdp1.cpuEraseParams;
+        const uint32 width = (erase.coords.x3 << 3) - (erase.coords.x1 << 3) + 1;
+        const uint32 height = erase.coords.y3 - erase.coords.y1 + 1;
+    // ---- end copy ----
+
+        // Dispatch erase shader. Works on 32-bit units, so two writes per thread.
+        if (auto result = Dispatch(vdp1.erasePipe, frames.GetCurrentFrame().eraseSet,
+                                   {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)},
+                                    {&vdp1.cpuEraseParams, sizeof(vdp1.cpuEraseParams)}},
+                                   (width + 63) / 64, (height + 31) / 32, 1);
+            !result) {
+            devlog::warn<grp::dx12_vdp1>("Failed to erase VDP1 framebuffer: {}", result.Error().message);
+        }
+
+        // Mark GPU-side FBRAM as dirty
+        vdp1.fbramReadbackDirty = true;
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2422-2426 ----
+    void VDP1SwapFramebuffer() {
+        VDP1UpdateAction(VDP1Action::Swap);
+
+        VDP1CopyFBRAMToReadback();
+    }
+    // ---- end copy ----
+
+    /// @brief Copies GPU-modified FBRAM to the readback buffer.
+    void VDP1CopyFBRAMToReadback() {
+        if (!vdp1.fbramReadbackDirty) {
+            return;
+        }
+        vdp1.fbramReadbackDirty = false;
+        vdp1.fbramReadbackCopyPending = true;
+
+        FlushBarriers();
+        const VkBufferCopy region{0, 0, kVDP1FBRAMSize * 2};
+        vkCmdCopyBuffer(Cmd(), vdp1.fbramBuffer.buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
+        pendingBarrier = true;
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2444-2491 ----
+    void VDP1BeginFrame() {
+        const VDP1Regs &regs1 = vdpState.regs1;
+        const VDP2Regs &regs2 = vdpState.regs2;
+        vdp1.doubleV =
+            enhancements.deinterlace && regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity && !regs1.dblInterlaceEnable;
+    }
+
+    void VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
+        VDP1UpdateAction(VDP1Action::Draw);
+
+        switch (control.command) {
+        case VDP1Command::CommandType::DrawNormalSprite: VDP1Cmd_DrawNormalSprite(cmdAddress, control); break;
+        case VDP1Command::CommandType::DrawScaledSprite: VDP1Cmd_DrawScaledSprite(cmdAddress, control); break;
+        case VDP1Command::CommandType::DrawDistortedSprite: [[fallthrough]];
+        case VDP1Command::CommandType::DrawDistortedSpriteAlt: VDP1Cmd_DrawDistortedSprite(cmdAddress, control); break;
+
+        case VDP1Command::CommandType::DrawPolygon: VDP1Cmd_DrawPolygon(cmdAddress); break;
+        case VDP1Command::CommandType::DrawPolylines: [[fallthrough]];
+        case VDP1Command::CommandType::DrawPolylinesAlt: VDP1Cmd_DrawPolylines(cmdAddress); break;
+        case VDP1Command::CommandType::DrawLine: VDP1Cmd_DrawLine(cmdAddress); break;
+
+        case VDP1Command::CommandType::UserClipping: [[fallthrough]];
+        case VDP1Command::CommandType::UserClippingAlt: VDP1Cmd_SetUserClipping(cmdAddress); break;
+        case VDP1Command::CommandType::SystemClipping: VDP1Cmd_SetSystemClipping(cmdAddress); break;
+        case VDP1Command::CommandType::SetLocalCoordinates: VDP1Cmd_SetLocalCoordinates(cmdAddress); break;
+        }
+    }
+
+    struct VDP1CommandData {
+        VDP1Command::DrawMode mode;
+        uint16 color;
+
+        uint32 charAddr;
+        VDP1Command::Size size;
+    };
+
+    struct VDP1SpanData {
+        uint16 cmdIndex;
+        VDP1Command::DrawMode mode;
+        Color555 gouraud0;
+        Color555 gouraud1;
+
+        uint32 charAddr;
+        VDP1Command::Size size;
+        uint32 texV;
+        bool flipH;
+        uint32 endCodeIndex;
+    };
+    // ---- end copy ----
+
+    util::VoidResult<> VDP1SubmitSpans() {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        if (frameCtx.cpuSpanCount == 0) {
+            // No spans to dispatch
+            frameCtx.cpuCmdCount = 0;
+            return {};
+        }
+
+        // Clear counters even if we fail to submit them to avoid crashes on extreme cases.
+        util::ScopeGuard sgFinish{[&] {
+            FrameContext &ctx = frames.GetCurrentFrame();
+            ctx.cpuSpanCount = 0;
+            ctx.cpuCmdCount = 0;
+            vdp1.vramTexUsageTracker.Clear();
+        }};
+
+        assert(vdp1.currPolyDrawShaderIndex != -1);
+
+        vdp1.cpuPolyDrawParams.numSpans = frameCtx.cpuSpanCount;
+
+        if (auto result = VDP1FlushVRAM(); !result) {
+            devlog::warn<grp::dx12_vdp1>("VDP1 VRAM flush failed: {}", result.Error().message);
+        }
+
+        // NOTE: uploads may flush the GPU (SubmitAndWait) but never switch frames, so frameCtx stays valid
+        if (auto result = UploadToBuffer(frameCtx.spanParamsBuffer, 0, frameCtx.cpuSpanParams.data(),
+                                         sizeof(VDP1SpanParams) * frameCtx.cpuSpanCount);
+            !result) {
+            return result;
+        }
+        if (auto result = UploadToBuffer(frameCtx.spanPrefixSumsBuffer, 0, frameCtx.cpuSpanPrefixSums.data(),
+                                         sizeof(HLSLuint) * (frameCtx.cpuSpanCount + 1));
+            !result) {
+            return result;
+        }
+        if (auto result = UploadToBuffer(frameCtx.cmdParamsBuffer, 0, frameCtx.cpuCmdParams.data(),
+                                         sizeof(VDP1CommandParams) * frameCtx.cpuCmdCount);
+            !result) {
+            return result;
+        }
+
+        const bool isOIT = IsVDP1PolyDrawShaderOIT(vdp1.currPolyDrawShaderIndex);
+        const bool isMSB = IsVDP1PolyDrawShaderMSB(vdp1.currPolyDrawShaderIndex);
+
+        if (isOIT) {
+            // Reset atomic counter
+            FillBuffer(frameCtx.oitCounterBuffer, 0, sizeof(HLSLuint), 0);
+        }
+
+        // Dispatch polygon drawing shader
+        if (auto result =
+                Dispatch(vdp1.polyDrawPipes[vdp1.currPolyDrawShaderIndex],
+                         frameCtx.polyDrawSets[vdp1.currPolyDrawShaderIndex],
+                         {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)},
+                          {&vdp1.cpuPolyDrawParams, sizeof(vdp1.cpuPolyDrawParams)}},
+                         (frameCtx.cpuSpanPrefixSums[frameCtx.cpuSpanCount] + 63) / 64, 1, 1);
+            !result) {
+            return result;
+        }
+
+        // Merge output into FBRAM if needed. MSB shader writes directly to FBRAM, no merging needed.
+        if (!isMSB) {
+            const VDP1Regs &regs1 = vdpState.regs1;
+            const VDP2Regs &regs2 = vdpState.regs2;
+            const uint32 pixelsPerEntry = regs1.tvmr.pixel8Bits ? 4u : 2u; // each entry is 32 bits
+            const uint32 mergeW = regs1.tvmr.fbSizeH / pixelsPerEntry;
+            const uint32 mergeH = regs1.tvmr.fbSizeV;
+            const uint32 mergeZ = regs2.TVMD.IsInterlaced() && enhancements.deinterlace ? 2 : 1;
+
+            if (auto result = Dispatch(vdp1.outputMergerPipes[vdp1.currOutputMergerShaderIndex],
+                                       frameCtx.outputMergerSets[vdp1.currOutputMergerShaderIndex],
+                                       {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)}},
+                                       (mergeW + 7) / 8, (mergeH + 7) / 8, mergeZ);
+                !result) {
+                return result;
+            }
+        }
+
+        vdp1.fbramReadbackDirty = true;
+
+        return {};
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2665-3437 ----
+    void VDP1UpdateCommonRenderParams() {
+        VDP1CommonRenderParams &params = vdp1.cpuCommonRenderParams;
+        const VDP1Regs &regs1 = vdpState.regs1;
+        const VDP2Regs &regs2 = vdpState.regs2;
+        const bool doubleDensity = regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity;
+
+        auto &displayParams = params.displayParams;
+        displayParams.fbSizeH = std::countr_zero(regs1.tvmr.fbSizeH) - 9u;
+        displayParams.fbSizeV = std::countr_zero(regs1.tvmr.fbSizeV) - 8u;
+        displayParams.pixel8Bits = regs1.tvmr.pixel8Bits;
+        displayParams.doubleDensity = doubleDensity;
+        displayParams.dblInterlaceEnable = regs1.dblInterlaceEnable;
+        displayParams.dblInterlaceDrawLine = regs1.dblInterlaceDrawLine;
+        displayParams.evenOddCoordSelect = regs1.evenOddCoordSelect;
+    }
+
+    void VDP1SelectPolyDrawShader(VDP1Command::DrawMode mode) {
+        // Submit existing spans before switching shaders
+        const size_t polyDrawIndex = MakeVDP1PolyDrawShaderIndex(mode);
+        const size_t outputMergerIndex = MakeVDP1OutputMergerShaderIndex(mode);
+        if (vdp1.currPolyDrawShaderIndex != polyDrawIndex || vdp1.currOutputMergerShaderIndex != outputMergerIndex) {
+            VDP1SubmitSpans();
+            vdp1.currPolyDrawShaderIndex = polyDrawIndex;
+            vdp1.currOutputMergerShaderIndex = outputMergerIndex;
+        }
+    }
+
+    uint16 VDP1AddCommand(const VDP1CommandData &data, bool textured) {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+
+        // If list is full, flush it
+        if (frameCtx.cpuCmdCount + 1 >= kMaxVDP1Commands) {
+            VDP1SubmitSpans();
+        }
+
+        // Switch polygon drawing shader based on the current settings
+        VDP1SelectPolyDrawShader(data.mode);
+
+        const uint16 cmdIndex = frameCtx.cpuCmdCount++;
+        VDP1CommandParams &cmdParams = frameCtx.cpuCmdParams[cmdIndex];
+
+        const VDP1State &state = vdpState.state1;
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        cmdParams.userClip0.x = state.userClipX0;
+        cmdParams.userClip0.y = (state.userClipY0 << doubleV) | doubleV;
+        cmdParams.userClip1.x = state.userClipX1;
+        cmdParams.userClip1.y = (state.userClipY1 << doubleV) | doubleV;
+        cmdParams.sysClip.h = state.sysClipH;
+        cmdParams.sysClip.v = (state.sysClipV << doubleV) | doubleV;
+
+        cmdParams.cmdcolr = data.color;
+        cmdParams.cmdpmod = data.mode.u16;
+        if (textured) {
+            cmdParams.cmdsize = data.size.u16;
+            cmdParams.cmdsrca = data.charAddr >> 3u;
+        }
+
+        return cmdIndex;
+    }
+
+    bool VDP1AddSpan(CoordS32 coord0, CoordS32 coord1, VDP1SpanData &data, bool textured, bool antialias) {
+        // Discard if completely out of bounds
+        if (coord0.x() < 0 && coord1.x() < 0) {
+            return false;
+        }
+        if (coord0.y() < 0 && coord1.y() < 0) {
+            return false;
+        }
+        const sint32 sysClipH = vdpState.state1.sysClipH;
+        if (coord0.x() > sysClipH && coord1.x() > sysClipH) {
+            return false;
+        }
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 sysClipV = (vdpState.state1.sysClipV << doubleV) | doubleV;
+        if (coord0.y() > sysClipV && coord1.y() > sysClipV) {
+            return false;
+        }
+
+        // Mark transparent mesh drawn if that's the case
+        if (data.mode.meshEnable && enhancements.transparentMeshes) {
+            vdp1.transparentMeshDrawn = true;
+        }
+
+        // Determine span length
+        LineStepper line{coord0, coord1};
+        const uint32 skip = line.SystemClip(sysClipH, sysClipV);
+        const uint32 length = line.Length();
+
+        if (length == 0) {
+            // Entire line was clipped
+            return false;
+        }
+
+        const bool isOIT = IsVDP1PolyDrawShaderOIT(vdp1.currPolyDrawShaderIndex);
+        const uint32 fragLimit = isOIT ? kMaxVDP1OITFragmentsPerDispatch : kMaxVDP1FragmentsPerDispatch;
+
+        // Submit spans now if the total fragment count would exceed the limit
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        if (frameCtx.cpuSpanPrefixSums[frameCtx.cpuSpanCount] + length >= fragLimit) {
+            VDP1SubmitSpans();
+
+            // Readd command
+            frameCtx.cpuCmdParams[0] = frameCtx.cpuCmdParams[data.cmdIndex];
+            frameCtx.cpuCmdCount = 1;
+            data.cmdIndex = 0;
+        }
+
+        // Append span to list
+        VDP1SpanParams &spanParams = frameCtx.cpuSpanParams[frameCtx.cpuSpanCount];
+
+        const auto [x0, y0] = coord0;
+        const auto [x1, y1] = coord1;
+
+        spanParams.coord0 = {x0, y0};
+        spanParams.coord1 = {x1, y1};
+        spanParams.cmdIndex = data.cmdIndex;
+        spanParams.skip = skip;
+        spanParams.attrs.antialias = antialias;
+
+        if (data.mode.gouraudEnable) {
+            spanParams.gouraud0.r = data.gouraud0.r;
+            spanParams.gouraud0.g = data.gouraud0.g;
+            spanParams.gouraud0.b = data.gouraud0.b;
+            spanParams.gouraud1.r = data.gouraud1.r;
+            spanParams.gouraud1.g = data.gouraud1.g;
+            spanParams.gouraud1.b = data.gouraud1.b;
+        }
+
+        spanParams.attrs.textured = textured;
+        if (textured) {
+            spanParams.attrs.texV = data.texV;
+            spanParams.attrs.flipH = data.flipH;
+            spanParams.attrs.endCodeIndex = data.endCodeIndex;
+        }
+
+        // Update prefix sum
+        HLSLuint &nextSum = frameCtx.cpuSpanPrefixSums[frameCtx.cpuSpanCount + 1];
+        const HLSLuint currSum = frameCtx.cpuSpanPrefixSums[frameCtx.cpuSpanCount];
+        nextSum = currSum + length;
+
+        // If list is full, flush it
+        ++frameCtx.cpuSpanCount;
+        if (frameCtx.cpuSpanCount >= frameCtx.cpuSpanParams.size()) {
+            VDP1SubmitSpans();
+
+            // Readd command
+            frameCtx.cpuCmdParams[0] = frameCtx.cpuCmdParams[data.cmdIndex];
+            frameCtx.cpuCmdCount = 1;
+            data.cmdIndex = 0;
+        }
+
+        // Indicate that the span was drawn
+        return true;
+    }
+
+    void VDP1PlotTexturedQuad(VDP1SpanData &data, uint32 cmdAddress, VDP1Command::Control control, CoordS32 coordA,
+                              CoordS32 coordB, CoordS32 coordC, CoordS32 coordD) {
+        QuadStepper quad{coordA, coordB, coordC, coordD};
+
+        if (data.mode.gouraudEnable) {
+            const uint32 gouraudTable = static_cast<uint32>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1C)) << 3u;
+            Color555 gouraudA;
+            Color555 gouraudB;
+            Color555 gouraudC;
+            Color555 gouraudD;
+            gouraudA.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 0u);
+            gouraudB.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 2u);
+            gouraudC.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 4u);
+            gouraudD.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 6u);
+            quad.SetupGouraud(gouraudA, gouraudB, gouraudC, gouraudD);
+        }
+
+        // A width of zero results in the first fetched texel being used for the entire texture.
+        // We simulate this by reducing the texture height to one.
+        const uint32 charSizeH = data.size.H * 8;
+        const uint32 charSizeV = data.size.V;
+        const bool flipV = control.flipV;
+        TextureStepper texVStepper{};
+        quad.SetupTexture(texVStepper, charSizeH == 0 ? 1 : charSizeV, flipV);
+
+        data.texV = charSizeV; // out of range value to ensure first iteration fetches end codes
+
+        // Optimization for the case where the quad goes outside the system clipping area.
+        // Skip rendering the rest of the quad when a line is clipped after plotting at least one line.
+        // The first few lines of the quad could also be clipped; that is accounted for by requiring at least one
+        // plotted line. The point is to skip the calculations once the quad iterator reaches a point where no more
+        // lines can be plotted because they all sit outside the system clip area.
+        //
+        // This also handles a degenerate case with a bowtie quad sitting outside the corner of the screen with two
+        // points poking into the screen area in a configuration similar to this:
+        //
+        //                       D
+        //                        B
+        //   +-----------------+
+        //   |            A    |
+        //   |               C |
+        //   |                 |
+        //   |                 |
+        //   |                 |
+        //   +-----------------+
+        //
+        // In this case, the line gets fully clipped partway through the quad, but comes back into view at the end, so
+        // we need to check for two sequences of plotted lines rather than one.
+        bool linePlotted = false;
+        int plottedSegmentsCount = 0;
+        const int plottedSegmentsMax = quad.IsDegenerate() ? 2 : 1;
+
+        // Mark VRAM as in use for this texture
+        uint32 texSize = charSizeH * charSizeV;
+        switch (data.mode.colorMode) {
+        case 0: [[fallthrough]];       // 4 bpp, 16 colors, bank mode
+        case 1: texSize >>= 1u; break; // 4 bpp, 16 colors, lookup table mode
+        case 2: [[fallthrough]];       // 8 bpp, 64 colors, bank mode
+        case 3: [[fallthrough]];       // 8 bpp, 128 colors, bank mode
+        case 4: break;                 // 8 bpp, 256 colors, bank mode
+        case 5: texSize <<= 1u; break; // 16 bpp, 32768 colors, RGB mode
+        }
+        devlog::trace<grp::dx12_vdp1>("Tracking VRAM usage for texture: {:05X}..{:05X}", data.charAddr,
+                                      data.charAddr + texSize - 1);
+        vdp1.vramTexUsageTracker.MarkRange(data.charAddr, texSize);
+
+        // TODO: cache this
+        auto findEndCodeIndex = [&](uint32 v) -> uint32 {
+            if (data.mode.endCodeDisable) {
+                return charSizeH;
+            }
+
+            int endCodeCount = 0;
+
+            for (uint32 i = 0; i < charSizeH; ++i) {
+                const uint32 u = control.flipH ? charSizeH - 1 - i : i;
+
+                const uint32 charIndex = u + v * charSizeH;
+
+                auto processEndCode = [&](bool endCode) -> bool {
+                    if (endCode && !data.mode.endCodeDisable) {
+                        ++endCodeCount;
+                    }
+                    return endCodeCount >= 2;
+                };
+
+                // Read next texel
+                uint32 color;
+                switch (data.mode.colorMode) {
+                case 0: // 4 bpp, 16 colors, bank mode
+                    color = vdpState.mem1.ReadVRAM<uint8>(data.charAddr + (charIndex >> 1));
+                    color = (color >> ((~u & 1) * 4)) & 0xF;
+                    if (processEndCode(color == 0xF)) {
+                        return u;
+                    }
+                    break;
+                case 1: // 4 bpp, 16 colors, lookup table mode
+                    color = vdpState.mem1.ReadVRAM<uint8>(data.charAddr + (charIndex >> 1));
+                    color = (color >> ((~u & 1) * 4)) & 0xF;
+                    if (processEndCode(color == 0xF)) {
+                        return u;
+                    }
+                    break;
+                case 2: // 8 bpp, 64 colors, bank mode
+                    color = vdpState.mem1.ReadVRAM<uint8>(data.charAddr + charIndex);
+                    if (processEndCode(color == 0xFF)) {
+                        return u;
+                    }
+                    break;
+                case 3: // 8 bpp, 128 colors, bank mode
+                    color = vdpState.mem1.ReadVRAM<uint8>(data.charAddr + charIndex);
+                    if (processEndCode(color == 0xFF)) {
+                        return u;
+                    }
+                    break;
+                case 4: // 8 bpp, 256 colors, bank mode
+                    color = vdpState.mem1.ReadVRAM<uint8>(data.charAddr + charIndex);
+                    if (processEndCode(color == 0xFF)) {
+                        return u;
+                    }
+                    break;
+                case 5: // 16 bpp, 32768 colors, RGB mode
+                    color = vdpState.mem1.ReadVRAM<uint16>(data.charAddr + charIndex * sizeof(uint16));
+                    if (processEndCode(color == 0x7FFF)) {
+                        return u;
+                    }
+                    break;
+                }
+            };
+            return charSizeH;
+        };
+
+        // Interpolate linearly over edges A-D and B-C
+        for (; quad.CanStep(); quad.Step()) {
+            // Plot lines between the interpolated points
+            const CoordS32 coordL = quad.LeftEdge().Coord();
+            const CoordS32 coordR = quad.RightEdge().Coord();
+
+            while (texVStepper.ShouldStepTexel()) {
+                texVStepper.StepTexel();
+            }
+            texVStepper.StepPixel();
+
+            const uint32 newTexV = texVStepper.Value();
+            if (newTexV != data.texV) {
+                data.texV = newTexV;
+                data.endCodeIndex = findEndCodeIndex(newTexV);
+            }
+
+            if (data.mode.gouraudEnable) {
+                data.gouraud0 = quad.LeftEdge().GouraudValue();
+                data.gouraud1 = quad.RightEdge().GouraudValue();
+            }
+
+            if (VDP1AddSpan(coordL, coordR, data, true, true)) {
+                if (!linePlotted) {
+                    linePlotted = true;
+                    ++plottedSegmentsCount;
+                }
+            } else if (plottedSegmentsCount >= plottedSegmentsMax) {
+                // No more lines can be drawn past this point
+                break;
+            } else {
+                linePlotted = false;
+            }
+        }
+    }
+
+    void VDP1Cmd_DrawNormalSprite(uint32 cmdAddress, VDP1Command::Control control) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+        const VDP1State &state = vdpState.state1;
+
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const uint32 charAddr = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x08) << 3u;
+        const VDP1Command::Size size{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0A)};
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C)) + state.localCoordX;
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E)) + state.localCoordY;
+        const uint32 charSizeH = size.H * 8;
+        const uint32 charSizeV = size.V;
+
+        const sint32 xb = xa + std::max(charSizeH, 1u) - 1u; // right X
+        const sint32 yb = ya + std::max(charSizeV, 1u) - 1u; // bottom Y
+
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 yAdd = enhancements.deinterlace ? doubleV : 0;
+
+        const CoordS32 coordA{xa, ya << doubleV};
+        const CoordS32 coordB{xb, ya << doubleV};
+        const CoordS32 coordC{xb, (yb << doubleV) + yAdd};
+        const CoordS32 coordD{xa, (yb << doubleV) + yAdd};
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+            .charAddr = charAddr,
+            .size = size,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, true);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+            .charAddr = charAddr,
+            .size = size,
+            .flipH = control.flipH != 0,
+        };
+
+        VDP1PlotTexturedQuad(spanData, cmdAddress, control, coordA, coordB, coordC, coordD);
+    }
+
+    void VDP1Cmd_DrawScaledSprite(uint32 cmdAddress, VDP1Command::Control control) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+
+        const VDP1State &state = vdpState.state1;
+
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const uint32 charAddr = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x08) << 3u;
+        const VDP1Command::Size size{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0A)};
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C));
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E));
+
+        // Calculated quad coordinates
+        sint32 qxa = xa;
+        sint32 qya = ya;
+        sint32 qxb = xa;
+        sint32 qyb = ya;
+        sint32 qxc = xa;
+        sint32 qyc = ya;
+        sint32 qxd = xa;
+        sint32 qyd = ya;
+
+        const uint8 zoomPointH = bit::extract<0, 1>(control.zoomPoint);
+        const uint8 zoomPointV = bit::extract<2, 3>(control.zoomPoint);
+
+        if (zoomPointH == 0) {
+            const sint32 xc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14));
+
+            qxb = xc;
+            qxc = xc;
+        } else {
+            const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10));
+
+            switch (zoomPointH) {
+            case 1:
+                qxb += xb;
+                qxc += xb;
+                break;
+            case 2:
+                qxa -= xb >> 1;
+                qxb += (xb + 1) >> 1;
+                qxc += (xb + 1) >> 1;
+                qxd -= xb >> 1;
+                break;
+            case 3:
+                qxa -= xb;
+                qxd -= xb;
+                break;
+            }
+        }
+
+        if (zoomPointV == 0) {
+            const sint32 yc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16));
+
+            qyc = yc;
+            qyd = yc;
+        } else {
+            const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12));
+
+            switch (zoomPointV) {
+            case 1:
+                qyc += yb;
+                qyd += yb;
+                break;
+            case 2:
+                qya -= yb >> 1;
+                qyb -= yb >> 1;
+                qyc += (yb + 1) >> 1;
+                qyd += (yb + 1) >> 1;
+                break;
+            case 3:
+                qya -= yb;
+                qyb -= yb;
+                break;
+            }
+        }
+
+        qxa += state.localCoordX;
+        qya += state.localCoordY;
+        qxb += state.localCoordX;
+        qyb += state.localCoordY;
+        qxc += state.localCoordX;
+        qyc += state.localCoordY;
+        qxd += state.localCoordX;
+        qyd += state.localCoordY;
+
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 yAdd = enhancements.deinterlace ? doubleV : 0;
+
+        const CoordS32 coordA{qxa, qya << doubleV};
+        const CoordS32 coordB{qxb, qyb << doubleV};
+        const CoordS32 coordC{qxc, (qyc << doubleV) + yAdd};
+        const CoordS32 coordD{qxd, (qyd << doubleV) + yAdd};
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+            .charAddr = charAddr,
+            .size = size,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, true);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+            .charAddr = charAddr,
+            .size = size,
+            .flipH = control.flipH != 0,
+        };
+
+        VDP1PlotTexturedQuad(spanData, cmdAddress, control, coordA, coordB, coordC, coordD);
+    }
+
+    void VDP1Cmd_DrawDistortedSprite(uint32 cmdAddress, VDP1Command::Control control) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+
+        const VDP1State &state = vdpState.state1;
+
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const uint32 charAddr = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x08) << 3u;
+        const VDP1Command::Size size{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0A)};
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C)) + state.localCoordX;
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E)) + state.localCoordY;
+        const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10)) + state.localCoordX;
+        const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12)) + state.localCoordY;
+        const sint32 xc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14)) + state.localCoordX;
+        const sint32 yc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16)) + state.localCoordY;
+        const sint32 xd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x18)) + state.localCoordX;
+        const sint32 yd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1A)) + state.localCoordY;
+
+        const bool isRegularRect = (xa == xd) && (xb == xc) && (ya == yb) && (yc == yd);
+
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 yAddAB = enhancements.deinterlace && isRegularRect && (ya >= yc) ? doubleV : 0;
+        const sint32 yAddCD = enhancements.deinterlace && isRegularRect && (ya < yc) ? doubleV : 0;
+
+        const CoordS32 coordA{xa, (ya << doubleV) + yAddAB};
+        const CoordS32 coordB{xb, (yb << doubleV) + yAddAB};
+        const CoordS32 coordC{xc, (yc << doubleV) + yAddCD};
+        const CoordS32 coordD{xd, (yd << doubleV) + yAddCD};
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+            .charAddr = charAddr,
+            .size = size,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, true);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+            .charAddr = charAddr,
+            .size = size,
+            .flipH = control.flipH != 0,
+        };
+
+        VDP1PlotTexturedQuad(spanData, cmdAddress, control, coordA, coordB, coordC, coordD);
+    }
+
+    void VDP1Cmd_DrawPolygon(uint32 cmdAddress) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+
+        const VDP1State &state = vdpState.state1;
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C)) + state.localCoordX;
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E)) + state.localCoordY;
+        const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10)) + state.localCoordX;
+        const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12)) + state.localCoordY;
+        const sint32 xc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14)) + state.localCoordX;
+        const sint32 yc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16)) + state.localCoordY;
+        const sint32 xd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x18)) + state.localCoordX;
+        const sint32 yd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1A)) + state.localCoordY;
+        const uint32 gouraudTable = static_cast<uint32>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1C)) << 3u;
+
+        const bool isRegularRect = (xa == xd) && (xb == xc) && (ya == yb) && (yc == yd);
+
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 yAddAB = enhancements.deinterlace && isRegularRect && (ya >= yc) ? doubleV : 0;
+        const sint32 yAddCD = enhancements.deinterlace && isRegularRect && (ya < yc) ? doubleV : 0;
+
+        const CoordS32 coordA{xa, (ya << doubleV) + yAddAB};
+        const CoordS32 coordB{xb, (yb << doubleV) + yAddAB};
+        const CoordS32 coordC{xc, (yc << doubleV) + yAddCD};
+        const CoordS32 coordD{xd, (yd << doubleV) + yAddCD};
+
+        Color555 gouraudA;
+        Color555 gouraudB;
+        Color555 gouraudC;
+        Color555 gouraudD;
+        if (mode.gouraudEnable) {
+            gouraudA.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 0u);
+            gouraudB.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 2u);
+            gouraudC.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 4u);
+            gouraudD.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 6u);
+        }
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, false);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+        };
+
+        QuadStepper quad{coordA, coordB, coordC, coordD};
+
+        if (mode.gouraudEnable) {
+            quad.SetupGouraud(gouraudA, gouraudB, gouraudC, gouraudD);
+        }
+
+        // Optimization for the case where the quad goes outside the system clipping area.
+        // Skip rendering the rest of the quad when a line is clipped after plotting at least one line.
+        // The first few lines of the quad could also be clipped; that is accounted for by requiring at least one
+        // plotted line. The point is to skip the calculations once the quad iterator reaches a point where no more
+        // lines can be plotted because they all sit outside the system clip area.
+        //
+        // This also handles a degenerate case with a bowtie quad sitting outside the corner of the screen with two
+        // points poking into the screen area in a configuration similar to this:
+        //
+        //                       D
+        //                        B
+        //   +-----------------+
+        //   |            A    |
+        //   |               C |
+        //   |                 |
+        //   |                 |
+        //   |                 |
+        //   +-----------------+
+        //
+        // In this case, the line gets fully clipped partway through the quad, but comes back into view at the end, so
+        // we need to check for two sequences of plotted lines rather than one.
+        bool linePlotted = false;
+        int plottedSegmentsCount = 0;
+        const int plottedSegmentsMax = quad.IsDegenerate() ? 2 : 1;
+
+        // Interpolate linearly over edges A-D and B-C
+        for (; quad.CanStep(); quad.Step()) {
+            // Plot lines between the interpolated points
+            const CoordS32 coordL = quad.LeftEdge().Coord();
+            const CoordS32 coordR = quad.RightEdge().Coord();
+
+            if (mode.gouraudEnable) {
+                spanData.gouraud0 = quad.LeftEdge().GouraudValue();
+                spanData.gouraud1 = quad.RightEdge().GouraudValue();
+            }
+
+            if (VDP1AddSpan(coordL, coordR, spanData, false, true)) {
+                if (!linePlotted) {
+                    linePlotted = true;
+                    ++plottedSegmentsCount;
+                }
+            } else if (plottedSegmentsCount >= plottedSegmentsMax) {
+                // No more lines can be drawn past this point
+                break;
+            } else {
+                linePlotted = false;
+            }
+        }
+    }
+
+    void VDP1Cmd_DrawPolylines(uint32 cmdAddress) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+
+        const VDP1State &state = vdpState.state1;
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C)) + state.localCoordX;
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E)) + state.localCoordY;
+        const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10)) + state.localCoordX;
+        const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12)) + state.localCoordY;
+        const sint32 xc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14)) + state.localCoordX;
+        const sint32 yc = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16)) + state.localCoordY;
+        const sint32 xd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x18)) + state.localCoordX;
+        const sint32 yd = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1A)) + state.localCoordY;
+        const uint32 gouraudTable = static_cast<uint32>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1C)) << 3u;
+
+        const bool isRegularRect = (xa == xd) && (xb == xc) && (ya == yb) && (yc == yd);
+
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        const sint32 yAddAB = enhancements.deinterlace && isRegularRect && (ya >= yc) ? doubleV : 0;
+        const sint32 yAddCD = enhancements.deinterlace && isRegularRect && (ya < yc) ? doubleV : 0;
+
+        const CoordS32 coordA{xa, (ya << doubleV) + yAddAB};
+        const CoordS32 coordB{xb, (yb << doubleV) + yAddAB};
+        const CoordS32 coordC{xc, (yc << doubleV) + yAddCD};
+        const CoordS32 coordD{xd, (yd << doubleV) + yAddCD};
+
+        Color555 gouraudA;
+        Color555 gouraudB;
+        Color555 gouraudC;
+        Color555 gouraudD;
+        if (mode.gouraudEnable) {
+            gouraudA.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 0u);
+            gouraudB.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 2u);
+            gouraudC.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 4u);
+            gouraudD.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 6u);
+        }
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, false);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+        };
+
+        if (mode.gouraudEnable) {
+            spanData.gouraud0 = gouraudA;
+            spanData.gouraud1 = gouraudB;
+        }
+        VDP1AddSpan(coordA, coordB, spanData, false, false);
+        if (mode.gouraudEnable) {
+            spanData.gouraud0 = gouraudB;
+            spanData.gouraud1 = gouraudC;
+        }
+        VDP1AddSpan(coordB, coordC, spanData, false, false);
+        if (mode.gouraudEnable) {
+            spanData.gouraud0 = gouraudC;
+            spanData.gouraud1 = gouraudD;
+        }
+        VDP1AddSpan(coordC, coordD, spanData, false, false);
+        if (mode.gouraudEnable) {
+            spanData.gouraud0 = gouraudD;
+            spanData.gouraud1 = gouraudA;
+        }
+        VDP1AddSpan(coordD, coordA, spanData, false, false);
+    }
+
+    void VDP1Cmd_DrawLine(uint32 cmdAddress) {
+        if (!vdpState.state2.layerEnabled[0]) {
+            return;
+        }
+
+        const VDP1State &state = vdpState.state1;
+        const VDP1Command::DrawMode mode{.u16 = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x04)};
+
+        const uint16 color = vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x06);
+        const sint32 xa = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C)) + state.localCoordX;
+        const sint32 ya = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E)) + state.localCoordY;
+        const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10)) + state.localCoordX;
+        const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12)) + state.localCoordY;
+
+        const CoordS32 coordA{xa, ya};
+        const CoordS32 coordB{xb, yb};
+
+        const VDP1CommandData cmdData{
+            .mode = mode,
+            .color = color,
+        };
+        const uint16 cmdIndex = VDP1AddCommand(cmdData, false);
+
+        VDP1SpanData spanData{
+            .cmdIndex = cmdIndex,
+            .mode = mode,
+        };
+
+        if (mode.gouraudEnable) {
+            const uint32 gouraudTable = static_cast<uint32>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x1C)) << 3u;
+            spanData.gouraud0.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 0u);
+            spanData.gouraud1.u16 = vdpState.mem1.ReadVRAM<uint16>(gouraudTable + 2u);
+        }
+
+        VDP1AddSpan(coordA, coordB, spanData, false, false);
+    }
+
+    void VDP1Cmd_SetUserClipping(uint32 cmdAddress) {
+        VDP1State &state = vdpState.state1;
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        state.userClipX0 = bit::extract<0, 9>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C));
+        state.userClipX1 = bit::extract<0, 9>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14));
+        state.userClipY0 = bit::extract<0, 8>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E));
+        state.userClipY1 = bit::extract<0, 8>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16));
+    }
+
+    void VDP1Cmd_SetSystemClipping(uint32 cmdAddress) {
+        VDP1State &state = vdpState.state1;
+        const sint32 doubleV = vdp1.doubleV ? 1 : 0;
+        state.sysClipH = bit::extract<0, 9>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x14));
+        state.sysClipV = bit::extract<0, 8>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x16));
+    }
+
+    void VDP1Cmd_SetLocalCoordinates(uint32 cmdAddress) {
+        VDP1State &state = vdpState.state1;
+        state.localCoordX = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C));
+        state.localCoordY = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E));
+    }
+    // ---- end copy ----
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 3439-3623 ----
+    // -----------------------------------------------------------------------------------------------------------------
+    // VDP2 rendering
+
+    bool resChangedToInterlaced = false;
+    uint32 HRes = kDefaultResH;
+    uint32 VRes = kDefaultResV;
+    bool exclusiveMonitor = false;
+
+    void VDP2CacheCRAMColor(uint32 address) {
+        CRAMColorCache &colorCache = vdp2.cpuCRAMColorCache;
+        switch (vdpState.regs2.vramControl.colorRAMMode) {
+        case 0: { // RGB 5:5:5, half CRAM
+            const auto value = vdpState.mem2.ReadCRAM<uint16>(address & ~1u);
+            const Color555 color5{.u16 = value};
+            const Color888 color8 = ConvertRGB555to888(color5);
+            ColorR8G8B8A8 &color = colorCache[address >> 1u];
+            color.r = color8.r;
+            color.g = color8.g;
+            color.b = color8.b;
+            color.a = color8.msb;
+            break;
+        }
+        case 1: { // RGB 5:5:5, full CRAM
+            const auto value = vdpState.mem2.ReadCRAM<uint16>(address & ~1u);
+            const Color555 color5{.u16 = value};
+            const Color888 color8 = ConvertRGB555to888(color5);
+            ColorR8G8B8A8 &color = colorCache[address >> 1u];
+            color.r = color8.r;
+            color.g = color8.g;
+            color.b = color8.b;
+            color.a = color8.msb;
+            break;
+        }
+        case 2: [[fallthrough]]; // RGB 8:8:8, full CRAM
+        case 3: [[fallthrough]]; // RGB 8:8:8, full CRAM
+        default: {
+            address = vdpState.mem2.UnmapCRAMAddress<uint8>(address);
+            const auto value = vdpState.mem2.ReadCRAM<uint32>(address & ~3u);
+            const Color888 color8{.u32 = value};
+            ColorR8G8B8A8 &color = colorCache[address >> 2u];
+            color.r = color8.r;
+            color.g = color8.g;
+            color.b = color8.b;
+            color.a = color8.msb;
+            break;
+        }
+        }
+    }
+
+    void VDP2CacheAllCRAMColors() {
+        CRAMColorCache &colorCache = vdp2.cpuCRAMColorCache;
+        switch (vdpState.regs2.vramControl.colorRAMMode) {
+        case 0: // RGB 5:5:5, half CRAM
+            for (uint32 i = 0; i < 1024; ++i) {
+                const auto value = vdpState.mem2.ReadCRAM<uint16>(i * sizeof(uint16));
+                const Color555 color5{.u16 = value};
+                const Color888 color8 = ConvertRGB555to888(color5);
+                colorCache[i].r = color8.r;
+                colorCache[i].g = color8.g;
+                colorCache[i].b = color8.b;
+                colorCache[i].a = color8.msb;
+            }
+            break;
+        case 1: // RGB 5:5:5, full CRAM
+            for (uint32 i = 0; i < 2048; ++i) {
+                const auto value = vdpState.mem2.ReadCRAM<uint16>(i * sizeof(uint16));
+                const Color555 color5{.u16 = value};
+                const Color888 color8 = ConvertRGB555to888(color5);
+                colorCache[i].r = color8.r;
+                colorCache[i].g = color8.g;
+                colorCache[i].b = color8.b;
+                colorCache[i].a = color8.msb;
+            }
+            break;
+        case 2: [[fallthrough]]; // RGB 8:8:8, full CRAM
+        case 3: [[fallthrough]]; // RGB 8:8:8, full CRAM
+        default:
+            for (uint32 i = 0; i < 1024; ++i) {
+                const auto value = vdpState.mem2.ReadCRAM<uint32>(i * sizeof(uint32));
+                const Color888 color8{.u32 = value};
+                colorCache[i].r = color8.r;
+                colorCache[i].g = color8.g;
+                colorCache[i].b = color8.b;
+                colorCache[i].a = color8.msb;
+            }
+            break;
+        }
+    }
+
+    void VDP2WriteVRAM(uint32 address) {
+        vdp2.vramDirty.Set(address >> VDP2Resources::kVRAMDirtyBitmapChunkSizeShift);
+    }
+
+    void VDP2WriteCRAM(uint32 address) {
+        ++vdp2.cramGeneration;
+        VDP2CacheCRAMColor(address);
+    }
+
+    void VDP2WriteReg(uint32 address, uint16 value) {
+        struct DirtyFlags {
+            bool render = false;
+            bool compose = false;
+            bool enabledLayers = false;
+            bool cram = false;
+        };
+        static constexpr auto kDirtyFlags = [] {
+            std::array<DirtyFlags, 0x11E / sizeof(uint16) + 1> arr{};
+
+            for (uint32 addr : {
+                     0x000 /*TVMD*/,   0x002 /*EXTEN*/,  0x006 /*VRSIZE*/, 0x00E /*RAMCTL*/, 0x010 /*CYCA0L*/,
+                     0x012 /*CYCA0U*/, 0x014 /*CYCA1L*/, 0x016 /*CYCA1U*/, 0x018 /*CYCB0L*/, 0x01A /*CYCB0U*/,
+                     0x01C /*CYCB1L*/, 0x01E /*CYCB1U*/, 0x020 /*BGON*/,   0x022 /*MZCTL*/,  0x024 /*SFSEL*/,
+                     0x026 /*SFCODE*/, 0x028 /*CHCTLA*/, 0x02A /*CHCTLB*/, 0x02C /*BMPNA*/,  0x02E /*BMPNB*/,
+                     0x030 /*PNCNA*/,  0x032 /*PNCNB*/,  0x034 /*PNCNC*/,  0x036 /*PNCND*/,  0x038 /*PNCR*/,
+                     0x03A /*PLSZ*/,   0x03C /*MPOFN*/,  0x03E /*MPOFR*/,  0x040 /*MPABN0*/, 0x042 /*MPCDN0*/,
+                     0x044 /*MPABN1*/, 0x046 /*MPCDN1*/, 0x048 /*MPABN2*/, 0x04A /*MPCDN2*/, 0x04C /*MPABN3*/,
+                     0x04E /*MPCDN3*/, 0x050 /*MPABRA*/, 0x052 /*MPCDRA*/, 0x054 /*MPEFRA*/, 0x056 /*MPGHRA*/,
+                     0x058 /*MPIJRA*/, 0x05A /*MPKLRA*/, 0x05C /*MPMNRA*/, 0x05E /*MPOPRA*/, 0x060 /*MPABRB*/,
+                     0x062 /*MPCDRB*/, 0x064 /*MPEFRB*/, 0x066 /*MPGHRB*/, 0x068 /*MPIJRB*/, 0x06A /*MPKLRB*/,
+                     0x06C /*MPMNRB*/, 0x06E /*MPOPRB*/, 0x070 /*SCXIN0*/, 0x072 /*SCXDN0*/, 0x074 /*SCYIN0*/,
+                     0x076 /*SCYDN0*/, 0x078 /*ZMXIN0*/, 0x07A /*ZMXDN0*/, 0x07C /*ZMYIN0*/, 0x07E /*ZMYDN0*/,
+                     0x080 /*SCXIN1*/, 0x082 /*SCXDN1*/, 0x084 /*SCYIN1*/, 0x086 /*SCYDN1*/, 0x088 /*ZMXIN1*/,
+                     0x08A /*ZMXDN1*/, 0x08C /*ZMYIN1*/, 0x08E /*ZMYDN1*/, 0x090 /*SCXN2*/,  0x092 /*SCYN2*/,
+                     0x094 /*SCXN3*/,  0x096 /*SCYN3*/,  0x098 /*ZMCTL*/,  0x09A /*SCRCTL*/, 0x09C /*VCSTAU*/,
+                     0x09E /*VCSTAL*/, 0x0A0 /*LSTA0U*/, 0x0A2 /*LSTA0L*/, 0x0A4 /*LSTA1U*/, 0x0A6 /*LSTA1L*/,
+                     0x0A8 /*LCTAU*/,  0x0AA /*LCTAL*/,  0x0AC /*BKTAU*/,  0x0AE /*BKTAL*/,  0x0B0 /*RPMD*/,
+                     0x0B2 /*RPRCTL*/, 0x0B4 /*KTCTL*/,  0x0B6 /*KTAOF*/,  0x0B8 /*OVPNRA*/, 0x0BA /*OVPNRB*/,
+                     0x0BC /*RPTAU*/,  0x0BE /*RPTAL*/,  0x0C0 /*WPSX0*/,  0x0C2 /*WPSY0*/,  0x0C4 /*WPEX0*/,
+                     0x0C6 /*WPEY0*/,  0x0C8 /*WPSX1*/,  0x0CA /*WPSY1*/,  0x0CC /*WPEX1*/,  0x0CE /*WPEY1*/,
+                     0x0D0 /*WCTLA*/,  0x0D2 /*WCTLB*/,  0x0D4 /*WCTLC*/,  0x0D6 /*WCTLD*/,  0x0D8 /*LWTA0U*/,
+                     0x0DA /*LWTA0L*/, 0x0DC /*LWTA1U*/, 0x0DE /*LWTA1L*/, 0x0E0 /*SPCTL*/,  0x0E2 /*SDCTL*/,
+                     0x0E4 /*CRAOFA*/, 0x0E6 /*CRAOFB*/, 0x0E8 /*LNCLEN*/, 0x0EA /*SFPRMD*/, 0x0EC /*CCCTL*/,
+                     0x0EE /*SFCCMD*/, 0x0F0 /*PRISA*/,  0x0F2 /*PRISB*/,  0x0F4 /*PRISC*/,  0x0F6 /*PRISD*/,
+                     0x0F8 /*PRINA*/,  0x0FA /*PRINB*/,  0x0FC /*PRIR*/,
+                 }) {
+                arr[addr / sizeof(uint16)].render = true;
+            }
+
+            for (uint32 addr : {
+                     0x000 /*TVMD*/,   0x006 /*VRSIZE*/, 0x020 /*BGON*/,  0x0E0 /*SPCTL*/, 0x0E2 /*SDCTL*/,
+                     0x0E8 /*LNCLEN*/, 0x0EC /*CCCTL*/,  0x100 /*CCRSA*/, 0x102 /*CCRSB*/, 0x104 /*CCRSC*/,
+                     0x106 /*CCRSD*/,  0x108 /*CCRNA*/,  0x10A /*CCRNB*/, 0x10C /*CCRR*/,  0x10E /*CCRLB*/,
+                     0x110 /*CLOFEN*/, 0x112 /*CLOFSL*/, 0x114 /*COAR*/,  0x116 /*COAG*/,  0x118 /*COAB*/,
+                     0x11A /*COBR*/,   0x11C /*COBG*/,   0x11E /*COBB*/,
+                 }) {
+                arr[addr / sizeof(uint16)].compose = true;
+            }
+
+            for (uint32 addr : {0x020 /*BGON*/, 0x028 /*CHCTLA*/, 0x02A /*CHCTLB*/}) {
+                arr[addr / sizeof(uint16)].enabledLayers = true;
+            }
+
+            arr[0x00E / sizeof(uint16) /*RAMCTL*/].cram = true;
+
+            return arr;
+        }();
+
+        if (address <= 0x11E) {
+            const auto &dirtyFlags = kDirtyFlags[address / sizeof(uint16)];
+            if (dirtyFlags.render) {
+                ++vdp2.layerRenderParamsGeneration;
+            }
+            if (dirtyFlags.compose) {
+                ++vdp2.composeParamsGeneration;
+            }
+
+            if (dirtyFlags.enabledLayers) {
+                VDP2UpdateEnabledLayers();
+            }
+
+            if (dirtyFlags.cram) {
+                ++vdp2.cramGeneration;
+                VDP2CacheAllCRAMColors();
+            }
+
+            switch (address) {
+            case 0x092: // SCYN2
+                vdp2.resetNBGScrollY[0] = true;
+                break;
+            case 0x096: // SCYN3
+                vdp2.resetNBGScrollY[1] = true;
+                break;
+            }
+        }
+    }
+    // ---- end copy ----
+
+    [[nodiscard]] util::VoidResult<> VDP2FlushVRAM() {
+        if (!vdp2.vramDirty) {
+            return {};
+        }
+
+        std::vector<VkBufferCopy> regions;
+        size_t pos, count = 0;
+        for (pos = vdp2.vramDirty.FindNext(count); pos < vdp2.vramDirty.Size();
+             pos = vdp2.vramDirty.FindNext(count, pos + count)) {
+            const uint32 vramOffset = pos << VDP2Resources::kVRAMDirtyBitmapChunkSizeShift;
+            const uint32 size = count << VDP2Resources::kVRAMDirtyBitmapChunkSizeShift;
+
+            UploadAllocation alloc{};
+            if (auto result = AllocateUploadBuffer(size, 4, alloc); !result) {
+                return util::ErrorMessage{
+                    fmt::format("Failed to allocate upload buffer for VDP2 VRAM chunk: {}", result.Error().message)};
+            }
+            memcpy(alloc.data, &vdpState.mem2.VRAM[vramOffset], size);
+            regions.push_back({alloc.offset, vramOffset, size});
+        }
+        vdp2.vramDirty.ClearAll();
+
+        if (!regions.empty()) {
+            FlushBarriers();
+            vkCmdCopyBuffer(Cmd(), frames.GetCurrentFrame().uploadBuffer.buffer, vdp2.vramBuffer.buffer,
+                            (uint32)regions.size(), regions.data());
+            pendingBarrier = true;
+        }
+        return {};
+    }
+
+    [[nodiscard]] util::VoidResult<> VDP2FlushCRAM() {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        if (frameCtx.cramGeneration == vdp2.cramGeneration) {
+            return {};
+        }
+        frameCtx.cramGeneration = vdp2.cramGeneration;
+
+        if (auto result = UploadToBuffer(frameCtx.cramColorBuffer, 0, vdp2.cpuCRAMColorCache.data(),
+                                         sizeof(CRAMColorCache));
+            !result) {
+            return result;
+        }
+
+        // Update rotation coefficients view
+        const VDP2Regs &regs2 = vdpState.regs2;
+        if ((regs2.bgEnabled[4] || regs2.bgEnabled[5]) && regs2.vramControl.colorRAMCoeffTableEnable) {
+            if (auto result = UploadToBuffer(frameCtx.cramRotCoeffBuffer, 0, &vdpState.mem2.CRAM[kVDP2CRAMSize / 2],
+                                             kVDP2CRAMRotCoeffBufferSize);
+                !result) {
+                return result;
+            }
+        }
+
+        return {};
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 3715-3994 ----
+    void VDP2UpdateCommonRenderParams() {
+        // vdp2.cpuCommonRenderParams.startY is updated by the line rendering functions.
+
+        const VDP1Regs &regs1 = vdpState.regs1;
+        const VDP2Regs &regs2 = vdpState.regs2;
+        VDP2CommonRenderParams &params = vdp2.cpuCommonRenderParams;
+
+        params.displayParams.displayEnable = regs2.TVMD.DISP;
+        params.displayParams.borderColorMode = regs2.TVMD.BDCLMD;
+        params.displayParams.interlaceMode = static_cast<HLSLuint>(regs2.TVMD.LSMDn);
+        params.displayParams.oddField = regs2.TVSTAT.ODD;
+        params.displayParams.exclusiveMonitor = exclusiveMonitor;
+        params.displayParams.colorRAMMode = regs2.vramControl.colorRAMMode;
+        params.displayParams.hiResH = bit::test<1>(regs2.TVMD.HRESOn);
+        params.displayParams.palMode = regs2.TVSTAT.PAL;
+        params.displayParams.hresMode = regs2.TVMD.HRESOn;
+        params.displayParams.vresMode = regs2.TVMD.VRESOn;
+        params.displayParams.dblInterlaceEnable = regs1.dblInterlaceEnable;
+        params.displayParams.dblInterlaceDrawLine = regs1.dblInterlaceDrawLine;
+
+        params.layerParams.layerEnabled = PackBools<HLSLuint>(vdpState.state2.layerEnabled);
+        params.layerParams.bgEnabled = PackBools<HLSLuint>(regs2.bgEnabled);
+        params.layerParams.lineColorEnableRBG0 = regs2.bgParams[0].lineColorScreenEnable;
+        params.layerParams.lineColorEnableRBG1 = regs2.bgParams[1].lineColorScreenEnable;
+        params.layerParams.mosaicH = regs2.mosaicH - 1;
+        params.layerParams.mosaicV = regs2.mosaicV - 1;
+        params.layerParams.rotParamMode = static_cast<HLSLuint>(regs2.commonRotParams.rotParamMode);
+        params.layerParams.restrictedColorCalc = regs2.restrictedColorCalc;
+        params.layerParams.extendedColorCalc = regs2.colorCalcParams.extendedColorCalcEnable && regs2.TVMD.HRESOn < 2;
+        params.layerParams.useAdditiveBlend = regs2.colorCalcParams.useAdditiveBlend;
+        params.layerParams.useSecondScreenRatio = regs2.colorCalcParams.useSecondScreenRatio;
+        params.layerParams.colorGradEnable = regs2.colorCalcParams.colorGradEnable;
+        params.layerParams.colorGradScreen = static_cast<HLSLuint>(regs2.colorCalcParams.colorGradScreen);
+
+        auto isCoeff = [](RotDataBankSel sel) { return sel == RotDataBankSel::Coefficients; };
+
+        const VRAMControl &vramCtl = regs2.vramControl;
+        params.rotParams.coeffTableCRAM = vramCtl.colorRAMCoeffTableEnable;
+        params.rotParams.coeffDataAccess = 0;
+        if (isCoeff(vramCtl.rotDataBankSelA0)) {
+            params.rotParams.coeffDataAccess |= 1u << 0u;
+        }
+        if (isCoeff(vramCtl.partitionVRAMA ? vramCtl.rotDataBankSelA1 : vramCtl.rotDataBankSelA0)) {
+            params.rotParams.coeffDataAccess |= 1u << 1u;
+        }
+        if (isCoeff(vramCtl.rotDataBankSelB0)) {
+            params.rotParams.coeffDataAccess |= 1u << 2u;
+        }
+        if (isCoeff(vramCtl.partitionVRAMB ? vramCtl.rotDataBankSelB1 : vramCtl.rotDataBankSelB0)) {
+            params.rotParams.coeffDataAccess |= 1u << 3u;
+        }
+        params.rotParams.coeffDataPerDot = vramCtl.perDotRotationCoeffs;
+
+        const RotationParams &rotParamsA = regs2.rotParams[0];
+        params.rotParams.coeffATableEnable = rotParamsA.coeffTableEnable;
+        params.rotParams.coeffAUseLineColorData = rotParamsA.coeffUseLineColorData;
+        params.rotParams.coeffADataSize = rotParamsA.coeffDataSize;
+        params.rotParams.coeffADataMode = static_cast<HLSLuint>(rotParamsA.coeffDataMode);
+
+        const RotationParams &rotParamsB = regs2.rotParams[1];
+        params.rotParams.coeffBTableEnable = rotParamsB.coeffTableEnable;
+        params.rotParams.coeffBUseLineColorData = rotParamsB.coeffUseLineColorData;
+        params.rotParams.coeffBDataSize = rotParamsB.coeffDataSize;
+        params.rotParams.coeffBDataMode = static_cast<HLSLuint>(rotParamsB.coeffDataMode);
+
+        params.spriteParams.rotate = regs1.tvmr.fbRotEnable;
+        params.spriteParams.pixel8Bits = regs1.tvmr.pixel8Bits;
+        params.spriteParams.type = regs2.spriteParams.type;
+        params.spriteParams.fbSizeH = std::countr_zero(regs1.tvmr.fbSizeH) - 9;
+        params.spriteParams.fbSizeV = std::countr_zero(regs1.tvmr.fbSizeV) - 8;
+        params.spriteParams.inHalfResH = false;
+        params.spriteParams.outHalfResH = false;
+        if (!regs1.tvmr.hdtvEnable && !regs1.tvmr.fbRotEnable) {
+            if (regs1.tvmr.pixel8Bits) {
+                params.spriteParams.inHalfResH = (regs2.TVMD.HRESOn & 0b110) == 0b000;
+            } else {
+                params.spriteParams.outHalfResH = (regs2.TVMD.HRESOn & 0b110) == 0b010;
+            }
+        }
+        params.spriteParams.mixedFormat = regs2.spriteParams.mixedFormat;
+        params.spriteParams.colorCalcEnable = regs2.spriteParams.colorCalcEnable;
+        params.spriteParams.colorCalcValue = regs2.spriteParams.colorCalcValue;
+        params.spriteParams.colorCalcCond = static_cast<HLSLuint>(regs2.spriteParams.colorCalcCond);
+        params.spriteParams.colorDataOffset = regs2.spriteParams.colorDataOffset >> 8u;
+        params.spriteParams.useSpriteWindow = regs2.spriteParams.useSpriteWindow;
+        params.spriteParams.windowEnabled = regs2.spriteParams.spriteWindowEnabled;
+        params.spriteParams.windowInverted = regs2.spriteParams.spriteWindowInverted;
+        params.spriteParams.displayFB = vdpState.fbIndex.display;
+
+        params.spritePriosRatios.x = 0;
+        params.spritePriosRatios.y = 0;
+        for (uint32 i = 0; i < 4; i++) {
+            params.spritePriosRatios.x |= regs2.spriteParams.priorities[i] << (8 * i);
+            params.spritePriosRatios.x |= regs2.spriteParams.colorCalcRatios[i] << (8 * i + 3);
+
+            params.spritePriosRatios.y |= regs2.spriteParams.priorities[i + 4] << (8 * i);
+            params.spritePriosRatios.y |= regs2.spriteParams.colorCalcRatios[i + 4] << (8 * i + 3);
+        }
+
+        params.vcellScroll.tableAddress = regs2.vcellScrollTableAddress;
+        params.vcellScroll.inc = regs2.vcellScrollInc >> 2u;
+
+        params.windows.spriteWindowLogic = regs2.spriteParams.windowSet.logic == WindowLogic::And;
+        params.windows.spriteW0Enable = regs2.spriteParams.windowSet.enabled[0];
+        params.windows.spriteW0Invert = regs2.spriteParams.windowSet.inverted[0];
+        params.windows.spriteW1Enable = regs2.spriteParams.windowSet.enabled[1];
+        params.windows.spriteW1Invert = regs2.spriteParams.windowSet.inverted[1];
+
+        params.windows.colorCalcWindowLogic = regs2.colorCalcParams.windowSet.logic == WindowLogic::And;
+        params.windows.colorCalcW0Enable = regs2.colorCalcParams.windowSet.enabled[0];
+        params.windows.colorCalcW0Invert = regs2.colorCalcParams.windowSet.inverted[0];
+        params.windows.colorCalcW1Enable = regs2.colorCalcParams.windowSet.enabled[1];
+        params.windows.colorCalcW1Invert = regs2.colorCalcParams.windowSet.inverted[1];
+        params.windows.colorCalcSWEnable = regs2.colorCalcParams.windowSet.enabled[2];
+        params.windows.colorCalcSWInvert = regs2.colorCalcParams.windowSet.inverted[2];
+
+        // NOTE: this is uploaded as 32-bit root constants, not through the upload buffer.
+        // No uploads or barriers are needed here.
+    }
+
+    util::VoidResult<> VDP2UpdateLayerRenderParams(uint32 y) {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        if (frameCtx.layerRenderParamsGeneration == vdp2.layerRenderParamsGeneration) {
+            return {};
+        }
+        frameCtx.layerRenderParamsGeneration = vdp2.layerRenderParamsGeneration;
+
+        const VDP2Regs &regs2 = vdpState.regs2;
+
+        // These can be either 0 or 8, but we'll condense them to single bits
+        auto packVRAMDataOffsets = [](const std::array<uint32, 4> values) {
+            uint32 value = 0;
+            for (size_t i = 0; i < values.size(); ++i) {
+                if (values[i] != 0u) {
+                    value |= 1u << i;
+                }
+            }
+            return value;
+        };
+
+        // NBG0-3
+        for (int i = 0; i < 4; ++i) {
+            const BGParams &bgParams = regs2.bgParams[i + 1];
+            const NBGLayerState &bgState = vdpState.state2.nbgLayerStates[i];
+
+            const bool bitmap = bgParams.bitmap;
+
+            NBGParams &renderParams = vdp2.cpuLayerRenderParams.nbg[i];
+            renderParams.base.enabled = regs2.bgEnabled[i];
+            renderParams.base.enableTransparency = bgParams.enableTransparency;
+            renderParams.base.bitmap = bgParams.bitmap;
+            renderParams.base.priorityNumber = bgParams.priorityNumber;
+            renderParams.base.priorityMode = static_cast<HLSLuint>(bgParams.priorityMode);
+            renderParams.base.specialFunctionSelect = bgParams.specialFunctionSelect;
+            renderParams.base.cellSizeShift = bgParams.cellSizeShift;
+            renderParams.base.colorFormat = static_cast<HLSLuint>(bgParams.colorFormat);
+            renderParams.base.cramOffset = bgParams.cramOffset;
+            renderParams.base.supplScrollCharNum = bgParams.supplScrollCharNum;
+            renderParams.base.supplPalNum = bitmap ? bgParams.supplBitmapPalNum : bgParams.supplScrollPalNum;
+            renderParams.base.supplSpecialColorCalc =
+                bitmap ? bgParams.supplBitmapSpecialColorCalc : bgParams.supplScrollSpecialColorCalc;
+            renderParams.base.supplSpecialPriority =
+                bitmap ? bgParams.supplBitmapSpecialPriority : bgParams.supplScrollSpecialPriority;
+            renderParams.base.mosaicEnable = bgParams.mosaicEnable;
+            renderParams.base.colorCalcEnable = bgParams.colorCalcEnable;
+            renderParams.base.extChar = bgParams.extChar;
+            renderParams.base.twoWordChar = bgParams.twoWordChar;
+            renderParams.base.patNameAccess = PackBools<HLSLuint>(bgParams.patNameAccess);
+            renderParams.base.charPatAccess = PackBools<HLSLuint>(bgParams.charPatAccess);
+            renderParams.base.charPatDelay = PackBools<HLSLuint>(bgParams.charPatDelay);
+            renderParams.base.vramDataOffset = packVRAMDataOffsets(bgParams.vramDataOffset);
+            renderParams.base.specialColorCalcMode = static_cast<HLSLuint>(bgParams.specialColorCalcMode);
+            renderParams.base.pageShift = {bgParams.pageShiftH, bgParams.pageShiftV};
+            renderParams.base.bitmapSize = {bgParams.bitmapSizeH, bgParams.bitmapSizeV};
+            renderParams.base.bitmapBaseAddress = bgParams.bitmapBaseAddress;
+            renderParams.base.windowParams.base.windowLogicAnd = bgParams.windowSet.logic == WindowLogic::And;
+            renderParams.base.windowParams.base.window0Enable = bgParams.windowSet.enabled[0];
+            renderParams.base.windowParams.base.window0Invert = bgParams.windowSet.inverted[0];
+            renderParams.base.windowParams.base.window1Enable = bgParams.windowSet.enabled[1];
+            renderParams.base.windowParams.base.window1Invert = bgParams.windowSet.inverted[1];
+            renderParams.base.windowParams.spriteWindowEnable = bgParams.windowSet.enabled[2];
+            renderParams.base.windowParams.spriteWindowInvert = bgParams.windowSet.inverted[2];
+
+            renderParams.scrollAmount = {bgParams.scrollAmountH, bgParams.scrollAmountV};
+            renderParams.scrollInc = {bgParams.scrollIncH, bgParams.scrollIncV};
+            renderParams.pageBaseAddresses = bgParams.pageBaseAddresses;
+            renderParams.vcellScrollEnable = bgParams.vcellScrollEnable;
+            renderParams.lineScrollXEnable = bgParams.lineScrollXEnable;
+            renderParams.lineScrollYEnable = bgParams.lineScrollYEnable;
+            renderParams.lineZoomEnable = bgParams.lineZoomEnable;
+            renderParams.lineScrollInterval = bgParams.lineScrollInterval;
+            renderParams.lineScrollTableAddress = bgState.lineScrollTableAddress;
+            renderParams.vcellScrollOffset = bgState.vcellScrollOffset;
+            renderParams.vcellScrollDelay = bgState.vcellScrollDelay;
+            renderParams.vcellScrollRepeat = bgState.vcellScrollRepeat;
+            if (i >= 2 && vdp2.resetNBGScrollY[i - 2]) {
+                renderParams.scrollYIncBase = y;
+                vdp2.resetNBGScrollY[i - 2] = false;
+            }
+        }
+
+        // RBG0-1 / RotParam A-B
+        for (int i = 0; i < 2; ++i) {
+            const BGParams &bgParams = regs2.bgParams[i];
+            const RotationParams &rotParams = regs2.rotParams[i];
+
+            const bool bitmap = bgParams.bitmap;
+
+            RBGParams &renderParams = vdp2.cpuLayerRenderParams.rbg[i];
+            renderParams.base.enabled = regs2.bgEnabled[i + 4];
+            renderParams.base.enableTransparency = bgParams.enableTransparency;
+            renderParams.base.bitmap = bgParams.bitmap;
+            renderParams.base.priorityNumber = bgParams.priorityNumber;
+            renderParams.base.priorityMode = static_cast<HLSLuint>(bgParams.priorityMode);
+            renderParams.base.specialFunctionSelect = bgParams.specialFunctionSelect;
+            renderParams.base.cellSizeShift = bgParams.cellSizeShift;
+            renderParams.base.colorFormat = static_cast<HLSLuint>(bgParams.colorFormat);
+            renderParams.base.cramOffset = bgParams.cramOffset;
+            renderParams.base.supplScrollCharNum = bgParams.supplScrollCharNum;
+            renderParams.base.supplPalNum = bitmap ? bgParams.supplBitmapPalNum : bgParams.supplScrollPalNum;
+            renderParams.base.supplSpecialColorCalc =
+                bitmap ? bgParams.supplBitmapSpecialColorCalc : bgParams.supplScrollSpecialColorCalc;
+            renderParams.base.supplSpecialPriority =
+                bitmap ? bgParams.supplBitmapSpecialPriority : bgParams.supplScrollSpecialPriority;
+            renderParams.base.mosaicEnable = bgParams.mosaicEnable;
+            renderParams.base.colorCalcEnable = bgParams.colorCalcEnable;
+            renderParams.base.extChar = bgParams.extChar;
+            renderParams.base.twoWordChar = bgParams.twoWordChar;
+            renderParams.base.patNameAccess = PackBools<HLSLuint>(bgParams.patNameAccess);
+            renderParams.base.charPatAccess = PackBools<HLSLuint>(bgParams.charPatAccess);
+            renderParams.base.charPatDelay = PackBools<HLSLuint>(bgParams.charPatDelay);
+            renderParams.base.vramDataOffset = packVRAMDataOffsets(bgParams.vramDataOffset);
+            renderParams.base.specialColorCalcMode = static_cast<HLSLuint>(bgParams.specialColorCalcMode);
+            renderParams.base.pageShift = {rotParams.pageShiftH, rotParams.pageShiftV};
+            renderParams.base.bitmapSize = {bgParams.bitmapSizeH, bgParams.bitmapSizeV};
+            renderParams.base.bitmapBaseAddress = rotParams.bitmapBaseAddress;
+            renderParams.base.windowParams.base.windowLogicAnd = bgParams.windowSet.logic == WindowLogic::And;
+            renderParams.base.windowParams.base.window0Enable = bgParams.windowSet.enabled[0];
+            renderParams.base.windowParams.base.window0Invert = bgParams.windowSet.inverted[0];
+            renderParams.base.windowParams.base.window1Enable = bgParams.windowSet.enabled[1];
+            renderParams.base.windowParams.base.window1Invert = bgParams.windowSet.inverted[1];
+            renderParams.base.windowParams.spriteWindowEnable = bgParams.windowSet.enabled[2];
+            renderParams.base.windowParams.spriteWindowInvert = bgParams.windowSet.inverted[2];
+
+            renderParams.screenOverProcess = static_cast<HLSLuint>(rotParams.screenOverProcess);
+            renderParams.screenOverPatternName = rotParams.screenOverPatternName;
+            renderParams.pageBaseAddresses[0] = vdpState.state2.rbgPageBaseAddresses[0][i];
+            renderParams.pageBaseAddresses[1] = vdpState.state2.rbgPageBaseAddresses[1][i];
+        }
+
+        // Windows 0 and 1
+        for (int i = 0; i < 2; ++i) {
+            const WindowParams &windowParams = regs2.windowParams[i];
+            VDP2GlobalWindowParams &renderParams = vdp2.cpuLayerRenderParams.windows[i];
+            renderParams.start = {windowParams.startX, windowParams.startY};
+            renderParams.end = {windowParams.endX, windowParams.endY};
+            renderParams.lineWindowTableAddress = windowParams.lineWindowTableAddress;
+            renderParams.lineWindowTableEnable = windowParams.lineWindowTableEnable;
+        }
+
+        VDP2LayerWindowParams &rotWindows = vdp2.cpuLayerRenderParams.rotWindows;
+        rotWindows.windowLogicAnd = regs2.commonRotParams.windowSet.logic == WindowLogic::And;
+        rotWindows.window0Enable = regs2.commonRotParams.windowSet.enabled[0];
+        rotWindows.window0Invert = regs2.commonRotParams.windowSet.inverted[0];
+        rotWindows.window1Enable = regs2.commonRotParams.windowSet.enabled[1];
+        rotWindows.window1Invert = regs2.commonRotParams.windowSet.inverted[1];
+
+        VDP2LineBackScreenParams &lnclParams = vdp2.cpuLayerRenderParams.lineScreenParams;
+        lnclParams.baseAddress = regs2.lineScreenParams.baseAddress;
+        lnclParams.perLine = regs2.lineScreenParams.perLine;
+
+        VDP2LineBackScreenParams &backParams = vdp2.cpuLayerRenderParams.backScreenParams;
+        backParams.baseAddress = regs2.backScreenParams.baseAddress;
+        backParams.perLine = regs2.backScreenParams.perLine;
+
+        // Special function codes
+        vdp2.cpuLayerRenderParams.specialFunctionCodes =
+            PackBools<uint32>(regs2.specialFunctionCodes[0].colorMatches) |
+            (PackBools<uint32>(regs2.specialFunctionCodes[1].colorMatches) << 8u);
+
+    // ---- end copy ----
+
+        // Update buffer
+        return UploadToBuffer(frames.GetCurrentFrame().layerRenderParamsBuffer, 0, &vdp2.cpuLayerRenderParams,
+                              sizeof(vdp2.cpuLayerRenderParams));
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4021-4065 ----
+    util::VoidResult<> VDP2UpdateComposeParams() {
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+        if (frameCtx.composeParamsGeneration == vdp2.composeParamsGeneration) {
+            return {};
+        }
+        frameCtx.composeParamsGeneration = vdp2.composeParamsGeneration;
+
+        const VDP2Regs &regs2 = vdpState.regs2;
+
+        auto &params = vdp2.cpuComposeParams;
+        params.colorCalcEnable = 0                                               //
+                                 | (regs2.spriteParams.colorCalcEnable << 0)     //
+                                 | (regs2.bgParams[0].colorCalcEnable << 1)      //
+                                 | (regs2.bgParams[1].colorCalcEnable << 2)      //
+                                 | (regs2.bgParams[2].colorCalcEnable << 3)      //
+                                 | (regs2.bgParams[3].colorCalcEnable << 4)      //
+                                 | (regs2.bgParams[4].colorCalcEnable << 5)      //
+                                 | (regs2.backScreenParams.colorCalcEnable << 6) //
+                                 | (regs2.lineScreenParams.colorCalcEnable << 7) //
+            ;
+        params.colorOffsetEnable = PackBools<HLSLuint>(regs2.colorOffsetEnable);
+        params.colorOffsetSelect = PackBools<HLSLuint>(regs2.colorOffsetSelect);
+        params.lineColorEnable = 0                                                 //
+                                 | (regs2.spriteParams.lineColorScreenEnable << 0) //
+                                 | (regs2.bgParams[0].lineColorScreenEnable << 1)  //
+                                 | (regs2.bgParams[1].lineColorScreenEnable << 2)  //
+                                 | (regs2.bgParams[2].lineColorScreenEnable << 3)  //
+                                 | (regs2.bgParams[3].lineColorScreenEnable << 4)  //
+                                 | (regs2.bgParams[4].lineColorScreenEnable << 5)  //
+            ;
+
+        params.colorOffsetA.r = bit::sign_extend<9>(regs2.colorOffset[0].r);
+        params.colorOffsetA.g = bit::sign_extend<9>(regs2.colorOffset[0].g);
+        params.colorOffsetA.b = bit::sign_extend<9>(regs2.colorOffset[0].b);
+
+        params.colorOffsetB.r = bit::sign_extend<9>(regs2.colorOffset[1].r);
+        params.colorOffsetB.g = bit::sign_extend<9>(regs2.colorOffset[1].g);
+        params.colorOffsetB.b = bit::sign_extend<9>(regs2.colorOffset[1].b);
+
+        for (int i = 0; i < 5; ++i) {
+            params.bgColorCalcRatios[i] = regs2.bgParams[i].colorCalcRatio;
+        }
+        params.backLineColorCalcRatios[0] = regs2.backScreenParams.colorCalcRatio;
+        params.backLineColorCalcRatios[1] = regs2.lineScreenParams.colorCalcRatio;
+
+    // ---- end copy ----
+
+        // Update buffer
+        return UploadToBuffer(frames.GetCurrentFrame().composeParamsBuffer, 0, &vdp2.cpuComposeParams,
+                              sizeof(vdp2.cpuComposeParams));
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4093-4154 ----
+    void VDP2CalcAccessPatterns() {
+        if (vdpState.regs2.accessPatternsDirty) {
+            ++vdp2.layerRenderParamsGeneration;
+        }
+        vdpState.state2.CalcAccessPatterns(vdpState.regs2, vdp2.accessPatternsConfig);
+    }
+
+    void VDP2InitNBGs() {
+        const VDP2Regs &regs2 = vdpState.regs2;
+
+        for (uint32 i = 0; i < 4; ++i) {
+            const BGParams &bgParams = regs2.bgParams[i + 1];
+            NBGLayerState &nbgState = vdpState.state2.nbgLayerStates[i];
+
+            // NOTE: fracScrollX/Y are computed from scratch in the shader
+            nbgState.scrollIncH = bgParams.scrollIncH;
+
+            if (i < 2) {
+                nbgState.lineScrollTableAddress = bgParams.lineScrollTableAddress;
+            }
+        }
+
+        ++vdp2.layerRenderParamsGeneration;
+    }
+
+    void VDP2UpdateEnabledLayers() {
+        vdpState.state2.UpdateEnabledBGs(vdpState.regs2, vdp2.debugRenderOptions);
+    }
+
+    void VDP2CalcVCellScrollDelay() {
+        if (vdpState.regs2.accessPatternsDirty) {
+            ++vdp2.layerRenderParamsGeneration;
+        }
+        vdpState.state2.CalcVCellScrollDelay(vdpState.regs2);
+    }
+
+    void VDP2DrawLineColorBackScreens(uint32 y) {
+        const VDP2Regs &regs = vdpState.regs2;
+
+        if (regs.displayEnabledLatch) {
+            // Read line color screen color
+            const LineBackScreenParams &lineParams = regs.lineScreenParams;
+            const uint32 lnclY = lineParams.perLine ? y : 0;
+            const uint32 lineAddress = lineParams.baseAddress + lnclY * sizeof(uint16);
+            const uint32 cramAddress = vdpState.mem2.ReadVRAM<uint16>(lineAddress);
+            vdp2.cpuLnclBack[0][y] = vdp2.cpuCRAMColorCache[cramAddress & 0x7FF];
+
+            // Read back screen color
+            const LineBackScreenParams &backParams = regs.backScreenParams;
+            const uint32 backY = backParams.perLine ? y : 0;
+            const uint32 backAddress = backParams.baseAddress + backY * sizeof(Color555);
+            const Color555 color5{.u16 = vdpState.mem2.ReadVRAM<uint16>(backAddress)};
+            const Color888 color8 = ConvertRGB555to888(color5);
+            vdp2.cpuLnclBack[1][y].r = color8.r;
+            vdp2.cpuLnclBack[1][y].g = color8.g;
+            vdp2.cpuLnclBack[1][y].b = color8.b;
+            vdp2.cpuLnclBack[1][y].a = color8.msb;
+        } else if (y > 0) {
+            vdp2.cpuLnclBack[0][y] = vdp2.cpuLnclBack[0][y - 1];
+            vdp2.cpuLnclBack[1][y] = vdp2.cpuLnclBack[1][y - 1];
+        }
+    }
+    // ---- end copy ----
+
+    util::VoidResult<> VDP2UploadLineColorBackScreens() {
+        return UploadToBuffer(frames.GetCurrentFrame().lnclBackBuffer, 0, &vdp2.cpuLnclBack, sizeof(vdp2.cpuLnclBack));
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4180-4225 ----
+    void VDP2UpdateRotationParameterBases(uint16 y) {
+        VDP2Regs &regs2 = vdpState.regs2;
+        if (!regs2.bgEnabled[4] && !regs2.bgEnabled[5]) {
+            // Skip if no RBGs are enabled
+            return;
+        }
+
+        const bool readAll = y == 0;
+
+        const uint32 baseAddress = regs2.commonRotParams.baseAddress & 0xFFF7C; // mask bit 6 (shifted left by 1)
+        for (uint32 i = 0; i < 2; ++i) {
+            VDP2RotParamBase &base = vdp2.cpuRotParamBases[i * kMaxNormalResV + y];
+            RotationParams &src = regs2.rotParams[i];
+
+            const uint32 address = baseAddress + i * 0x80;
+
+            base.tableAddress = address;
+
+            if (readAll || src.readXst) {
+                base.Xst = bit::extract_signed<6, 28, sint32>(vdpState.mem2.ReadVRAM<uint32>(address + 0x00));
+                src.readXst = false;
+            } else {
+                const VDP2RotParamBase &prevBase = vdp2.cpuRotParamBases[i * kMaxNormalResV + y - 1];
+                base.Xst =
+                    prevBase.Xst + bit::extract_signed<6, 18, sint32>(vdpState.mem2.ReadVRAM<uint32>(address + 0x0C));
+            }
+
+            if (readAll || src.readYst) {
+                base.Yst = bit::extract_signed<6, 28, sint32>(vdpState.mem2.ReadVRAM<uint32>(address + 0x04));
+                src.readYst = false;
+            } else {
+                const VDP2RotParamBase &prevBase = vdp2.cpuRotParamBases[i * kMaxNormalResV + y - 1];
+                base.Yst =
+                    prevBase.Yst + bit::extract_signed<6, 18, sint32>(vdpState.mem2.ReadVRAM<uint32>(address + 0x10));
+            }
+
+            if (readAll || src.readKAst) {
+                const uint32 KAst = bit::extract<6, 31>(vdpState.mem2.ReadVRAM<uint32>(address + 0x54));
+                base.KA = src.coeffTableAddressOffset + KAst;
+                src.readKAst = false;
+            } else {
+                const VDP2RotParamBase &prevBase = vdp2.cpuRotParamBases[i * kMaxNormalResV + y - 1];
+                base.KA = prevBase.KA + bit::extract_signed<6, 25>(vdpState.mem2.ReadVRAM<uint32>(address + 0x58));
+            }
+        }
+    }
+    // ---- end copy ----
+
+    util::VoidResult<> VDP2UploadRotationParameterBases() {
+        return UploadToBuffer(frames.GetCurrentFrame().rotParamBasesBuffer, 0, &vdp2.cpuRotParamBases,
+                              sizeof(vdp2.cpuRotParamBases));
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4251-4297 ----
+    void VDP2UpdateState(uint32 y) {
+        if (auto result = VDP2FlushVRAM(); !result) {
+            devlog::warn<grp::dx12_vdp2>("VDP2 VRAM flush failed: {}", result.Error().message);
+        }
+        if (auto result = VDP2FlushCRAM(); !result) {
+            devlog::warn<grp::dx12_vdp2>("VDP2 CRAM flush failed: {}", result.Error().message);
+        }
+        VDP2UpdateCommonRenderParams();
+        VDP2UpdateLayerRenderParams(y);
+        VDP2UpdateComposeParams();
+    }
+
+    void VDP2SetResolution(uint32 h, uint32 v, bool exclusive) {
+        resChangedToInterlaced = !exclusive && v > vdp::kMaxNormalResV && v != VRes;
+        HRes = h;
+        VRes = v;
+        exclusiveMonitor = exclusive;
+    }
+
+    void VDP2BeginFrame() {
+        vdp2.nextLayerRenderLine = 0;
+        vdp2.nextComposeLine = 0;
+
+        VDP2CalcAccessPatterns();
+        VDP2InitNBGs();
+
+        vdp2.cpuCommonRenderParams.displayParams.firstInterlacedFrame = resChangedToInterlaced ? 1u : 0u;
+        if (resChangedToInterlaced) {
+            resChangedToInterlaced = false;
+        }
+
+        VDP2UpdateState(0);
+        for (int i = 0; i < 4; ++i) {
+            vdp2.cpuLayerRenderParams.nbg[i].scrollYIncBase = 0;
+        }
+
+        // VDP2 consumes VDP1 FBRAM, so it needs to be synced here
+        if (auto result = VDP1FlushFBRAM(); !result) {
+            devlog::warn<grp::dx12_vdp1>("VDP1 FBRAM flush failed: {}", result.Error().message);
+        }
+
+        // If the frontend requested a VDP1 FBRAM sync via the debugger, do so now
+        bool expect = true;
+        if (vdp1.fbramDebugSyncRequest.compare_exchange_strong(expect, false)) {
+            VDP1DownloadFBRAM();
+        }
+    }
+    // ---- end copy ----
+
+    void VDP2RenderLayerLines(uint32 y) {
+        // Bail out if there's nothing to render
+        if (y < vdp2.nextLayerRenderLine) {
+            return;
+        }
+
+        VDP1FlushWork();
+
+        const bool deinterlace = enhancements.deinterlace && vdpState.regs2.TVMD.IsInterlaced();
+        const uint32 yShift = deinterlace ? 1u : 0u;
+
+        const uint32 startY = vdp2.nextLayerRenderLine;
+
+        // Determine how many lines to draw and update next scanline counter
+        const uint32 baseNumLines = y - startY + 1;
+        const uint32 numLines = baseNumLines << yShift;
+        vdp2.nextLayerRenderLine = y + 1;
+
+        vdp2.cpuCommonRenderParams.startY = startY << yShift;
+
+        // Compute rotation parameters if any RBGs are enabled
+        if (vdpState.regs2.bgEnabled[4] || vdpState.regs2.bgEnabled[5]) {
+            VDP2UploadRotationParameterBases();
+        }
+
+        // Draw sprite layer
+        if (auto result = Dispatch(vdp2.drawSpritePipe, frames.GetCurrentFrame().drawSpriteSet,
+                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
+                                   (HRes + 31) / 32, numLines, enhancements.transparentMeshes ? 2 : 1);
+            !result) {
+            devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 sprite layer: {}", result.Error().message);
+        }
+
+        // Draw NBGs and RBGs
+        if (auto result = Dispatch(vdp2.drawBGsPipe, frames.GetCurrentFrame().drawBGsSet,
+                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}}, HRes / 32,
+                                   numLines, 1);
+            !result) {
+            devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 background layers: {}", result.Error().message);
+        }
+    }
+
+    void VDP2ComposeLines(uint32 y) {
+        // Bail out if there's nothing to render
+        if (y < vdp2.nextComposeLine) {
+            return;
+        }
+
+        vdp2.cpuCommonRenderParams.startY = vdp2.nextComposeLine;
+        VDP2UploadLineColorBackScreens();
+
+        // Determine how many lines to draw and update next scanline counter
+        const uint32 numLines = y - vdp2.nextComposeLine + 1;
+        vdp2.nextComposeLine = y + 1;
+
+        // Compose final image
+        if (auto result = Dispatch(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
+                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
+                                   (HRes + 31) / 32, numLines, 1);
+            !result) {
+            devlog::warn<grp::dx12_vdp2>("Failed to compose VDP2 layers: {}", result.Error().message);
+        }
+    }
+
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4445-4473 ----
+    void VDP2RenderLine(uint32 y) {
+        VDP2CalcAccessPatterns();
+        VDP2CalcVCellScrollDelay();
+        VDP2DrawLineColorBackScreens(y);
+        VDP2UpdateRotationParameterBases(y);
+        vdpState.state2.UpdateRotationPageBaseAddresses(vdpState.regs2);
+
+        // When Y=0, the changes happened during vblank (or, more precisely, between the last Y of the previous frame
+        // and the first line of this frame). Otherwise, the changes happened between Y-1 and Y. Therefore, we need to
+        // render lines up to Y-1 then sync the state, unless Y=0, in which case we just sync the state.
+
+        if (y > 0) {
+            const FrameContext &frameCtx = frames.GetCurrentFrame();
+            const bool cramDirty = vdp2.cramGeneration != frameCtx.cramGeneration;
+            const bool layerRenderParamsDirty =
+                vdp2.layerRenderParamsGeneration != frameCtx.layerRenderParamsGeneration;
+            const bool composeParamsDirty = vdp2.composeParamsGeneration != frameCtx.composeParamsGeneration;
+            const bool renderLayers = vdp2.vramDirty || cramDirty || layerRenderParamsDirty || composeParamsDirty;
+            const bool compose = composeParamsDirty;
+            if (renderLayers) {
+                VDP2RenderLayerLines(y - 1);
+            }
+            if (compose) {
+                VDP2ComposeLines(y - 1);
+            }
+        }
+
+        VDP2UpdateState(y);
+    }
+    // ---- end copy ----
+
+    void VDP2EndFrame() {
+        const uint32 vShift = vdpState.regs2.TVMD.IsInterlaced() ? 1u : 0u;
+        const uint32 vres = VRes >> vShift;
+        VDP2RenderLayerLines(vres - 1);
+        VDP2ComposeLines(VRes - 1);
+
+        FrameContext &frameCtx = frames.GetCurrentFrame();
+
+        // Copy the display area of the composited output to this frame's readback buffer
+        FlushBarriers();
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0; // tightly packed
+        region.bufferImageHeight = 0;
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {HRes, VRes, 1};
+        vkCmdCopyImageToBuffer(Cmd(), vdp2.compositeOutTexture.image, VK_IMAGE_LAYOUT_GENERAL,
+                               frameCtx.readbackBuffer.buffer, 1, &region);
+        pendingBarrier = true;
+        frameCtx.readbackPending = true;
+        frameCtx.readbackW = HRes;
+        frameCtx.readbackH = VRes;
+
+        SubmitCommands(frameCtx);
+
+        // Deliver the previous frame (one frame of latency lets the GPU work overlap the next emulated frame)
+        FrameContext &prevCtx = frames[(frames.frameIndex + kNumFrames - 1) % kNumFrames];
+        DeliverFrame(prevCtx);
+
+        // Advance to the next frame
+        frames.frameIndex = (frames.frameIndex + 1) % kNumFrames;
+        FrameContext &nextCtx = frames.GetCurrentFrame();
+        if (nextCtx.readbackPending) {
+            DeliverFrame(nextCtx);
+        }
+        WaitFrame(nextCtx);
+        BeginCommands(nextCtx);
+    }
+
+    void DeliverFrame(FrameContext &frameCtx) {
+        if (!frameCtx.readbackPending) {
+            return;
+        }
+        WaitFrame(frameCtx);
+        frameCtx.readbackPending = false;
+        auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
+        const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
+        for (size_t i = 0; i < count; ++i) {
+            pixels[i] |= 0xFF000000u; // force opaque alpha
+        }
+        hwCallbacks.FrameReady(pixels, frameCtx.readbackW, frameCtx.readbackH);
+    }
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -65,17 +3487,20 @@ VulkanVDPRenderer::~VulkanVDPRenderer() {
 }
 
 util::VoidResult<> VulkanVDPRenderer::Initialize(const VulkanRendererContext &context) {
-    return m_impl->Initialize(context);
+    auto result = m_impl->Initialize(context);
+    if (!result) {
+        m_impl->Shutdown();
+    }
+    return result;
 }
 
 util::ObjectResult<VulkanVDPRenderer>
 VulkanVDPRenderer::Create(VDPState &state, const config::VDP2DebugRender &vdp2DebugRenderOptions,
                           const config::VDP2AccessPatternsConfig &vdp2AccessPatternsConfig,
                           const VulkanRendererContext &context) {
-    if (context.device == nullptr) {
-        return util::ErrorMessage{"No Vulkan device provided"};
-    }
-    std::unique_ptr<VulkanVDPRenderer> renderer{new VulkanVDPRenderer(state, vdp2DebugRenderOptions, vdp2AccessPatternsConfig)};
+    // A null device makes the renderer create its own headless compute device.
+    std::unique_ptr<VulkanVDPRenderer> renderer{
+        new VulkanVDPRenderer(state, vdp2DebugRenderOptions, vdp2AccessPatternsConfig)};
     util::VoidResult<> result = renderer->Initialize(context);
     if (!result) {
         return result.Error();
@@ -83,56 +3508,138 @@ VulkanVDPRenderer::Create(VDPState &state, const config::VDP2DebugRender &vdp2De
     return renderer;
 }
 
-void VulkanVDPRenderer::UpdateEnhancements() {}
-
-bool VulkanVDPRenderer::IsValid() const {
-    return m_impl->implemented;
+void VulkanVDPRenderer::UpdateEnhancements() {
+    m_impl->UpdateEnhancements();
 }
 
-void VulkanVDPRenderer::Reset(bool hard) {}
+bool VulkanVDPRenderer::IsValid() const {
+    return m_impl->initialized;
+}
 
-void VulkanVDPRenderer::PreSaveStateSync() {}
-void VulkanVDPRenderer::PostLoadStateSync() {}
+void VulkanVDPRenderer::Reset(bool hard) {
+    m_impl->Reset();
+}
+
+void VulkanVDPRenderer::PreSaveStateSync() {
+    m_impl->VDP1SyncFB();
+}
+
+void VulkanVDPRenderer::PostLoadStateSync() {
+    m_impl->vdp1.vramDirty.SetAll();
+    m_impl->vdp1.fbramDirty.SetAll();
+    if (auto result = m_impl->VDP1UploadFBRAM(); !result) {
+        devlog::warn<grp::dx12_base>("Failed to upload VDP1 FBRAM: {}", result.Error().message);
+    }
+
+    m_impl->VDP2CacheAllCRAMColors();
+    m_impl->VDP2UpdateEnabledLayers();
+    m_impl->vdp2.vramDirty.SetAll();
+    ++m_impl->vdp2.cramGeneration;
+    ++m_impl->vdp2.layerRenderParamsGeneration;
+    ++m_impl->vdp2.composeParamsGeneration;
+}
+
 void VulkanVDPRenderer::SaveState(savestate::VDPSaveState::VDPRendererSaveState &state) {}
+
 bool VulkanVDPRenderer::ValidateState(const savestate::VDPSaveState::VDPRendererSaveState &state) const {
     return true;
 }
+
 void VulkanVDPRenderer::LoadState(const savestate::VDPSaveState::VDPRendererSaveState &state) {}
 
-void VulkanVDPRenderer::VDP1WriteVRAM(uint32 address, uint8 value) {}
-void VulkanVDPRenderer::VDP1WriteVRAM(uint32 address, uint16 value) {}
-void VulkanVDPRenderer::VDP1SyncFB() {}
-void VulkanVDPRenderer::VDP1DebugSyncFB() {}
-void VulkanVDPRenderer::VDP1WriteFB(uint32 address, uint8 value) {}
-void VulkanVDPRenderer::VDP1WriteFB(uint32 address, uint16 value) {}
-void VulkanVDPRenderer::VDP1WriteReg(uint32 address, uint16 value) {}
+void VulkanVDPRenderer::VDP1WriteVRAM(uint32 address, uint8 value) {
+    m_impl->VDP1WriteVRAM(address);
+}
 
-void VulkanVDPRenderer::VDP2WriteVRAM(uint32 address, uint8 value) {}
-void VulkanVDPRenderer::VDP2WriteVRAM(uint32 address, uint16 value) {}
-void VulkanVDPRenderer::VDP2WriteCRAM(uint32 address, uint8 value) {}
-void VulkanVDPRenderer::VDP2WriteCRAM(uint32 address, uint16 value) {}
-void VulkanVDPRenderer::VDP2WriteReg(uint32 address, uint16 value) {}
+void VulkanVDPRenderer::VDP1WriteVRAM(uint32 address, uint16 value) {
+    m_impl->VDP1WriteVRAM(address);
+}
 
-void VulkanVDPRenderer::UpdateEnabledLayers() {}
+void VulkanVDPRenderer::VDP1SyncFB() {
+    m_impl->VDP1SyncFB();
+}
+
+void VulkanVDPRenderer::VDP1DebugSyncFB() {
+    m_impl->VDP1DebugSyncFB();
+}
+
+void VulkanVDPRenderer::VDP1WriteFB(uint32 address, uint8 value) {
+    m_impl->VDP1WriteFB(address, 1);
+}
+
+void VulkanVDPRenderer::VDP1WriteFB(uint32 address, uint16 value) {
+    m_impl->VDP1WriteFB(address, 2);
+}
+
+void VulkanVDPRenderer::VDP1WriteReg(uint32 address, uint16 value) {
+    m_impl->VDP1WriteReg();
+}
+
+void VulkanVDPRenderer::VDP2WriteVRAM(uint32 address, uint8 value) {
+    m_impl->VDP2WriteVRAM(address);
+}
+
+void VulkanVDPRenderer::VDP2WriteVRAM(uint32 address, uint16 value) {
+    m_impl->VDP2WriteVRAM(address);
+}
+
+void VulkanVDPRenderer::VDP2WriteCRAM(uint32 address, uint8 value) {
+    m_impl->VDP2WriteCRAM(address);
+}
+
+void VulkanVDPRenderer::VDP2WriteCRAM(uint32 address, uint16 value) {
+    m_impl->VDP2WriteCRAM(address);
+}
+
+void VulkanVDPRenderer::VDP2WriteReg(uint32 address, uint16 value) {
+    m_impl->VDP2WriteReg(address, value);
+}
+
+void VulkanVDPRenderer::UpdateEnabledLayers() {
+    m_impl->VDP2UpdateEnabledLayers();
+}
 
 void VulkanVDPRenderer::DumpExtraVDP1Framebuffers(std::ostream &out) const {}
 
-void VulkanVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {}
+void VulkanVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
+    m_impl->VDP1EraseFramebuffer(cycles);
+}
+
 void VulkanVDPRenderer::VDP1SwapFramebuffer() {
+    m_impl->VDP1SwapFramebuffer();
     Callbacks.VDP1FramebufferSwap();
 }
-void VulkanVDPRenderer::VDP1BeginFrame() {}
-void VulkanVDPRenderer::VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {}
+
+void VulkanVDPRenderer::VDP1BeginFrame() {
+    m_impl->VDP1BeginFrame();
+}
+
+void VulkanVDPRenderer::VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
+    m_impl->VDP1ExecuteCommand(cmdAddress, control);
+}
+
 void VulkanVDPRenderer::VDP1EndFrame() {
     Callbacks.VDP1DrawFinished();
 }
 
-void VulkanVDPRenderer::VDP2SetResolution(uint32 h, uint32 v, bool exclusive) {}
+void VulkanVDPRenderer::VDP2SetResolution(uint32 h, uint32 v, bool exclusive) {
+    m_impl->VDP2SetResolution(h, v, exclusive);
+}
+
 void VulkanVDPRenderer::VDP2SetField(bool odd) {}
+
 void VulkanVDPRenderer::VDP2LatchTVMD() {}
-void VulkanVDPRenderer::VDP2BeginFrame() {}
-void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {}
+
+void VulkanVDPRenderer::VDP2BeginFrame() {
+    m_impl->VDP2BeginFrame();
+}
+
+void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
+    m_impl->VDP2RenderLine(y);
+}
+
 void VulkanVDPRenderer::VDP2EndFrame() {
+    m_impl->VDP2EndFrame();
     Callbacks.VDP2DrawFinished();
 }
 

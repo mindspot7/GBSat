@@ -1,3 +1,8 @@
+#ifdef __spirv__
+#define VK_IMAGE_FORMAT(f) [[vk::image_format(f)]]
+#else
+#define VK_IMAGE_FORMAT(f)
+#endif
 #include "vdp2_common_params.hlsli"
 #include "vdp2_render_params_layer.hlsli"
 #include "vdp2_render_params_rotation.hlsli"
@@ -17,8 +22,8 @@ Buffer<uint4> g_cramColor : register(t3);
 StructuredBuffer<RotParamBase> g_rotParamBases : register(t4);
 ByteAddressBuffer g_spriteFB : register(t5);
 
-RWTexture2DArray<uint4> g_layerOut : register(u1);
-RWTexture2DArray<uint> g_spriteAttrsOut : register(u2);
+VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_layerOut : register(u1);
+VK_IMAGE_FORMAT("r16ui") RWTexture2DArray<uint> g_spriteAttrsOut : register(u2);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Parameters

@@ -1,3 +1,8 @@
+#ifdef __spirv__
+#define VK_IMAGE_FORMAT(f) [[vk::image_format(f)]]
+#else
+#define VK_IMAGE_FORMAT(f)
+#endif
 #include "vdp1_defs.hlsli"
 #include "vdp1_common_params.hlsli"
 #include "vdp1_polydraw_params.hlsli"
@@ -67,7 +72,7 @@ ByteAddressBuffer g_vram : register(t4);
 #if POLYSPEC_SHADING_MODE == POLYSPEC_SHADING_MODE_OIT
 
 // Half-Transparency uses per-pixel linked lists for order-independent transparency
-RWBuffer<uint> g_listHeads : register(u1);
+VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_listHeads : register(u1);
 RWStructuredBuffer<OITFragment> g_fragments : register(u2);
 RWByteAddressBuffer g_counter : register(u3);
 
@@ -79,7 +84,7 @@ RWByteAddressBuffer g_fbramOut : register(u1);
 #else
 
 // All other modes write to the internal output buffer
-RWBuffer<uint> g_internalSpriteOut : register(u1);
+VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u1);
 
 #endif
 

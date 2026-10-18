@@ -74,11 +74,13 @@ inline SpvReflection ReflectSpirv(const uint32_t *code, size_t wordCount) {
             }
             break;
         case 71: // OpDecorate: target, decoration, [value]
+            if (len >= 3) {
+                if (p[1] == 2) types[p[0]].block = true;
+                else if (p[1] == 3) types[p[0]].bufBlock = true;
+            }
             if (len >= 4) {
                 if (p[1] == 34) setOf[p[0]] = p[2];
                 else if (p[1] == 33) bindingOf[p[0]] = p[2];
-                else if (p[1] == 2) types[p[0]].block = true;
-                else if (p[1] == 3) types[p[0]].bufBlock = true;
             }
             break;
         case 25: // OpTypeImage: result, sampled type, dim, depth, arrayed, ms, sampled, format
