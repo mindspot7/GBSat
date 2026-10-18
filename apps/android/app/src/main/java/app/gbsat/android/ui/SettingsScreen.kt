@@ -109,7 +109,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
             }
             if (Emulator.renderer == 4) {
-                val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError() }.getOrDefault("") }
+                val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
                 if (gpuErr.isNotEmpty()) Text("Last GPU renderer error: $gpuErr",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
             }

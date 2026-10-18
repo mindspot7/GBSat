@@ -41,7 +41,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
     LaunchedEffect(Emulator.renderer) {
         if (Emulator.renderer == 4) {
             delay(1500)
-            val err = NativeBridge.nativeGetGpuError()
+            val err = NativeBridge.nativeGetGpuError().orEmpty()
             if (err.isNotEmpty()) Emulator.showToast("Vulkan GPU unavailable, using software: $err")
         }
     }
