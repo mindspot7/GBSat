@@ -214,7 +214,8 @@ static void SetupScene(Saturn &s, int scene) {
 
 std::string LoadDebugState(Saturn &saturn, const std::string &path);
 
-static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std::string &statePath = {}) {
+static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std::string &statePath = {},
+                std::unique_ptr<Saturn> *keep = nullptr) {
     auto saturn = std::make_unique<Saturn>();
     std::vector<uint8> ipl(sys::kIPLSize, 0);
     const uint8 boot[] = {0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x40, 0x00}; // PC=0x100, SP=0x06004000
@@ -261,6 +262,10 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std:
             return false;
         }
         for (int i = 0; i < 4; ++i) saturn->RunFrame();
+        if (keep) {
+            *keep = std::move(saturn);
+            return true;
+        }
         if (!vulkan) {
             std::printf("VDP2 registers:");
             for (uint32 r = 0; r <= 0x11E; r += 2) {
@@ -318,9 +323,26 @@ static int CompareState(const std::string &path) {
         std::printf("software: %s\n", err.c_str());
         return 2;
     }
-    if (!Run(true, 0, vk, err, path)) {
+    std::unique_ptr<Saturn> vkSaturn;
+    if (!Run(true, 0, vk, err, path, &vkSaturn)) {
         std::printf("vulkan: %s\n", err.c_str());
         return 2;
+    }
+    if (auto *vkr = vkSaturn->VDP.GetRendererAs<vdp::VDPRendererType::Vulkan>()) {
+        std::printf("GPU: %s\n", vkr->DebugDeviceInfo().c_str());
+        if (const char *pix = std::getenv("PIXELS")) {
+            std::string list = pix;
+            size_t pos = 0;
+            while (pos < list.size()) {
+                size_t end = list.find(';', pos);
+                if (end == std::string::npos) end = list.size();
+                unsigned x = 0, y = 0;
+                if (std::sscanf(list.substr(pos, end - pos).c_str(), "%u,%u", &x, &y) == 2) {
+                    std::printf("  %s\n", vkr->DebugDescribePixel(x, y).c_str());
+                }
+                pos = end + 1;
+            }
+        }
     }
     if (!sw.prev.empty()) sw.px = sw.prev;
     std::printf("STATE %s: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", path.c_str(), sw.w, sw.h, sw.count,

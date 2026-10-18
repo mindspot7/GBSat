@@ -152,6 +152,9 @@ struct VulkanVDPRenderer::Impl {
     /// @brief Use the background shader variant that emulates 64-bit integer math (GPUs without shaderInt64).
     bool noInt64 = false;
 
+    std::string deviceInfo;
+    GpuBuffer debugReadback;
+
     /// @brief Whether a memory barrier must be emitted before the next GPU operation.
     bool pendingBarrier = true;
 
@@ -908,6 +911,13 @@ struct VulkanVDPRenderer::Impl {
             return util::ErrorMessage{fmt::format("vkCreateDevice failed ({})", (int)r)};
         }
         vkGetDeviceQueue(device, queueFamily, 0, &queue);
+        deviceInfo = fmt::format("{} (vendor {:04X} device {:04X}) api {}.{}.{} driver {:08X}; int64={} extFormats={} "
+                                 "scalarLayout={} maxInvocations={}",
+                                 props.deviceName, props.vendorID, props.deviceID, VK_API_VERSION_MAJOR(props.apiVersion),
+                                 VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion),
+                                 props.driverVersion, !noInt64, (bool)enabled.shaderStorageImageExtendedFormats,
+                                 use12 ? (bool)e12.scalarBlockLayout : (useExtSBL ? (bool)esbl.scalarBlockLayout : false),
+                                 props.limits.maxComputeWorkGroupInvocations);
         return {};
     }
 
@@ -1101,6 +1111,10 @@ struct VulkanVDPRenderer::Impl {
             YMIR_VK_TRY(CreateBuffer(f.uploadBuffer, kUploadBufferSize,
                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true,
                                      VK_FORMAT_UNDEFINED, "Upload" + sfx));
+            if (i == 0) {
+                YMIR_VK_TRY(CreateBuffer(debugReadback, 256, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                                         VK_FORMAT_UNDEFINED, "Debug readback", true));
+            }
             YMIR_VK_TRY(CreateBuffer(f.readbackBuffer, kMaxResH * kMaxResV * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
                                      VK_FORMAT_UNDEFINED, "Readback" + sfx, true));
 
@@ -1706,6 +1720,47 @@ struct VulkanVDPRenderer::Impl {
         BeginCommands(nextCtx);
     }
 
+    std::string DebugDescribePixel(uint32 x, uint32 y) {
+        if (!initialized || x >= kMaxResH || y >= kMaxResV) {
+            return "n/a";
+        }
+        vkDeviceWaitIdle(device);
+        // Last submitted frame
+        FrameContext &f = frames[(frames.frameIndex + kNumFrames - 1) % kNumFrames];
+        FlushBarriers();
+        VkCommandBuffer cmd = Cmd();
+        auto copyImg = [&](GpuImage &img, uint32 px, uint32 py, uint32 layers, VkDeviceSize offset) {
+            VkBufferImageCopy r{};
+            r.bufferOffset = offset;
+            r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layers};
+            r.imageOffset = {(int32_t)px, (int32_t)py, 0};
+            r.imageExtent = {1, 1, 1};
+            vkCmdCopyImageToBuffer(cmd, img.image, VK_IMAGE_LAYOUT_GENERAL, debugReadback.buffer, 1, &r);
+        };
+        std::memset(debugReadback.mapped, 0, 256);
+        copyImg(f.layerOutTexture, x, y, 8, 0);
+        copyImg(f.spriteAttrsTexture, x, y, 2, 64);
+        copyImg(f.colorCalcWindowTexture, x, y, 1, 80);
+        // VDP1 framebuffer words (both buffers) at the same coordinates
+        const uint32 fbW = vdpState.regs1.tvmr.fbSizeH ? vdpState.regs1.tvmr.fbSizeH : 512;
+        const VkDeviceSize fbOff = ((VkDeviceSize)y * fbW + x) * 2 & ~3ull;
+        const VkBufferCopy fb0{fbOff, 96, 4};
+        const VkBufferCopy fb1{fbOff + kVDP1FBRAMSize, 100, 4};
+        vkCmdCopyBuffer(cmd, vdp1.fbramBuffer.buffer, debugReadback.buffer, 1, &fb0);
+        vkCmdCopyBuffer(cmd, vdp1.fbramBuffer.buffer, debugReadback.buffer, 1, &fb1);
+        pendingBarrier = true;
+        SubmitAndWait();
+        const auto *b = static_cast<const uint8 *>(debugReadback.mapped);
+        std::string s = fmt::format("({},{}) layers[NBG0..3,RBG0,RBG1,SPR,MESH] rgba:", x, y);
+        for (int l = 0; l < 8; ++l) {
+            s += fmt::format(" {:02X}{:02X}{:02X}/{:02X}", b[l * 4], b[l * 4 + 1], b[l * 4 + 2], b[l * 4 + 3]);
+        }
+        s += fmt::format(" spriteAttrs {:04X} {:04X} ccw {:02X} fb0 {:02X}{:02X}{:02X}{:02X} fb1 {:02X}{:02X}{:02X}{:02X}",
+                         b[64] | (b[65] << 8), b[66] | (b[67] << 8), b[80], b[96], b[97], b[98], b[99], b[100], b[101],
+                         b[102], b[103]);
+        return s;
+    }
+
     void DeliverFrame(FrameContext &frameCtx) {
         if (!frameCtx.readbackPending) {
             return;
@@ -1847,6 +1902,14 @@ void VulkanVDPRenderer::UpdateEnabledLayers() {
 }
 
 void VulkanVDPRenderer::DumpExtraVDP1Framebuffers(std::ostream &out) const {}
+
+std::string VulkanVDPRenderer::DebugDeviceInfo() const {
+    return m_impl->deviceInfo;
+}
+
+std::string VulkanVDPRenderer::DebugDescribePixel(uint32 x, uint32 y) {
+    return m_impl->DebugDescribePixel(x, y);
+}
 
 void VulkanVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
     m_impl->VDP1EraseFramebuffer(cycles);

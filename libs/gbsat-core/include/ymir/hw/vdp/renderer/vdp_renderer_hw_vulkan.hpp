@@ -14,6 +14,7 @@ Port of the Direct3D 12 renderer. Requires Vulkan 1.1 with the `shaderInt64` fea
 #include <ymir/util/result.hpp>
 
 #include <memory>
+#include <string>
 
 namespace ymir::vdp {
 
@@ -86,6 +87,15 @@ public:
     // Utilities
 
     void DumpExtraVDP1Framebuffers(std::ostream &out) const override;
+
+    // -------------------------------------------------------------------------
+    // Diagnostics
+
+    /// @brief Describes the GPU and the features in use.
+    std::string DebugDeviceInfo() const;
+
+    /// @brief Reads back the intermediate layer data of the most recently rendered frame at the given output pixel.
+    std::string DebugDescribePixel(uint32 x, uint32 y);
 
     // -------------------------------------------------------------------------
     // Rendering process
