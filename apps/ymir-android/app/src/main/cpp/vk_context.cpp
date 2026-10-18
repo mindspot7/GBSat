@@ -216,7 +216,23 @@ bool CreateSwapchain(std::string &err) {
     sci.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
                              ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
                              : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    // Prefer a non-blocking present mode so the emulation thread is never paced by vsync (fast forward).
     sci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    {
+        uint32_t pn = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(g.phys, g.surface, &pn, nullptr);
+        std::vector<VkPresentModeKHR> pms(pn);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(g.phys, g.surface, &pn, pms.data());
+        for (auto m : {VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR}) {
+            if (std::find(pms.begin(), pms.end(), m) != pms.end()) {
+                sci.presentMode = m;
+                break;
+            }
+        }
+    }
+    if (sci.presentMode == VK_PRESENT_MODE_FIFO_KHR && count < 3 &&
+        (caps.maxImageCount == 0 || caps.maxImageCount >= 3))
+        sci.minImageCount = 3;
     sci.clipped = VK_TRUE;
     if (vkCreateSwapchainKHR(g.device, &sci, nullptr, &g.swapchain) != VK_SUCCESS) {
         err = "vkCreateSwapchainKHR falhou";
@@ -338,12 +354,13 @@ bool PresentRGBA(const uint32_t *pixels, uint32_t w, uint32_t h, bool linear) {
     if (!g.ready || !w || !h) return false;
     if (!EnsureSrc(w, h)) return false;
 
-    vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
+    // Never block the emulation thread: if the GPU/display is not ready, drop this frame.
+    if (vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, 0) != VK_SUCCESS) return true;
 
     uint32_t idx = 0;
-    VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, UINT64_MAX, g.imageAvail, VK_NULL_HANDLE, &idx);
-    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) return false;
-    if (r != VK_SUCCESS) return false;
+    VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, 0, g.imageAvail, VK_NULL_HANDLE, &idx);
+    if (r == VK_NOT_READY || r == VK_TIMEOUT) return true;
+    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return false;
     vkResetFences(g.device, 1, &g.fence);
 
     std::memcpy(g.stagingMap, pixels, size_t(w) * h * 4);
