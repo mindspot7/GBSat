@@ -34,7 +34,8 @@ static void Cmd(Saturn &s, int index, std::initializer_list<std::pair<int, uint1
 
 static void SetupScene(Saturn &s, int scene) {
     // ---- VDP2 ----
-    Poke16(s, kVDP2Regs + 0x000, 0x8000 | (scene == 1 ? 0x0001 : 0)); // TVMD: display on, 320 or 352 wide, 224 lines
+    // TVMD: display on, 320 or 352 wide (scene 1), 224 lines, double-density interlace (scene 4)
+    Poke16(s, kVDP2Regs + 0x000, 0x8000 | (scene == 1 ? 0x0001 : 0) | (scene == 4 ? 0x00C0 : 0));
     Poke16(s, kVDP2Regs + 0x00E, 0x0000);                             // RAMCTL: CRAM mode 0
     for (uint32 r = 0x010; r <= 0x01E; r += 2) Poke16(s, kVDP2Regs + r, 0x4444); // cycle patterns: NBG0 char data
     Poke16(s, kVDP2Regs + 0x020, 0x0001);  // BGON: NBG0
@@ -56,6 +57,43 @@ static void SetupScene(Saturn &s, int scene) {
         Poke16(s, kVDP2Regs + 0x110, 0x0001); // CLOFEN: color offset on NBG0
         Poke16(s, kVDP2Regs + 0x114, 0x0040); // COAR
         Poke16(s, kVDP2Regs + 0x116, 0x01E0); // COAG (negative)
+    }
+    if (scene == 3) {
+        // NBG1 cell-based tilemap (16 colors, 1-word pattern names) on top of the bitmap NBG0
+        Poke16(s, kVDP2Regs + 0x010, 0x415F); // CYCA0L: NBG0 CG, NBG1 PN, NBG1 CG
+        Poke16(s, kVDP2Regs + 0x014, 0x415F);
+        Poke16(s, kVDP2Regs + 0x018, 0x415F);
+        Poke16(s, kVDP2Regs + 0x01C, 0x415F);
+        Poke16(s, kVDP2Regs + 0x020, 0x0003); // BGON: NBG0 + NBG1
+        Poke16(s, kVDP2Regs + 0x028, 0x0012); // CHCTLA: NBG0 bitmap 256 colors, NBG1 cells 16 colors
+        Poke16(s, kVDP2Regs + 0x032, 0x8004); // PNCN1: 1-word pattern names, supplementary char bits = 4 (0x1000)
+        Poke16(s, kVDP2Regs + 0x03A, 0x0000); // PLSZ
+        Poke16(s, kVDP2Regs + 0x044, 0x1414); // MPABN1: page 20 (0x28000)
+        Poke16(s, kVDP2Regs + 0x046, 0x1414); // MPCDN1
+        Poke16(s, kVDP2Regs + 0x080, 0x0005); // SCXIN1
+        Poke16(s, kVDP2Regs + 0x084, 0x0003); // SCYIN1
+        Poke16(s, kVDP2Regs + 0x088, 0x0001); // ZMXIN1
+        Poke16(s, kVDP2Regs + 0x08C, 0x0001); // ZMYIN1
+        Poke16(s, kVDP2Regs + 0x0F8, 0x0403); // PRINA: NBG0 = 3, NBG1 = 4
+        // 16 characters (8x8, 4bpp) at 0x20000, character number = address / 0x20 = 0x1000 + n
+        for (int ch = 0; ch < 16; ++ch)
+            for (int row = 0; row < 8; ++row)
+                for (int col = 0; col < 8; col += 4) {
+                    uint16 v = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        const int x = col + k;
+                        const int c = ((x + row + ch) % 5 == 0) ? 0 : ((x * row + ch) & 15);
+                        v = (v << 4) | c;
+                    }
+                    Poke16(s, kVDP2VRAM + 0x20000 + ch * 0x20 + row * 4 + col / 2, v);
+                }
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x) {
+                const uint16 chr = 0x1000 + ((x * 3 + y) & 15);
+                const uint16 pal = ((x + y) & 7) << 12;
+                const uint16 flip = (x & 4) ? 0x0400 : 0;
+                Poke16(s, kVDP2VRAM + 0x28000 + (y * 64 + x) * 2, pal | flip | (chr & 0x3FF));
+            }
     }
     Poke16(s, kVDP2VRAM + 0x7FFFE, 0x5000); // back screen: dark blue
     for (int i = 0; i < 256; ++i) {
@@ -174,7 +212,7 @@ static std::string Ascii(const Frame &f, int cols = 64, int rows = 24) {
 
 int main() {
     int failures = 0;
-    for (int scene = 0; scene < 3; ++scene) {
+    for (int scene = 0; scene < 5; ++scene) {
         Frame sw, vk;
         std::string err;
         Run(false, scene, sw, err);
@@ -208,8 +246,8 @@ int main() {
             }
         }
         std::printf("  differing pixels: %zu (%zu with a channel difference > 8) of %u\n", diff, big, sw.w * sw.h);
-        std::printf("  software:\n%s  vulkan:\n%s", Ascii(sw).c_str(), Ascii(vk).c_str());
         if (big > 0) {
+            std::printf("  software:\n%s  vulkan:\n%s", Ascii(sw).c_str(), Ascii(vk).c_str());
             std::printf("  diff map:\n");
             for (int r = 0; r < rows; ++r) {
                 for (int c = 0; c < cols; ++c) std::putchar(cell[r * cols + c] ? 'X' : '.');
@@ -217,6 +255,7 @@ int main() {
             }
             ++failures;
         }
+        if (scene == 0) std::printf("  software:\n%s", Ascii(sw).c_str());
         // Sample pixels for debugging
         for (auto [x, y] : std::initializer_list<std::pair<uint32, uint32>>{{5, 5}, {50, 50}, {150, 150}, {270, 50}, {40, 160}}) {
             if (x < sw.w && y < sw.h)
