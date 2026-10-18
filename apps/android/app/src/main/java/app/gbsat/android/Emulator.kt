@@ -191,8 +191,9 @@ object Emulator {
         aspect = prefs.getInt("aspect", 0)
         showFps = prefs.getBoolean("showFps", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
-        renderer = prefs.getInt("renderer", 0)
-        filter = prefs.getInt("filter", 1)
+        // "Vulkan" (present-only, id 2) was replaced by Vulkan GPU, which also presents through Vulkan
+        renderer = prefs.getInt("renderer", 0).let { if (it == 2) 4 else it }
+        filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->

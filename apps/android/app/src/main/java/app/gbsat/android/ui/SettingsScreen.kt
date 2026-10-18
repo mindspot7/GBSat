@@ -95,17 +95,18 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
             Section("Display")
-            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan", "ANGLE", "Vulkan GPU (beta)"), Emulator.renderer, change<Int> { Emulator.renderer = it })
+            // Renderer modes shown (internal ids): Software 0, OpenGL ES 1, ANGLE 3, Vulkan GPU 4
+            val rendererIds = listOf(0, 1, 3, 4)
+            Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU (beta)"),
+                rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0), change<Int> { Emulator.renderer = rendererIds[it] })
             Text(
-                "Software, OpenGL ES, Vulkan and ANGLE emulate the Saturn VDP on the CPU and only differ in how the image is shown: " +
-                    "OpenGL ES and ANGLE enable the filters and shaders below, Vulkan shows the image through the Vulkan API. " +
-                    "Vulkan GPU (beta) renders the VDP1/VDP2 graphics with Vulkan compute shaders; " +
-                    "it falls back to the software renderer if the GPU cannot run it. " +
-                    "Enhanced resolution and widescreen hacks are not available yet.",
+                "Software, OpenGL ES and ANGLE emulate the Saturn graphics on the CPU; OpenGL ES and ANGLE add the filters and shaders below. " +
+                    "Vulkan GPU (beta) renders the graphics on the GPU with Vulkan and shows them through Vulkan; " +
+                    "it falls back to software rendering if the GPU cannot run it.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
             if (Emulator.renderer == 1 || Emulator.renderer == 3) {
-                Choice("Texture filtering", listOf("Nearest", "Bilinear", "Sharp bilinear"), Emulator.filter, change<Int> { Emulator.filter = it })
+                Choice("Texture filtering", listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), change<Int> { Emulator.filter = it })
                 Choice("Shader", listOf("None", "Scanlines", "CRT", "LCD3x", "Dots"), Emulator.shader, change<Int> { Emulator.shader = it })
             }
             if (Emulator.renderer == 4) {
@@ -113,7 +114,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 if (gpuErr.isNotEmpty()) Text("Last GPU renderer error: $gpuErr",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
             }
-            if (Emulator.renderer == 2 || Emulator.renderer == 4) {
+            if (Emulator.renderer == 4) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), minOf(Emulator.filter, 1), change<Int> { Emulator.filter = it })
                 val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
                 Text(
@@ -121,7 +122,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            Choice("Display", listOf("4:3", "Fill", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
+            Choice("Display", listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
             Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
             Section("Hotkeys")
