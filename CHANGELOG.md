@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- Vulkan GPU: sprite shadows now respect the per-layer shadow enable (fixed darkened backgrounds, e.g. Three Dirty Dwarves on Mali).
 - Vulkan GPU: internal resolution up to 4x (Settings → Display → Internal resolution). VDP1 sprites and polygons are rasterized at the higher resolution; backgrounds stay native. Applies to non-interlaced, standard-resolution screens.
 - RetroAchievements (rcheevos): login, hardcore mode, unlock notifications with badges, achievement list in the quick menu, progress saved with save states.
 - Vulkan GPU: fixed sprites going behind backgrounds of equal priority on Adreno GPUs (Three Dirty Dwarves).

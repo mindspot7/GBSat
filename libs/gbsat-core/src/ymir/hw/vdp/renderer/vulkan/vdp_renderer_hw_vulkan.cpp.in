@@ -2533,7 +2533,13 @@ struct VulkanVDPRenderer::Impl {
                               sizeof(vdp2.cpuLayerRenderParams));
     }
 
-    //@@COPY 4021-4065@@
+    //@@COPY 4021-4050@@
+        // Shadow enable per layer (SDCTL) in bits 16+, same layer order (sprite bit unused, back screen bit 22)
+        params.lineColorEnable |= (regs2.bgParams[0].shadowEnable << 17) | (regs2.bgParams[1].shadowEnable << 18) |
+                                  (regs2.bgParams[2].shadowEnable << 19) | (regs2.bgParams[3].shadowEnable << 20) |
+                                  (regs2.bgParams[4].shadowEnable << 21) |
+                                  (regs2.backScreenParams.shadowEnable << 22);
+    //@@COPY 4051-4065@@
 
         // Update buffer
         return UploadToBuffer(frames.GetCurrentFrame().composeParamsBuffer, 0, &vdp2.cpuComposeParams,

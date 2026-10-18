@@ -3258,7 +3258,7 @@ struct VulkanVDPRenderer::Impl {
                               sizeof(vdp2.cpuLayerRenderParams));
     }
 
-// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4021-4065 ----
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4021-4050 ----
     util::VoidResult<> VDP2UpdateComposeParams() {
         FrameContext &frameCtx = frames.GetCurrentFrame();
         if (frameCtx.composeParamsGeneration == vdp2.composeParamsGeneration) {
@@ -3289,6 +3289,13 @@ struct VulkanVDPRenderer::Impl {
                                  | (regs2.bgParams[3].lineColorScreenEnable << 4)  //
                                  | (regs2.bgParams[4].lineColorScreenEnable << 5)  //
             ;
+    // ---- end copy ----
+        // Shadow enable per layer (SDCTL) in bits 16+, same layer order (sprite bit unused, back screen bit 22)
+        params.lineColorEnable |= (regs2.bgParams[0].shadowEnable << 17) | (regs2.bgParams[1].shadowEnable << 18) |
+                                  (regs2.bgParams[2].shadowEnable << 19) | (regs2.bgParams[3].shadowEnable << 20) |
+                                  (regs2.bgParams[4].shadowEnable << 21) |
+                                  (regs2.backScreenParams.shadowEnable << 22);
+// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4051-4065 ----
 
         params.colorOffsetA.r = bit::sign_extend<9>(regs2.colorOffset[0].r);
         params.colorOffsetA.g = bit::sign_extend<9>(regs2.colorOffset[0].g);

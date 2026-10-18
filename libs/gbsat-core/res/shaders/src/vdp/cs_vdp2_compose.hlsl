@@ -198,7 +198,7 @@ bool IsColorCalcEnabled(uint layer, uint2 pos) {
 }
 
 bool IsLineColorEnabled(uint layer, uint2 pos) {
-    return BitTest(g_composeParams[0].lineColorEnable, layer);
+    return layer < 16 && BitTest(g_composeParams[0].lineColorEnable, layer);
 }
 
 uint3 GetLineColor(uint layer, uint2 pos) {
@@ -443,12 +443,17 @@ uint3 Compose(uint2 basePos) {
     // Apply sprite shadow if sprite layer has a shadow pixel and is on top of the topmost layer
     const uint4 spriteOutput = GetLayerOutput(kLayerSprite, pos);
     const uint spritePriority = BitExtract(spriteOutput.a, 0, 3);
-    if (spritePriority >= layerPrios[0]) {
+    if (spritePriority >= p0) {
         const uint spriteAttrs = g_spriteAttrsIn[uint3(g_hiPos, 0)];
         const bool useSpriteWindow = BitTest(g_commonParams.spriteParams, 20);
         const bool isNormalShadow = BitExtract(spriteAttrs, kSpriteAttrBitSpecial, 2) == kSpriteDataShadow;
         const bool isMSBShadow = !useSpriteWindow && BitTest(spriteAttrs, kSpriteAttrBitShadowWindow);
-        if (isNormalShadow || isMSBShadow) {
+        // The topmost layer must have shadows enabled (SDCTL); sprites use their own shadow/window bit
+        const uint topLayer = layerStack[0];
+        const bool topShadowEnabled = topLayer == kLayerSprite
+            ? BitTest(spriteAttrs, kSpriteAttrBitShadowWindow)
+            : BitTest(g_composeParams[0].lineColorEnable, 16 + topLayer);
+        if ((isNormalShadow || isMSBShadow) && topShadowEnabled) {
             output >>= 1;
         }
     }
