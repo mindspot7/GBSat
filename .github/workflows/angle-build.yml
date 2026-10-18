@@ -35,6 +35,8 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/angle/angle
           cd angle
           python3 scripts/bootstrap.py
+          cat .gclient
+          sed -i '/^target_os/d' .gclient
           echo "target_os = ['android']" >> .gclient
           gclient sync -D --no-history -j8
           df -h /
