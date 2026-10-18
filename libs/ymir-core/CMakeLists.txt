@@ -545,7 +545,14 @@ if (Vulkan_FOUND)
     message(STATUS "Adding Vulkan to ymir-core")
     target_link_libraries(ymir-core PRIVATE
         Vulkan::Vulkan
-        Vulkan::SPIRV-Tools
+    )
+    if (TARGET Vulkan::SPIRV-Tools)
+        target_link_libraries(ymir-core PRIVATE Vulkan::SPIRV-Tools)
+    endif ()
+    target_sources(ymir-core PRIVATE
+        include/ymir/hw/vdp/renderer/vdp_renderer_hw_vulkan.hpp
+        include/ymir/hw/vdp/renderer/vdp_renderer_hw_vulkan_callbacks.hpp
+        src/ymir/hw/vdp/renderer/vdp_renderer_hw_vulkan.cpp
     )
 endif ()
 

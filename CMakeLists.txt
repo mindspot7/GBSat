@@ -5,7 +5,10 @@ project(Ymir VERSION 0.4.0)
 # is available to determine whether to make SPIR-V compilation required or optional.
 # Vulkan support is excluded from macOS as the system doesn't support it natively.
 # Metal is the preferred backend on that platform.
-if (NOT APPLE)
+if (ANDROID)
+    # Android: the NDK provides the Vulkan loader and headers; SPIR-V Tools are not needed (shaders are precompiled).
+    find_package(Vulkan)
+elseif (NOT APPLE)
     find_package(Vulkan COMPONENTS SPIRV-Tools)
 endif ()
 

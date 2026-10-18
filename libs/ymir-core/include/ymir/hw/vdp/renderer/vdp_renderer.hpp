@@ -5,3 +5,6 @@
 #if YMIR_PLATFORM_HAS_DIRECT3D
     #include "vdp_renderer_hw_d3d12.hpp"
 #endif
+#if YMIR_PLATFORM_HAS_VULKAN
+    #include "vdp_renderer_hw_vulkan.hpp"
+#endif

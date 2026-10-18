@@ -12,6 +12,9 @@
 #if YMIR_PLATFORM_HAS_DIRECT3D
     #include "renderer/vdp_renderer_hw_d3d12_callbacks.hpp"
 #endif
+#if YMIR_PLATFORM_HAS_VULKAN
+    #include "renderer/vdp_renderer_hw_vulkan_callbacks.hpp"
+#endif
 
 #include "vdp_devlog.hpp"
 
@@ -170,6 +173,25 @@ public:
     }
 #endif
 
+#if YMIR_PLATFORM_HAS_VULKAN
+    /// @brief Switches to the Vulkan renderer.
+    /// @param[in] context the Vulkan objects (instance, device, queue) the renderer should use
+    /// @return a pointer to the renderer, or an error message if it failed to instantiate
+    util::PointerResult<VulkanVDPRenderer> UseVulkanRenderer(const VulkanRendererContext &context) {
+        return UseRenderer<VulkanVDPRenderer>(m_state, vdp2DebugRenderOptions, vdp2AccessPatternsConfig, context);
+    }
+
+    /// @brief Configures the callback that receives finished frames from the Vulkan renderer.
+    /// @param[in] callback the callback to register
+    void SetVulkanFrameReadyCallback(CBVulkanFrameReadyCallback callback) {
+        if (auto *hwRenderer = m_renderer->As<VDPRendererType::Vulkan>()) {
+            hwRenderer->HwCallbacks.FrameReady = callback;
+        } else {
+            m_vulkanRendererCallbacks.FrameReady = callback;
+        }
+    }
+#endif
+
     /// @brief Retrieves the enhancements configured for this VDP instance.
     /// @return the current enhancements configuration
     const config::Enhancements &GetEnhancements() const {
@@ -310,6 +332,11 @@ private:
             m_d3d12RendererCallbacks = hwRenderer->HwCallbacks;
         }
 #endif
+#if YMIR_PLATFORM_HAS_VULKAN
+        if (VulkanVDPRenderer *hwRenderer = m_renderer->As<VDPRendererType::Vulkan>()) {
+            m_vulkanRendererCallbacks = hwRenderer->HwCallbacks;
+        }
+#endif
 
         renderer->Callbacks = callbacks;
         if constexpr (std::is_same_v<T, SoftwareVDPRenderer>) {
@@ -317,6 +344,10 @@ private:
 #if YMIR_PLATFORM_HAS_DIRECT3D
         } else if constexpr (std::is_same_v<T, Direct3D12VDPRenderer>) {
             renderer->HwCallbacks = m_d3d12RendererCallbacks;
+#endif
+#if YMIR_PLATFORM_HAS_VULKAN
+        } else if constexpr (std::is_same_v<T, VulkanVDPRenderer>) {
+            renderer->HwCallbacks = m_vulkanRendererCallbacks;
 #endif
         }
         renderer->ConfigureEnhancements(m_enhancements);
@@ -357,6 +388,9 @@ private:
 
 #if YMIR_PLATFORM_HAS_DIRECT3D
     Direct3D12RendererCallbacks m_d3d12RendererCallbacks;
+#endif
+#if YMIR_PLATFORM_HAS_VULKAN
+    VulkanRendererCallbacks m_vulkanRendererCallbacks;
 #endif
 
     // -------------------------------------------------------------------------

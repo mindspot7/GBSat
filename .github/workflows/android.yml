@@ -30,6 +30,16 @@ jobs:
         with:
           gradle-version: 8.10.2
 
+      - name: Install DXC (HLSL to SPIR-V shader compiler)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R microsoft/DirectXShaderCompiler -p 'linux_dxc_*.tar.gz' -D /tmp/dxc
+          sudo mkdir -p /opt/dxc && sudo tar -xzf /tmp/dxc/linux_dxc_*.tar.gz -C /opt/dxc
+          echo "/opt/dxc/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=/opt/dxc/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          /opt/dxc/bin/dxc --version || true
+
       - name: Fetch prebuilt ANGLE libraries (optional)
         env:
           GH_TOKEN: ${{ github.token }}
