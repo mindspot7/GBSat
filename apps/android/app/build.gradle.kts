@@ -9,12 +9,12 @@ plugins {
 }
 
 android {
-    namespace = "app.ymir.android"
+    namespace = "app.gbsat.android"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
-        applicationId = "app.ymir.android"
+        applicationId = "app.gbsat.android"
         minSdk = 28 // iconv in libc, AAudio, ANativeWindow
         targetSdk = 35
         versionCode = gbsatBuild

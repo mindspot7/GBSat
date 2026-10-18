@@ -27,7 +27,7 @@
 #include <thread>
 #include <vector>
 
-#define LOG_TAG "YmirAndroid"
+#define LOG_TAG "GBSat"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -423,9 +423,9 @@ jstring NewJStr(JNIEnv *env, const std::string &s) {
 } // namespace
 
 // =====================================================================================================================
-// JNI exports — class app.ymir.android.NativeBridge
+// JNI exports — class app.gbsat.android.NativeBridge
 
-#define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_ymir_android_NativeBridge_##name
+#define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_android_NativeBridge_##name
 
 JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring smpcPath) {
     if (g) {

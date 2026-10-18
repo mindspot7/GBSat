@@ -1,4 +1,4 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*

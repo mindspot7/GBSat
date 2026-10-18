@@ -1,11 +1,11 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import app.ymir.android.Emulator
+import app.gbsat.android.Emulator
 import kotlinx.coroutines.launch
 
 private enum class Screen { Library, Settings }

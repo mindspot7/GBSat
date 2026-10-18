@@ -1,1 +1,1 @@
-add_subdirectory(ymir-core)
+add_subdirectory(gbsat-core)

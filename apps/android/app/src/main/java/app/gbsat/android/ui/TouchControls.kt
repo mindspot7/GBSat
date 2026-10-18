@@ -1,4 +1,4 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -20,8 +20,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.ymir.android.Emulator
-import app.ymir.android.SaturnButton
+import app.gbsat.android.Emulator
+import app.gbsat.android.SaturnButton
 import kotlin.math.abs
 import kotlin.math.hypot
 

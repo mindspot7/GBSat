@@ -5,7 +5,7 @@ Sega Saturn emulator for Android.
 | Path | What |
 | --- | --- |
 | `apps/android` | Android app (Kotlin/Compose UI + JNI bridge). |
-| `libs/ymir-core` | Emulator core. |
+| `libs/gbsat-core` | Emulator core. |
 | `vendor/`, `cmake/`, `CMakeLists.txt` | Core dependencies (git submodules) and build scripts. |
 | `.github/workflows/android.yml` | GitHub Actions workflow that builds the APK. |
 

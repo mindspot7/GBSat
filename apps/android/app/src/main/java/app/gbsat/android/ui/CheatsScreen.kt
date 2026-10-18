@@ -1,4 +1,4 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,9 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import app.ymir.android.Cheat
-import app.ymir.android.CheatParser
-import app.ymir.android.Emulator
+import app.gbsat.android.Cheat
+import app.gbsat.android.CheatParser
+import app.gbsat.android.Emulator
 
 /** Per-game cheat list: toggle, add (name + code), delete, and import libretro `.cht` files. */
 @Composable

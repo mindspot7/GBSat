@@ -1,4 +1,4 @@
-package app.ymir.android
+package app.gbsat.android
 
 /** A single user cheat: one or more memory writes, stored per game. */
 data class Cheat(val name: String, val code: String, val enabled: Boolean = false)

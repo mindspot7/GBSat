@@ -1,4 +1,4 @@
-package app.ymir.android
+package app.gbsat.android
 
 import android.net.Uri
 import android.os.Build

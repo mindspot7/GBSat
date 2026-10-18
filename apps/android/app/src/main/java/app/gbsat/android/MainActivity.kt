@@ -1,4 +1,4 @@
-package app.ymir.android
+package app.gbsat.android
 
 import android.content.Intent
 import android.net.Uri
@@ -15,7 +15,7 @@ import androidx.compose.runtime.*
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import app.ymir.android.ui.GBSatRoot
+import app.gbsat.android.ui.GBSatRoot
 import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {

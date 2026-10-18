@@ -1,4 +1,4 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -18,8 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import app.ymir.android.Emulator
-import app.ymir.android.NativeBridge
+import app.gbsat.android.Emulator
+import app.gbsat.android.NativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

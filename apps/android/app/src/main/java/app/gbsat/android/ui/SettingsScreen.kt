@@ -1,4 +1,4 @@
-package app.ymir.android.ui
+package app.gbsat.android.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,12 +17,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import app.ymir.android.Emulator
-import app.ymir.android.NativeBridge
-import app.ymir.android.SaturnButton
-import app.ymir.android.HotkeyAction
-import app.ymir.android.keyName
-import app.ymir.android.Storage
+import app.gbsat.android.Emulator
+import app.gbsat.android.NativeBridge
+import app.gbsat.android.SaturnButton
+import app.gbsat.android.HotkeyAction
+import app.gbsat.android.keyName
+import app.gbsat.android.Storage
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)

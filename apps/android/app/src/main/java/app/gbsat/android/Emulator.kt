@@ -1,4 +1,4 @@
-package app.ymir.android
+package app.gbsat.android
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -147,7 +147,7 @@ object Emulator {
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        prefs = appContext.getSharedPreferences("ymir", Context.MODE_PRIVATE)
+        prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)

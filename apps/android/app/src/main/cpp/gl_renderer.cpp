@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-#define TAG "YmirGL"
+#define TAG "GBSatGL"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 namespace glr {

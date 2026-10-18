@@ -5,7 +5,7 @@ project(gbsat LANGUAGES C CXX)
 # <repo>/apps/android/app/src/main/cpp -> <repo>
 get_filename_component(YMIR_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../.." ABSOLUTE)
 
-# Build ymir-core as a library (not the SDL3 desktop app). The software renderer is the default; the Vulkan
+# Build the emulator core as a library (not the SDL3 desktop app). The software renderer is the default; the Vulkan
 # renderer is compiled in too (requires DXC on the build machine to precompile the HLSL shaders to SPIR-V).
 set(Ymir_LIBRARY_ONLY ON CACHE BOOL "" FORCE)
 set(Ymir_DEV_BUILD OFF CACHE BOOL "" FORCE)
