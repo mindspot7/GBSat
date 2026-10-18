@@ -124,6 +124,7 @@ struct Context {
     ANativeWindow *window = nullptr;
     int32_t curW = 0, curH = 0;
     std::atomic<uint32_t> videoW{320}, videoH{224};
+    uint32_t resScale = 1; // Vulkan GPU renderer internal resolution scale (1..4)
     std::atomic<uint64_t> frameCounter{0};
 
     // Audio
@@ -907,15 +908,20 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 // Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
 // Switches the VDP emulation between the software renderer and the Vulkan compute (GPU) renderer.
 // Runs on the emulation thread. If the GPU renderer cannot be created the software renderer stays active.
-void ApplyVdpRenderer(bool gpu) {
+void ApplyVdpRenderer(bool gpu, bool force = false) {
     auto &vdp = g->saturn->VDP;
     const bool isGpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
-    if (gpu == isGpu) {
+    if (gpu == isGpu && !force) {
         return;
     }
     if (gpu) {
+        if (isGpu) {
+            // Recreating the GPU renderer (e.g. new resolution scale): release the current one first
+            vdp.UseSoftwareRenderer();
+        }
         SetStage("vk: switching to the Vulkan GPU renderer");
         ymir::vdp::VulkanRendererContext ctx{};
+        ctx.resolutionScale = g->resScale;
         ctx.progress = [](const char *stage) {
             SetStage(stage);
             __android_log_print(ANDROID_LOG_INFO, "GBSat", "%s", stage);
@@ -947,6 +953,23 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
         const bool gpu = mode == 4;
         Post([gpu] { ApplyVdpRenderer(gpu); });
     }
+}
+
+// Internal resolution scale of the Vulkan GPU renderer (1..4). Recreates the renderer when it is active.
+JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
+    if (!g) {
+        return;
+    }
+    const uint32_t s = static_cast<uint32_t>(std::clamp<jint>(scale, 1, 4));
+    Post([s] {
+        if (s == g->resScale) {
+            return;
+        }
+        g->resScale = s;
+        if (g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr) {
+            ApplyVdpRenderer(true, true);
+        }
+    });
 }
 
 // Diagnostics: renders the next frames with the software and the Vulkan renderer from the same state and reports the

@@ -11,6 +11,8 @@ cbuffer CommonRenderParamsBuffer : register(b0) {
 
 RWByteAddressBuffer g_fbramOut : register(u1);
 
+#include "vdp1_scaled_fb.hlsli"
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Parameters
 
@@ -56,8 +58,19 @@ void EraseAt(uint2 id) {
         partialWrite = pos.y == vblankEraseMaxY && pos.x + 1 > vblankEraseMaxX;
     }
 
-    const uint address = drawFBOffset + ((pos.y << addressShift) + pos.x) * 2;
     const uint writeValue = BitExtract(g_eraseParams.erase, 0, 16);
+    if (kResScale > 1) {
+        // Scaled framebuffer: replicate the erase over the corresponding block of pixels
+        const uint strideWords = 1u << addressShift;
+        const uint andMask = partialWrite ? 0xFFFF0000u : 0u;
+        const uint orMask = partialWrite ? writeValue : ((writeValue << 16u) | writeValue);
+        ScaledFBWrite(g_fbramOut, drawFBOffset, strideWords, pos, andMask, orMask);
+        if (transparentMeshes) {
+            ScaledFBWrite(g_fbramOut, drawFBOffset + kVDP1FBRAMSize * 2, strideWords, pos, 0u, 0u);
+        }
+        return;
+    }
+    const uint address = drawFBOffset + ((pos.y << addressShift) + pos.x) * 2;
     uint value;
     if (partialWrite) {
         value = g_fbramOut.Load(address);

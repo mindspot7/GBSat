@@ -115,6 +115,14 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
             }
             if (Emulator.renderer == 4) {
+                Choice("Internal resolution", listOf("1x (native)", "2x", "3x", "4x"), Emulator.resScale - 1,
+                    change<Int> { Emulator.resScale = it + 1 })
+                Text(
+                    "Renders the Saturn sprites and polygons at a higher resolution for sharper 3D graphics. " +
+                        "Applies to standard resolution games; high-resolution and interlaced screens stay at native resolution. " +
+                        "Higher values need a faster GPU.",
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
+                )
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), minOf(Emulator.filter, 1), change<Int> { Emulator.filter = it })
                 val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
                 Text(

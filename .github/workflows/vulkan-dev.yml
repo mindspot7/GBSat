@@ -86,6 +86,19 @@ jobs:
           echo "::notice title=VDP compare (rc=$rc)::$(grep -v 'Validation' cmp.log | head -c 60000 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
           exit 0
 
+      - name: Compare renderers with resolution scaling (lavapipe)
+        run: |
+          set +e
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+          for sc in 2 3 4; do
+            RES_SCALE=$sc timeout 900 ./vkt-build/vdp_compare > cmp$sc.log 2>&1
+            rc=$?
+            grep -q "Validation Error" cmp$sc.log && echo "::warning title=Validation errors (${sc}x)::$(grep -m 15 'Validation Error' cmp$sc.log | cut -c1-600 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
+            echo "::notice title=VDP compare ${sc}x (rc=$rc)::$(grep -v 'Validation' cmp$sc.log | grep -E 'SCENE|RESULT|differ|scale|mismatch|failed' | head -c 20000 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+          done
+          exit 0
+
       - name: Compare renderers on uploaded save states (apps/vk-test/states)
         if: hashFiles('apps/vk-test/states/*.state') != ''
         run: |

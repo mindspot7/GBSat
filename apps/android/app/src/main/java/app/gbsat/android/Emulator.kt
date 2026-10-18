@@ -40,6 +40,7 @@ object Emulator {
     var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
+    var resScale by mutableStateOf(1) // Vulkan GPU internal resolution scale (1x..4x)
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
     var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
@@ -195,6 +196,7 @@ object Emulator {
         renderer = prefs.getInt("renderer", 0).let { if (it == 2) 4 else it }
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
+        resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->
             runCatching {
@@ -242,6 +244,7 @@ object Emulator {
         NativeBridge.nativeSetVideoStandard(pal)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetCartridge(cartridge)
+        NativeBridge.nativeSetResolutionScale(resScale)
         NativeBridge.nativeSetRenderer(renderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (fastBoot) NativeBridge.nativeSetFastBoot(true)
@@ -251,7 +254,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale)
         .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */

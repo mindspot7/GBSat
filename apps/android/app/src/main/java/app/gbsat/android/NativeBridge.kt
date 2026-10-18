@@ -22,6 +22,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetSH2Cache(on: Boolean)
     @JvmStatic external fun nativeSetVideoStandard(pal: Boolean)
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
+    @JvmStatic external fun nativeSetResolutionScale(scale: Int)
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
     @JvmStatic external fun nativeSetRenderer(mode: Int)

@@ -55,7 +55,7 @@ VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u2);
 static const uint2 fbSize = uint2(
     512u << BitExtract(g_commonParams.displayParams, 0, 1),
     256u << BitExtract(g_commonParams.displayParams, 1, 1)
-);
+) * kResScale;
 static const bool pixel8Bits = BitTest(g_commonParams.displayParams, 2);
 static const uint drawFB = BitExtract(g_commonParams.displayParams, 7, 1);
 

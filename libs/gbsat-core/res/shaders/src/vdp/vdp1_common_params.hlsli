@@ -8,4 +8,8 @@ struct CommonRenderParams {
     uint enhancements;
 };
 
+// Internal resolution scale factor (enhancements bits 2-4; 0 means 1x)
+#define kResScale (max(BitExtract(g_commonParams.enhancements, 2, 3), 1u))
+#define kResScaleSq (kResScale * kResScale)
+
 #endif

@@ -36,10 +36,13 @@ static const bool hiResH = BitTest(g_commonParams.displayParams, 8);
 static const bool rotate = BitTest(g_commonParams.spriteParams, 0);
 static const bool pixel8Bits = BitTest(g_commonParams.spriteParams, 1);
 static const uint type = BitExtract(g_commonParams.spriteParams, 2, 4);
+// Internal resolution scale of the VDP2 output and of the displayed VDP1 framebuffer
+static const uint outScale = max(BitExtract(g_commonParams.enhancements, 2, 3), 1u);
+static const uint fbScale = max(BitExtract(g_commonParams.enhancements, 5, 3), 1u);
 static const uint2 fbSize = uint2(
     512u << BitExtract(g_commonParams.spriteParams, 6, 1),
     256u << BitExtract(g_commonParams.spriteParams, 7, 1)
-);
+) * fbScale;
 static const bool inHalfResH = BitTest(g_commonParams.spriteParams, 8);
 static const bool outHalfResH = BitTest(g_commonParams.spriteParams, 9);
 static const bool mixedFormat = BitTest(g_commonParams.spriteParams, 10);
@@ -51,9 +54,10 @@ static const bool deinterlace = BitTest(g_commonParams.enhancements, 0);
 static const uint colorRAMMode = BitExtract(g_commonParams.displayParams, 6, 2);
 static const uint kCRAMAddressMask = colorRAMMode == 1 ? 0x7FF : 0x3FF;
 
-static const uint kSpriteFBBaseOffset = spriteDisplayFB * kVDP1FBRAMSize;
-static const uint kDeinterlaceFBBaseOffset = kVDP1FBRAMSize * 2;
-static const uint kVDP1MeshFBOffset = kVDP1FBRAMSize * 2 * 2;
+static const uint kScaledFBRAMSize = kVDP1FBRAMSize * fbScale * fbScale;
+static const uint kSpriteFBBaseOffset = spriteDisplayFB * kScaledFBRAMSize;
+static const uint kDeinterlaceFBBaseOffset = kScaledFBRAMSize * 2;
+static const uint kVDP1MeshFBOffset = kScaledFBRAMSize * 2 * 2;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Utilities
@@ -434,7 +438,7 @@ struct SpriteOutput {
 
 // index 0 = sprite
 // index 1 = transparent meshes
-SpriteOutput DrawSprite(uint2 pos, uint2 outPos, uint index) {
+SpriteOutput DrawSprite(uint2 pos, uint2 outPos, uint2 hiPos, uint index) {
     const bool meshLayer = index == 1;
 
     SpriteOutput output = { kTransparentPixel, 0, false, false, false };
@@ -442,10 +446,13 @@ SpriteOutput DrawSprite(uint2 pos, uint2 outPos, uint index) {
     uint2 spritePos;
     uint field = 0;
     if (rotate) {
-        spritePos = CalcRotationSpriteCoordinates(pos);
+        spritePos = CalcRotationSpriteCoordinates(pos) * fbScale + (hiPos % outScale) * fbScale / outScale;
         if (any(spritePos >= fbSize)) {
             return output;
         }
+    } else if (outScale > 1 || fbScale > 1) {
+        // Scaled rendering (only enabled in non-interlaced, normal horizontal resolution modes)
+        spritePos = hiPos * fbScale / outScale;
     } else {
         spritePos = pos;
         if (inHalfResH) {
@@ -532,9 +539,12 @@ SpriteOutput DrawSprite(uint2 pos, uint2 outPos, uint index) {
 // TODO: 32 threads might be suboptimal on AMD GPUs
 [numthreads(32, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
-    const uint2 drawCoord = uint2(id.x, id.y + g_commonParams.startY);
-    const uint2 outCoord = uint2(drawCoord.x, GetY(drawCoord.y));
-    const SpriteOutput output = DrawSprite(drawCoord, outCoord.xy, id.z);
+    // With resolution scaling, id.xy covers the scaled area; drawCoord is the native (1x) position
+    const uint2 hiPos = uint2(id.x, id.y + g_commonParams.startY * outScale);
+    const uint2 drawCoord = hiPos / outScale;
+    const uint2 nativeOut = uint2(drawCoord.x, GetY(drawCoord.y));
+    const uint2 outCoord = outScale > 1 ? hiPos : nativeOut;
+    const SpriteOutput output = DrawSprite(drawCoord, nativeOut, hiPos, id.z);
     g_layerOut[uint3(outCoord.xy, id.z + 6)] = output.layer;
     g_spriteAttrsOut[uint3(outCoord.xy, id.z)] =
         output.colorCalcRatio |

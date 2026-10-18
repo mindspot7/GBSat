@@ -94,7 +94,7 @@ VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u1);
 static const uint2 fbSize = uint2(
     512u << BitExtract(g_commonParams.displayParams, 0, 1),
     256u << BitExtract(g_commonParams.displayParams, 1, 1)
-);
+) * kResScale;
 static const bool pixel8Bits = BitTest(g_commonParams.displayParams, 2);
 static const bool doubleDensity = BitTest(g_commonParams.displayParams, 3);
 static const bool dblInterlaceEnable = BitTest(g_commonParams.displayParams, 4);
@@ -528,7 +528,7 @@ void WriteOutput(int2 coord, OutData data) {
 
     // Mesh checkerboard test
     const bool meshEnable = BitTest(cmdParams.cmdpmodcolr, 8);
-    if (!POLYSPEC_TRANSPARENT_MESH && meshEnable && BitTest(coord.x ^ coord.y, 0)) {
+    if (!POLYSPEC_TRANSPARENT_MESH && meshEnable && BitTest((uint(coord.x) / kResScale) ^ (uint(coord.y) / kResScale), 0)) {
         return;
     }
 

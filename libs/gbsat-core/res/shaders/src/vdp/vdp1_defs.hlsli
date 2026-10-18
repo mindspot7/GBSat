@@ -2,9 +2,11 @@
 #define YMIR_VDP_VDP1_DEFS_HLSLI
 
 // Size of a single VDP1 framebuffer
-static const uint kVDP1FBSize = 256 * 1024;
+// (scaled by the square of the internal resolution scale; kResScaleSq is defined in vdp1_common_params.hlsli)
+static const uint kVDP1FBSizeBase = 256 * 1024;
+#define kVDP1FBSize (kVDP1FBSizeBase * kResScaleSq)
 // Size of the entire VDP1 FBRAM
-static const uint kVDP1FBRAMSize = kVDP1FBSize * 2;
+#define kVDP1FBRAMSize (kVDP1FBSize * 2)
 
 // CMDPMOD bits 0..1
 static const uint kColorBlendModeReplace = 0;

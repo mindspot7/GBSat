@@ -16,6 +16,10 @@ struct VulkanRendererContext {
     uint32 queueFamily = 0;         ///< queue family index of `queue`
     /// Optional: receives a short description of each initialization step (for crash diagnostics).
     void (*progress)(const char *stage) = nullptr;
+    /// Internal resolution scale factor (1 = native, up to 4). VDP1 graphics are rasterized at this scale and the
+    /// output frame is delivered at the scaled size. Only applied in non-interlaced, normal horizontal resolution
+    /// modes with 16-bit VDP1 framebuffers; other modes render at native resolution.
+    uint32 resolutionScale = 1;
 };
 
 /// @brief Invoked when the Vulkan renderer finishes a frame. `pixels` points to `width * height` RGBA8 pixels (rows

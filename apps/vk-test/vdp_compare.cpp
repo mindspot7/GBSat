@@ -20,6 +20,27 @@ struct Frame {
     int count = 0;
 };
 
+// When the Vulkan renderer runs with resolution scaling (RES_SCALE), reduces its frame to the native size by taking the
+// top-left pixel of each block so that it can be compared against the software renderer.
+static void DownsampleTo(Frame &f, uint32 w, uint32 h) {
+    if (f.w == w || w == 0 || h == 0 || f.w % w != 0 || f.h % h != 0 || f.w / w != f.h / h) {
+        return;
+    }
+    const uint32 s = f.w / w;
+    std::printf("  (vulkan frame %ux%u at %ux scale, compared at native size)\n", f.w, f.h, s);
+    std::vector<uint32> out((size_t)w * h);
+    for (uint32 y = 0; y < h; ++y)
+        for (uint32 x = 0; x < w; ++x) out[y * w + x] = f.px[(size_t)(y * s) * f.w + x * s];
+    f.px.swap(out);
+    f.w = w;
+    f.h = h;
+}
+
+static uint32 EnvResScale() {
+    const char *v = std::getenv("RES_SCALE");
+    return v ? (uint32)std::max(1, std::atoi(v)) : 1u;
+}
+
 static void Poke16(Saturn &s, uint32 addr, uint16 v) {
     s.mainBus.Poke<uint16>(addr, v);
 }
@@ -248,7 +269,9 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std:
                                            }});
     saturn->VDP.SetVulkanFrameReadyCallback({&out, onFrame});
     if (vulkan) {
-        auto r = saturn->VDP.UseVulkanRenderer(vdp::VulkanRendererContext{});
+        vdp::VulkanRendererContext ctx{};
+        ctx.resolutionScale = EnvResScale();
+        auto r = saturn->VDP.UseVulkanRenderer(ctx);
         if (!r) {
             err = r.Error().message;
             return false;
@@ -347,6 +370,7 @@ static int CompareState(const std::string &path) {
     if (!sw.prev.empty()) sw.px = sw.prev;
     std::printf("STATE %s: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", path.c_str(), sw.w, sw.h, sw.count,
                 vk.w, vk.h, vk.count);
+    DownsampleTo(vk, sw.w, sw.h);
     if (sw.w != vk.w || sw.h != vk.h || sw.px.empty() || vk.px.empty()) {
         std::printf("size mismatch\n");
         return 1;
@@ -402,6 +426,7 @@ int main(int argc, char **argv) {
         }
         std::printf("SCENE %d%s: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", scene, noInt64 ? " (no int64)" : "", sw.w, sw.h, sw.count,
                     vk.w, vk.h, vk.count);
+        DownsampleTo(vk, sw.w, sw.h);
         if (sw.w != vk.w || sw.h != vk.h || sw.px.empty()) {
             std::printf("  size mismatch\n");
             ++failures;

@@ -219,6 +219,11 @@ struct VulkanVDPRenderer::Impl {
         bool transparentMeshDrawn = false;
         bool doubleV = false;
 
+        /// @brief Internal resolution scale used for the current VDP1 frame.
+        uint32 resScale = 1;
+        /// @brief Internal resolution scale each framebuffer was drawn with.
+        std::array<uint32, 2> fbScale{1, 1};
+
         VDP1Action action = VDP1Action::None;
     } vdp1;
 
@@ -391,6 +396,10 @@ struct VulkanVDPRenderer::Impl {
 
         /// @brief Composited VDP2 output (RGBA8 UNORM).
         GpuImage compositeOutTexture;
+
+        /// @brief Internal resolution scale of the current output frame (selected at the start of each frame).
+        uint32 outScale = 1;
+        bool outScaleLocked = false;
 
         VDP2CommonRenderParams cpuCommonRenderParams{};
         VDP2LayerRenderParams cpuLayerRenderParams{};
@@ -1090,6 +1099,12 @@ struct VulkanVDPRenderer::Impl {
         }
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(physDevice, &props);
+        // Reduce the resolution scale until the scaled buffers and images fit the device limits
+        while (maxScale > 1 && ((uint64)kVDP1FBRAMSize * 2 * 2 * ScaleSq() > props.limits.maxTexelBufferElements ||
+                                OutMaxW() > props.limits.maxImageDimension2D ||
+                                OutMaxH() > props.limits.maxImageDimension2D)) {
+            --maxScale;
+        }
         if (props.limits.maxTexelBufferElements < kVDP1FBRAMSize * 2 * 2) {
             return util::ErrorMessage{fmt::format("The GPU's texel buffers are too small ({} elements)",
                                                   props.limits.maxTexelBufferElements)};
@@ -1103,7 +1118,39 @@ struct VulkanVDPRenderer::Impl {
         return {};
     }
 
+    // -----------------------------------------------------------------------------------------------------------------
+    // Internal resolution scaling
+
+    /// @brief Maximum internal resolution scale; resources are sized for it.
+    uint32 maxScale = 1;
+
+    uint32 ScaleSq() const {
+        return maxScale * maxScale;
+    }
+    /// @brief Size of the VDP2 output images (enough for the native high resolution modes and the scaled normal ones).
+    uint32 OutMaxW() const {
+        return std::max<uint32>(kMaxResH, kMaxNormalResH * maxScale);
+    }
+    uint32 OutMaxH() const {
+        return std::max<uint32>(kMaxResV, kMaxNormalResV * maxScale);
+    }
+    /// @brief Determines the resolution scale for the current display mode. Scaling is only applied in
+    /// non-interlaced modes with normal horizontal resolution and 16-bit VDP1 framebuffers.
+    uint32 CurrentModeScale() const {
+        if (maxScale <= 1) {
+            return 1;
+        }
+        const VDP1Regs &regs1 = vdpState.regs1;
+        const VDP2Regs &regs2 = vdpState.regs2;
+        if (regs2.TVMD.IsInterlaced() || HRes > kMaxNormalResH || VRes > kMaxNormalResV || regs1.tvmr.pixel8Bits ||
+            regs1.tvmr.fbSizeH != 512 || regs1.dblInterlaceEnable) {
+            return 1;
+        }
+        return maxScale;
+    }
+
     util::VoidResult<> Initialize(const VulkanRendererContext &context) {
+        maxScale = std::clamp<uint32>(context.resolutionScale, 1u, 4u);
         if (auto result = CreateDevice(context); !result) {
             return result;
         }
@@ -1166,8 +1213,8 @@ struct VulkanVDPRenderer::Impl {
             return r;
         }
         // *2 framebuffers, *2 deinterlace alternate field, *2 transparent mesh buffers
-        if (auto r = CreateBuffer(vdp1.fbramBuffer, kVDP1FBRAMSize * 2 * 2 * 2, kSSBO, false, VK_FORMAT_UNDEFINED,
-                                  "VDP1 FBRAM");
+        if (auto r = CreateBuffer(vdp1.fbramBuffer, kVDP1FBRAMSize * 2 * 2 * 2 * ScaleSq(), kSSBO, false,
+                                  VK_FORMAT_UNDEFINED, "VDP1 FBRAM");
             !r) {
             return r;
         }
@@ -1216,7 +1263,7 @@ struct VulkanVDPRenderer::Impl {
         if (auto r = CreateBuffer(vdp2.vramBuffer, kVDP2VRAMSize, kSSBO, false, VK_FORMAT_UNDEFINED, "VDP2 VRAM"); !r) {
             return r;
         }
-        if (auto r = CreateImage(vdp2.compositeOutTexture, VK_FORMAT_R8G8B8A8_UNORM, kMaxResH, kMaxResV, 1, false,
+        if (auto r = CreateImage(vdp2.compositeOutTexture, VK_FORMAT_R8G8B8A8_UNORM, OutMaxW(), OutMaxH(), 1, false,
                                  VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, "VDP2 composite output");
             !r) {
             return r;
@@ -1257,7 +1304,7 @@ struct VulkanVDPRenderer::Impl {
                 YMIR_VK_TRY(CreateBuffer(debugReadback, 256, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
                                          VK_FORMAT_UNDEFINED, "Debug readback", true));
             }
-            YMIR_VK_TRY(CreateBuffer(f.readbackBuffer, kMaxResH * kMaxResV * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+            YMIR_VK_TRY(CreateBuffer(f.readbackBuffer, OutMaxW() * OutMaxH() * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
                                      VK_FORMAT_UNDEFINED, "Readback" + sfx, true));
 
             // VDP1
@@ -1267,10 +1314,10 @@ struct VulkanVDPRenderer::Impl {
                                      kUniformTexel | kSSBO, false, VK_FORMAT_R32_UINT, "VDP1 span prefix sums" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.cmdParamsBuffer, sizeof(VDP1CommandParams) * f.cpuCmdParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 command params" + sfx));
-            YMIR_VK_TRY(CreateBuffer(f.internalSpriteOutBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2,
+            YMIR_VK_TRY(CreateBuffer(f.internalSpriteOutBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2 * ScaleSq(),
                                      kStorageTexel, false, VK_FORMAT_R32_UINT, "VDP1 internal sprite output" + sfx));
-            YMIR_VK_TRY(CreateBuffer(f.oitListHeadsBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2, kStorageTexel,
-                                     false, VK_FORMAT_R32_UINT, "VDP1 OIT list heads" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.oitListHeadsBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2 * ScaleSq(),
+                                     kStorageTexel, false, VK_FORMAT_R32_UINT, "VDP1 OIT list heads" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.oitFragmentsBuffer, sizeof(VDP1OITFragment) * kMaxVDP1OITFragmentsPerDispatch,
                                      kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 OIT fragments" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.oitCounterBuffer, sizeof(HLSLuint), kSSBO, false, VK_FORMAT_UNDEFINED,
@@ -1281,7 +1328,7 @@ struct VulkanVDPRenderer::Impl {
                                      VK_FORMAT_R8G8B8A8_UINT, "VDP2 CRAM colors" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.cramRotCoeffBuffer, kVDP2CRAMRotCoeffBufferSize, kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 CRAM rotation coefficients" + sfx));
-            YMIR_VK_TRY(CreateImage(f.layerOutTexture, VK_FORMAT_R8G8B8A8_UINT, kMaxResH, kMaxResV, 4 + 2 + 1 + 1, true,
+            YMIR_VK_TRY(CreateImage(f.layerOutTexture, VK_FORMAT_R8G8B8A8_UINT, OutMaxW(), OutMaxH(), 4 + 2 + 1 + 1, true,
                                     kImgUsage, "VDP2 layer outputs" + sfx));
             YMIR_VK_TRY(CreateImage(f.rbgLineColorOutTexture, VK_FORMAT_R8G8B8A8_UINT, kMaxNormalResH, kMaxNormalResV,
                                     2, true, kImgUsage, "VDP2 RBG line colors" + sfx));
@@ -1291,7 +1338,7 @@ struct VulkanVDPRenderer::Impl {
                                      VK_FORMAT_R8G8B8A8_UINT, "VDP2 LNCL/BACK" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.rotParamBasesBuffer, sizeof(VDP2RotParamBase) * kMaxNormalResV * 2, kSSBO,
                                      false, VK_FORMAT_UNDEFINED, "VDP2 rotation parameter bases" + sfx));
-            YMIR_VK_TRY(CreateImage(f.spriteAttrsTexture, VK_FORMAT_R16_UINT, kMaxResH, kMaxResV, 2, true, kImgUsage,
+            YMIR_VK_TRY(CreateImage(f.spriteAttrsTexture, VK_FORMAT_R16_UINT, OutMaxW(), OutMaxH(), 2, true, kImgUsage,
                                     "VDP2 sprite attributes" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.layerRenderParamsBuffer, sizeof(VDP2LayerRenderParams), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 layer render params" + sfx));
@@ -1352,8 +1399,11 @@ struct VulkanVDPRenderer::Impl {
 
             // Initialize OIT fragment list heads
             FillBuffer(f.oitListHeadsBuffer, 0, VK_WHOLE_SIZE, 0xFFFFFFFF);
+            FillBuffer(f.internalSpriteOutBuffer, 0, VK_WHOLE_SIZE, 0);
 #undef YMIR_VK_TRY
         }
+
+        FillBuffer(vdp1.fbramBuffer, 0, VK_WHOLE_SIZE, 0);
 
         Step("vk: initial upload");
         initialized = true;
@@ -1535,6 +1585,13 @@ struct VulkanVDPRenderer::Impl {
     [[nodiscard]] util::VoidResult<> VDP1UploadFBRAM() {
         static constexpr size_t kFrameSize = kVDP1FBRAMSize * 2;
 
+        if (vdp1.resScale > 1) {
+            // Native FBRAM contents cannot be used with scaled framebuffers; start from blank framebuffers instead
+            FillBuffer(vdp1.fbramBuffer, 0, kFrameSize * 4 * ScaleSq(), 0);
+            vdp1.fbramDirty.ClearAll();
+            return {};
+        }
+
         if (auto result = UploadToBuffer(vdp1.fbramBuffer, kFrameSize * 0, vdpState.mem1.FBRAM.data(), kFrameSize);
             !result) {
             return util::ErrorMessage{fmt::format("Failed to upload VDP1 FBRAM: {}", result.Error().message)};
@@ -1689,6 +1746,10 @@ struct VulkanVDPRenderer::Impl {
             return;
         }
         vdp1.fbramReadbackDirty = false;
+        if (vdp1.resScale > 1) {
+            // The GPU framebuffers are stored at the internal resolution scale and cannot be read back as native FBRAM
+            return;
+        }
         vdp1.fbramReadbackCopyPending = true;
 
         FlushBarriers();
@@ -1697,12 +1758,57 @@ struct VulkanVDPRenderer::Impl {
         pendingBarrier = true;
     }
 
-// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2444-2491 ----
     void VDP1BeginFrame() {
         const VDP1Regs &regs1 = vdpState.regs1;
         const VDP2Regs &regs2 = vdpState.regs2;
         vdp1.doubleV =
             enhancements.deinterlace && regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity && !regs1.dblInterlaceEnable;
+        VDP1UpdateResScale();
+    }
+
+    /// @brief Selects the resolution scale for VDP1 drawing based on the current display mode.
+    void VDP1UpdateResScale() {
+        const uint32 scale = CurrentModeScale();
+        if (scale != vdp1.resScale) {
+            // Flush work drawn at the previous scale
+            VDP1SubmitSpans();
+            vdp1.resScale = scale;
+        }
+        vdp1.cpuCommonRenderParams.enhancements.resScale = scale;
+        vdp1.fbScale[vdpState.fbIndex.draw & 1] = scale;
+    }
+
+    // Scales a VDP1 coordinate. `expand` moves the point to the far edge of its pixel block so that shapes keep
+    // covering whole native pixels (shapes are expanded outwards, which avoids seams between adjacent polygons).
+    sint32 ScaleCoord(sint32 v, bool expand) const {
+        const sint32 s = static_cast<sint32>(vdp1.resScale);
+        return v * s + (expand ? s - 1 : 0);
+    }
+
+    /// @brief Scales the corners of a quad to the internal resolution, expanding it outwards from its center.
+    void ScaleQuad(CoordS32 &a, CoordS32 &b, CoordS32 &c, CoordS32 &d) const {
+        if (vdp1.resScale <= 1) {
+            return;
+        }
+        const sint32 cx2 = a.x() + b.x() + c.x() + d.x(); // 4 * center
+        const sint32 cy2 = a.y() + b.y() + c.y() + d.y();
+        auto scale = [&](CoordS32 &p) {
+            p = CoordS32{ScaleCoord(p.x(), p.x() * 4 > cx2), ScaleCoord(p.y(), p.y() * 4 > cy2)};
+        };
+        scale(a);
+        scale(b);
+        scale(c);
+        scale(d);
+    }
+
+    /// @brief Scales the end points of a line to the internal resolution (centered in their pixel blocks).
+    void ScaleLine(CoordS32 &a, CoordS32 &b) const {
+        if (vdp1.resScale <= 1) {
+            return;
+        }
+        const sint32 s = static_cast<sint32>(vdp1.resScale);
+        a = CoordS32{a.x() * s + s / 2, a.y() * s + s / 2};
+        b = CoordS32{b.x() * s + s / 2, b.y() * s + s / 2};
     }
 
     void VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
@@ -1746,7 +1852,6 @@ struct VulkanVDPRenderer::Impl {
         bool flipH;
         uint32 endCodeIndex;
     };
-    // ---- end copy ----
 
     util::VoidResult<> VDP1SubmitSpans() {
         FrameContext &frameCtx = frames.GetCurrentFrame();
@@ -1813,8 +1918,8 @@ struct VulkanVDPRenderer::Impl {
             const VDP1Regs &regs1 = vdpState.regs1;
             const VDP2Regs &regs2 = vdpState.regs2;
             const uint32 pixelsPerEntry = regs1.tvmr.pixel8Bits ? 4u : 2u; // each entry is 32 bits
-            const uint32 mergeW = regs1.tvmr.fbSizeH / pixelsPerEntry;
-            const uint32 mergeH = regs1.tvmr.fbSizeV;
+            const uint32 mergeW = regs1.tvmr.fbSizeH * vdp1.resScale / pixelsPerEntry;
+            const uint32 mergeH = regs1.tvmr.fbSizeV * vdp1.resScale;
             const uint32 mergeZ = regs2.TVMD.IsInterlaced() && enhancements.deinterlace ? 2 : 1;
 
             if (auto result = Dispatch(vdp1.outputMergerPipes[vdp1.currOutputMergerShaderIndex],
@@ -1831,7 +1936,6 @@ struct VulkanVDPRenderer::Impl {
         return {};
     }
 
-// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2665-3437 ----
     void VDP1UpdateCommonRenderParams() {
         VDP1CommonRenderParams &params = vdp1.cpuCommonRenderParams;
         const VDP1Regs &regs1 = vdpState.regs1;
@@ -1875,12 +1979,12 @@ struct VulkanVDPRenderer::Impl {
 
         const VDP1State &state = vdpState.state1;
         const sint32 doubleV = vdp1.doubleV ? 1 : 0;
-        cmdParams.userClip0.x = state.userClipX0;
-        cmdParams.userClip0.y = (state.userClipY0 << doubleV) | doubleV;
-        cmdParams.userClip1.x = state.userClipX1;
-        cmdParams.userClip1.y = (state.userClipY1 << doubleV) | doubleV;
-        cmdParams.sysClip.h = state.sysClipH;
-        cmdParams.sysClip.v = (state.sysClipV << doubleV) | doubleV;
+        cmdParams.userClip0.x = ScaleCoord(state.userClipX0, false);
+        cmdParams.userClip0.y = ScaleCoord((state.userClipY0 << doubleV) | doubleV, false);
+        cmdParams.userClip1.x = ScaleCoord(state.userClipX1, true);
+        cmdParams.userClip1.y = ScaleCoord((state.userClipY1 << doubleV) | doubleV, true);
+        cmdParams.sysClip.h = ScaleCoord(state.sysClipH, true);
+        cmdParams.sysClip.v = ScaleCoord((state.sysClipV << doubleV) | doubleV, true);
 
         cmdParams.cmdcolr = data.color;
         cmdParams.cmdpmod = data.mode.u16;
@@ -1900,12 +2004,12 @@ struct VulkanVDPRenderer::Impl {
         if (coord0.y() < 0 && coord1.y() < 0) {
             return false;
         }
-        const sint32 sysClipH = vdpState.state1.sysClipH;
+        const sint32 sysClipH = ScaleCoord(vdpState.state1.sysClipH, true);
         if (coord0.x() > sysClipH && coord1.x() > sysClipH) {
             return false;
         }
         const sint32 doubleV = vdp1.doubleV ? 1 : 0;
-        const sint32 sysClipV = (vdpState.state1.sysClipV << doubleV) | doubleV;
+        const sint32 sysClipV = ScaleCoord((vdpState.state1.sysClipV << doubleV) | doubleV, true);
         if (coord0.y() > sysClipV && coord1.y() > sysClipV) {
             return false;
         }
@@ -1989,6 +2093,7 @@ struct VulkanVDPRenderer::Impl {
 
     void VDP1PlotTexturedQuad(VDP1SpanData &data, uint32 cmdAddress, VDP1Command::Control control, CoordS32 coordA,
                               CoordS32 coordB, CoordS32 coordC, CoordS32 coordD) {
+        ScaleQuad(coordA, coordB, coordC, coordD);
         QuadStepper quad{coordA, coordB, coordC, coordD};
 
         if (data.mode.gouraudEnable) {
@@ -2417,7 +2522,9 @@ struct VulkanVDPRenderer::Impl {
             .mode = mode,
         };
 
-        QuadStepper quad{coordA, coordB, coordC, coordD};
+        CoordS32 qa = coordA, qb = coordB, qc = coordC, qd = coordD;
+        ScaleQuad(qa, qb, qc, qd);
+        QuadStepper quad{qa, qb, qc, qd};
 
         if (mode.gouraudEnable) {
             quad.SetupGouraud(gouraudA, gouraudB, gouraudC, gouraudD);
@@ -2525,26 +2632,37 @@ struct VulkanVDPRenderer::Impl {
             .mode = mode,
         };
 
+        CoordS32 la = coordA, lb = coordB, lc = coordC, ld = coordD;
+        if (vdp1.resScale > 1) {
+            CoordS32 tmp = la;
+            ScaleLine(la, tmp);
+            tmp = lb;
+            ScaleLine(lb, tmp);
+            tmp = lc;
+            ScaleLine(lc, tmp);
+            tmp = ld;
+            ScaleLine(ld, tmp);
+        }
         if (mode.gouraudEnable) {
             spanData.gouraud0 = gouraudA;
             spanData.gouraud1 = gouraudB;
         }
-        VDP1AddSpan(coordA, coordB, spanData, false, false);
+        VDP1AddSpan(la, lb, spanData, false, false);
         if (mode.gouraudEnable) {
             spanData.gouraud0 = gouraudB;
             spanData.gouraud1 = gouraudC;
         }
-        VDP1AddSpan(coordB, coordC, spanData, false, false);
+        VDP1AddSpan(lb, lc, spanData, false, false);
         if (mode.gouraudEnable) {
             spanData.gouraud0 = gouraudC;
             spanData.gouraud1 = gouraudD;
         }
-        VDP1AddSpan(coordC, coordD, spanData, false, false);
+        VDP1AddSpan(lc, ld, spanData, false, false);
         if (mode.gouraudEnable) {
             spanData.gouraud0 = gouraudD;
             spanData.gouraud1 = gouraudA;
         }
-        VDP1AddSpan(coordD, coordA, spanData, false, false);
+        VDP1AddSpan(ld, la, spanData, false, false);
     }
 
     void VDP1Cmd_DrawLine(uint32 cmdAddress) {
@@ -2561,8 +2679,9 @@ struct VulkanVDPRenderer::Impl {
         const sint32 xb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x10)) + state.localCoordX;
         const sint32 yb = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x12)) + state.localCoordY;
 
-        const CoordS32 coordA{xa, ya};
-        const CoordS32 coordB{xb, yb};
+        CoordS32 coordA{xa, ya};
+        CoordS32 coordB{xb, yb};
+        ScaleLine(coordA, coordB);
 
         const VDP1CommandData cmdData{
             .mode = mode,
@@ -2605,7 +2724,6 @@ struct VulkanVDPRenderer::Impl {
         state.localCoordX = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0C));
         state.localCoordY = bit::sign_extend<13>(vdpState.mem1.ReadVRAM<uint16>(cmdAddress + 0x0E));
     }
-    // ---- end copy ----
 
 // ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 3439-3623 ----
     // -----------------------------------------------------------------------------------------------------------------
@@ -3373,6 +3491,8 @@ struct VulkanVDPRenderer::Impl {
         }
 
         VDP1FlushWork();
+        VDP2ApplyResScale();
+        const uint32 S = vdp2.outScale;
 
         const bool deinterlace = enhancements.deinterlace && vdpState.regs2.TVMD.IsInterlaced();
         const uint32 yShift = deinterlace ? 1u : 0u;
@@ -3394,7 +3514,7 @@ struct VulkanVDPRenderer::Impl {
         // Draw sprite layer
         if (auto result = Dispatch(vdp2.drawSpritePipe, frames.GetCurrentFrame().drawSpriteSet,
                                    {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
-                                   (HRes + 31) / 32, numLines, enhancements.transparentMeshes ? 2 : 1);
+                                   (HRes * S + 31) / 32, numLines * S, enhancements.transparentMeshes ? 2 : 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 sprite layer: {}", result.Error().message);
         }
@@ -3408,12 +3528,29 @@ struct VulkanVDPRenderer::Impl {
         }
     }
 
+    /// @brief Selects the VDP2 output scale at the start of each frame and applies the scale parameters.
+    void VDP2ApplyResScale() {
+        if (!vdp2.outScaleLocked) {
+            vdp2.outScale = CurrentModeScale();
+            vdp2.outScaleLocked = true;
+        }
+        // Guard against display mode changes in the middle of a frame
+        if (HRes * vdp2.outScale > OutMaxW() || VRes * vdp2.outScale > OutMaxH()) {
+            vdp2.outScale = 1;
+        }
+        auto &enh = vdp2.cpuCommonRenderParams.enhancements;
+        enh.resScale = vdp2.outScale;
+        enh.spriteFbScale = vdp1.fbScale[vdpState.fbIndex.display & 1];
+    }
+
     void VDP2ComposeLines(uint32 y) {
         // Bail out if there's nothing to render
         if (y < vdp2.nextComposeLine) {
             return;
         }
 
+        VDP2ApplyResScale();
+        const uint32 S = vdp2.outScale;
         vdp2.cpuCommonRenderParams.startY = vdp2.nextComposeLine;
         VDP2UploadLineColorBackScreens();
 
@@ -3424,7 +3561,7 @@ struct VulkanVDPRenderer::Impl {
         // Compose final image
         if (auto result = Dispatch(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
                                    {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
-                                   (HRes + 31) / 32, numLines, 1);
+                                   (HRes * S + 31) / 32, numLines * S, 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to compose VDP2 layers: {}", result.Error().message);
         }
@@ -3478,13 +3615,16 @@ struct VulkanVDPRenderer::Impl {
         region.bufferImageHeight = 0;
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageOffset = {0, 0, 0};
-        region.imageExtent = {HRes, VRes, 1};
+        const uint32 outW = HRes * vdp2.outScale;
+        const uint32 outH = VRes * vdp2.outScale;
+        region.imageExtent = {outW, outH, 1};
         vkCmdCopyImageToBuffer(Cmd(), vdp2.compositeOutTexture.image, VK_IMAGE_LAYOUT_GENERAL,
                                frameCtx.readbackBuffer.buffer, 1, &region);
         pendingBarrier = true;
         frameCtx.readbackPending = true;
-        frameCtx.readbackW = HRes;
-        frameCtx.readbackH = VRes;
+        frameCtx.readbackW = outW;
+        frameCtx.readbackH = outH;
+        vdp2.outScaleLocked = false; // the next frame may pick a different scale
 
         SubmitCommands(frameCtx);
 

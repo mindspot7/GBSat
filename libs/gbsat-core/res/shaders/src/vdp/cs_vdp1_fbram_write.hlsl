@@ -17,6 +17,8 @@ StructuredBuffer<FBRAMWrite> g_fbramWrites : register(t1);
 
 RWByteAddressBuffer g_fbramOut : register(u1);
 
+#include "vdp1_scaled_fb.hlsli"
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Parameters
 
@@ -38,6 +40,18 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     }
 
     const FBRAMWrite write = g_fbramWrites[index];
+
+    if (kResScale > 1) {
+        // Scaled framebuffer (16-bit pixels only): replicate the write over the corresponding block of pixels
+        const uint fbWidth = 512u << BitExtract(g_commonParams.displayParams, 0, 1);
+        const uint pixel = write.address >> 1u;
+        const uint2 nativePos = uint2(pixel % fbWidth, pixel / fbWidth);
+        ScaledFBWrite(g_fbramOut, drawFBOffset, fbWidth, nativePos, write.andMask, write.orMask);
+        if (transparentMeshes) {
+            ScaledFBWrite(g_fbramOut, drawFBOffset + kVDP1FBRAMSize * 2, fbWidth, nativePos, write.andMask, 0u);
+        }
+        return;
+    }
 
     // The address is relative to the start of the current CPU-visible framebuffer
     const uint address = write.address + drawFBOffset;
