@@ -27,7 +27,7 @@ object Covers {
     private fun safe(title: String) = title.replace(Regex("[&*/:`<>?\\\\|\"]"), "_")
     private fun custom(title: String) = File(dir, "custom/${safe(title)}.img")
     private fun cached(title: String) = File(dir, "${safe(title)}.png")
-    private fun miss(title: String) = File(dir, "${safe(title)}.miss")
+    private fun miss(title: String) = File(dir, "${safe(title)}.miss2")
 
     private fun decode(f: File): ImageBitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
