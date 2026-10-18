@@ -49,4 +49,6 @@ jobs:
           done
           echo "SPV count: $(find build -name '*.spv' | wc -l)"
           for f in $(find build -name '*.spv' | head -3); do echo "== $f"; spirv-dis "$f" | grep -E "OpCapability|OpExtension" | sort -u | tr '\n' ' '; echo; done > caps.log
+          for f in $(find build -name '*.spv' | sort); do echo "== $(basename $f)"; spirv-dis "$f" | grep -E "OpName %g_|OpName %type|OpDecorate %g_[A-Za-z]* (Binding|DescriptorSet)|OpDecorate %[A-Za-z_]* (Binding|DescriptorSet)|OpExtension|OpCapability|OpMemoryModel|OpEntryPoint|OpExecutionMode" | sed 's/  */ /g' | head -60; done > binds.log
+          echo "::notice title=SPIR-V bindings::$(head -c 60000 binds.log | sed 's/%/%25/g;s/\r/%0D/g;:a;N;$!ba;s/\n/%0A/g')"
           echo "::notice title=SPIR-V capabilities::$(cat caps.log | sed ':a;N;$!ba;s/\n/%0A/g')"
