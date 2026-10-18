@@ -906,7 +906,8 @@ JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
         const bool wasGpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
         auto state = std::make_unique<ymir::savestate::SaveState>();
         sat.SaveState(*state);
-        const auto savedCfg = sat.configuration.swRenderer;
+        const bool t1 = sat.configuration.swRenderer.threadedVDP1, t2 = sat.configuration.swRenderer.threadedVDP2,
+                   t3 = sat.configuration.swRenderer.threadedDeinterlacer;
         sat.configuration.swRenderer.threadedVDP1 = false;
         sat.configuration.swRenderer.threadedVDP2 = false;
         sat.configuration.swRenderer.threadedDeinterlacer = false;
@@ -960,7 +961,9 @@ JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
             }
         }
         // Restore
-        sat.configuration.swRenderer = savedCfg;
+        sat.configuration.swRenderer.threadedVDP1 = t1;
+        sat.configuration.swRenderer.threadedVDP2 = t2;
+        sat.configuration.swRenderer.threadedDeinterlacer = t3;
         if (!wasGpu) {
             vdp.UseSoftwareRenderer();
         }
