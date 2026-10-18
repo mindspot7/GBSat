@@ -298,9 +298,9 @@ int main() {
             }
             ++failures;
         }
-        if (test == 0 || test == 5) std::printf("  software:\n%s", Ascii(sw).c_str());
+
         // Sample pixels for debugging
-        for (auto [x, y] : std::initializer_list<std::pair<uint32, uint32>>{{5, 5}, {50, 50}, {150, 150}, {270, 50}, {40, 160}}) {
+        if (big > 0) for (auto [x, y] : std::initializer_list<std::pair<uint32, uint32>>{{5, 5}, {50, 50}, {150, 150}, {270, 50}, {40, 160}}) {
             if (x < sw.w && y < sw.h)
                 std::printf("  px(%u,%u) sw=%06X vk=%06X\n", x, y, sw.px[y * sw.w + x] & 0xFFFFFF, vk.px[y * sw.w + x] & 0xFFFFFF);
         }
