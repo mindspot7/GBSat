@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port, vulkan ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/ymir-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**' ]
+    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/ymir-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/**', 'libs/ymir-core/include/ymir/hw/vdp/**' ]
 
 jobs:
   shaders:
@@ -62,3 +62,26 @@ jobs:
           rc=$?
           echo "::notice title=Pipeline test (rc=$rc)::$(head -c 6000 vkt.log | sed ':a;N;$!ba;s/\n/%0A/g')"
           exit $rc
+
+      - name: Compare software and Vulkan VDP renderers (lavapipe)
+        run: |
+          set +e
+          export LD_LIBRARY_PATH=/opt/dxc/lib:$LD_LIBRARY_PATH
+          export PATH=/opt/dxc/bin:$PATH
+          cmake -S apps/vk-test -B vkt-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > vkt_cfg.log 2>&1 && \
+          ninja -C vkt-build vdp_compare > vkt_bld.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            cat vkt_cfg.log vkt_bld.log > vkt_all.log
+            msg=$( (grep -nE "error|Error|FAILED" -A3 vkt_all.log | head -80) | cut -c1-400 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=vdp_compare build failed::$msg"
+            exit $rc
+          fi
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+          timeout 600 ./vkt-build/vdp_compare > cmp.log 2>&1
+          rc=$?
+          grep -c "Validation Error" cmp.log > /dev/null && echo "::warning title=Validation errors::$(grep -m 15 'Validation Error' cmp.log | cut -c1-600 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
+          echo "::notice title=VDP compare (rc=$rc)::$(grep -v 'Validation' cmp.log | head -c 60000 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+          exit 0

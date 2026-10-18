@@ -9,7 +9,7 @@ if (ANDROID)
     # Android: the NDK provides the Vulkan loader and headers; SPIR-V Tools are not needed (shaders are precompiled).
     find_package(Vulkan)
 elseif (NOT APPLE)
-    find_package(Vulkan COMPONENTS SPIRV-Tools)
+    find_package(Vulkan OPTIONAL_COMPONENTS SPIRV-Tools)
 endif ()
 
 include(cmake/CMakeRC.cmake)
