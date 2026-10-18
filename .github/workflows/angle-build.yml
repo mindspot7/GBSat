@@ -1,0 +1,86 @@
+name: Build ANGLE (Android arm64)
+
+# Builds Google's ANGLE (OpenGL ES over Vulkan) for Android arm64 and publishes the two libraries
+# (libEGL_angle.so, libGLESv2_angle.so) as a release asset that android.yml bundles into the APK.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ android-port ]
+    paths: [ '.github/workflows/angle-build.yml' ]
+
+permissions:
+  contents: write
+
+jobs:
+  angle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - name: Fetch depot_tools and ANGLE
+        run: |
+          set -e
+          cd "$RUNNER_TEMP"
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          export PATH="$PWD/depot_tools:$PATH"
+          export DEPOT_TOOLS_UPDATE=0
+          mkdir angle-src && cd angle-src
+          git clone --depth 1 https://chromium.googlesource.com/angle/angle
+          cd angle
+          python3 scripts/bootstrap.py
+          echo "target_os = ['android']" >> .gclient
+          gclient sync -D --no-history -j8
+          df -h /
+
+      - name: Build
+        run: |
+          set -e
+          export PATH="$RUNNER_TEMP/depot_tools:$PATH"
+          export DEPOT_TOOLS_UPDATE=0
+          cd "$RUNNER_TEMP/angle-src/angle"
+          mkdir -p out/Android
+          cat > out/Android/args.gn <<'ARGS'
+          target_os = "android"
+          target_cpu = "arm64"
+          arm_control_flow_integrity = "none"
+          is_component_build = false
+          is_debug = false
+          symbol_level = 0
+          angle_libs_suffix = "_angle"
+          angle_enable_vulkan = true
+          angle_enable_gl = false
+          angle_enable_swiftshader = false
+          angle_enable_null = false
+          angle_enable_wgpu = false
+          use_thin_lto = false
+          ARGS
+          sed -i 's/^          //' out/Android/args.gn
+          gn gen out/Android
+          autoninja -C out/Android libEGL libGLESv2
+          ls -la out/Android/*.so
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/angle-src/angle/out/Android"
+          mkdir -p "$RUNNER_TEMP/pkg"
+          cp libEGL_angle.so libGLESv2_angle.so "$RUNNER_TEMP/pkg/"
+          aarch64-linux-gnu-strip --strip-unneeded "$RUNNER_TEMP/pkg"/*.so 2>/dev/null || true
+          cd "$RUNNER_TEMP/pkg"
+          tar czf angle-android-arm64.tar.gz *.so
+          cd "$GITHUB_WORKSPACE"
+          gh release delete angle-android-arm64 --yes --cleanup-tag 2>/dev/null || true
+          gh release create angle-android-arm64 "$RUNNER_TEMP/pkg/angle-android-arm64.tar.gz" \
+            --title "ANGLE Android arm64" --notes "Prebuilt ANGLE libraries used by GBSat." --target "$GITHUB_SHA"
+
+      - name: Report errors
+        if: failure()
+        run: echo "::error title=ANGLE build failed::see workflow logs"
