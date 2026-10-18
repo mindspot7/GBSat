@@ -66,3 +66,4 @@ jobs:
         with:
           name: gbsat-arm64
           path: apps/ymir-android/app/build/outputs/apk/release/*.apk
+# angle bundled
