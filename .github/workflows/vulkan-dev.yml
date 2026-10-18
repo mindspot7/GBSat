@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port, vulkan ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**' ]
+    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**' ]
 
 jobs:
   shaders:
