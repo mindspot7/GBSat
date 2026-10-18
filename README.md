@@ -19,7 +19,7 @@ gamepad-friendly interface built in Jetpack Compose.
   - OpenGL ES and ANGLE presentation with texture filtering (nearest, bilinear) and shaders
     (scanlines, CRT, LCD3x, dots)
   - **Vulkan GPU**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders
-- **Display**: 4:3, 16:9 or fullscreen, optional FPS counter
+- **Display**: 4:3, Fullscreen or 16:9 (with built-in widescreen hacks for supported games), optional FPS counter
 - **RetroAchievements**: login, hardcore mode, unlock notifications and achievement list
 - Touch controls (can be hidden)
 - Crash reports shown on the next launch, with automatic fallback to the Software renderer
@@ -59,5 +59,7 @@ Local build: Android Studio with SDK 35, NDK 27.2.12479018 and CMake 3.31.6, plu
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.
 
 ## License
+
+Widescreen codes: SegaXtreme "Saturn Widescreen Codes & Patches" collection. Cheat database: libretro-database (CC BY-SA 4.0).
 
 GPLv3. See [LICENSE](LICENSE) for the full text and the credits of the original authors.
