@@ -1006,8 +1006,15 @@ JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
         sat.configuration.swRenderer.threadedVDP2 = false;
         sat.configuration.swRenderer.threadedDeinterlacer = false;
 
-        Context::Captured sw, vk;
+        Context::Captured sw, vk, live;
         std::string out;
+        // The running Vulkan renderer (not recreated), to catch problems that only show up after running for a while
+        if (wasGpu) {
+            g->capture = &live;
+            for (int i = 0; i < 4; ++i) sat.RunFrame();
+            g->capture = nullptr;
+            sat.LoadState(*state);
+        }
         // Software
         vdp.UseSoftwareRenderer();
         sat.LoadState(*state);
@@ -1031,6 +1038,31 @@ JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
             snprintf(buf, sizeof(buf), "software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", sw.w, sw.h, sw.count,
                      vk.w, vk.h, vk.count);
             out += buf;
+            if (wasGpu) {
+                // Running renderer vs software
+                if (live.w == sw.w && live.h == sw.h && !live.px.empty() && !ref.empty()) {
+                    size_t ld = 0;
+                    uint32_t x0 = UINT32_MAX, x1 = 0, y0 = UINT32_MAX, y1 = 0;
+                    std::string ls;
+                    for (uint32_t y = 0; y < sw.h; ++y)
+                        for (uint32_t x = 0; x < sw.w; ++x) {
+                            const uint32_t a = ref[y * sw.w + x] & 0xFFFFFF, b = live.px[y * sw.w + x] & 0xFFFFFF;
+                            if (a != b) {
+                                if (++ld % 211 == 1 && ls.size() < 200) {
+                                    snprintf(buf, sizeof(buf), " (%u,%u) sw=%06X live=%06X", x, y, a, b);
+                                    ls += buf;
+                                }
+                                x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
+                            }
+                        }
+                    snprintf(buf, sizeof(buf), "running renderer: differing pixels %zu, area x %u-%u y %u-%u\n", ld, x0, x1, y0, y1);
+                    out += ld ? buf + ls + "\n" : "running renderer: differing pixels 0\n";
+                } else {
+                    snprintf(buf, sizeof(buf), "running renderer: frame %ux%u (%d frames)\n", live.w, live.h, live.count);
+                    out += buf;
+                }
+            }
+            out += "new renderer: ";
             if (sw.w == vk.w && sw.h == vk.h && !ref.empty() && !vk.px.empty()) {
                 size_t diff = 0;
                 std::vector<std::pair<uint32_t, uint32_t>> samples;
