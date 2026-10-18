@@ -95,6 +95,46 @@ static void SetupScene(Saturn &s, int scene) {
                 Poke16(s, kVDP2VRAM + 0x28000 + (y * 64 + x) * 2, pal | flip | (chr & 0x3FF));
             }
     }
+    if (scene == 5) {
+        // RBG0: rotated 256-color bitmap (rotation parameter A, 20 degrees around the screen center)
+        Poke16(s, kVDP2Regs + 0x00E, 0x000F); // RAMCTL: VRAM-A0/A1 hold RBG character (bitmap) data
+        Poke16(s, kVDP2Regs + 0x020, 0x0010); // BGON: RBG0
+        Poke16(s, kVDP2Regs + 0x02A, 0x1200); // CHCTLB: RBG0 bitmap 512x256, 256 colors
+        Poke16(s, kVDP2Regs + 0x03E, 0x0000); // MPOFR
+        Poke16(s, kVDP2Regs + 0x0B0, 0x0000); // RPMD: parameter A
+        Poke16(s, kVDP2Regs + 0x0B2, 0x0000); // RPRCTL
+        Poke16(s, kVDP2Regs + 0x0B4, 0x0000); // KTCTL: no coefficient table
+        Poke16(s, kVDP2Regs + 0x0BC, 0x0003); // RPTAU
+        Poke16(s, kVDP2Regs + 0x0BE, 0xF800); // RPTAL -> table at 0x7F000
+        Poke16(s, kVDP2Regs + 0x0FC, 0x0003); // PRIR: RBG0 priority 3
+        auto w32 = [&](uint32 off, uint32 v) {
+            Poke16(s, kVDP2VRAM + 0x7F000 + off, v >> 16);
+            Poke16(s, kVDP2VRAM + 0x7F000 + off + 2, v & 0xFFFF);
+        };
+        auto fx = [](int v) { return (uint32)(v << 6); };
+        for (uint32 off = 0; off < 0x60; off += 4) w32(off, 0);
+        w32(0x00, fx(-40 << 10)); // Xst
+        w32(0x04, fx(-30 << 10)); // Yst
+        w32(0x08, fx(5 << 10));   // Zst
+        w32(0x10, fx(1024));      // deltaYst = 1.0
+        w32(0x14, fx(1024));      // deltaX = 1.0
+        w32(0x1C, fx(962));       // A = cos
+        w32(0x20, fx(-350));      // B = -sin
+        w32(0x24, fx(37));        // C
+        w32(0x28, fx(350));       // D = sin
+        w32(0x2C, fx(962));       // E = cos
+        w32(0x30, fx(-21));       // F
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x34, 20);   // Px
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x36, 10);   // Py
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x38, 300);  // Pz
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x3C, 160);  // Cx
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x3E, 112);  // Cy
+        Poke16(s, kVDP2VRAM + 0x7F000 + 0x40, 0);    // Cz
+        w32(0x44, fx(7 << 10));    // Mx
+        w32(0x48, fx(-3 << 10));   // My
+        w32(0x4C, 0x00012000);     // kx = 1.125
+        w32(0x50, 0x0000E000);     // ky = 0.875
+    }
     Poke16(s, kVDP2VRAM + 0x7FFFE, 0x5000); // back screen: dark blue
     for (int i = 0; i < 256; ++i) {
         const uint16 r = i & 31, g = (i >> 3) & 31, b = (255 - i) >> 3;
@@ -212,7 +252,10 @@ static std::string Ascii(const Frame &f, int cols = 64, int rows = 24) {
 
 int main() {
     int failures = 0;
-    for (int scene = 0; scene < 5; ++scene) {
+    for (int test = 0; test < 7; ++test) {
+        const int scene = test < 6 ? test : 5;
+        const bool noInt64 = test == 6;
+        if (noInt64) setenv("YMIR_VK_NO_INT64", "1", 1);
         Frame sw, vk;
         std::string err;
         Run(false, scene, sw, err);
@@ -220,7 +263,7 @@ int main() {
             std::printf("SCENE %d: Vulkan renderer failed to start: %s\n", scene, err.c_str());
             return 2;
         }
-        std::printf("SCENE %d: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", scene, sw.w, sw.h, sw.count,
+        std::printf("SCENE %d%s: software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", scene, noInt64 ? " (no int64)" : "", sw.w, sw.h, sw.count,
                     vk.w, vk.h, vk.count);
         if (sw.w != vk.w || sw.h != vk.h || sw.px.empty()) {
             std::printf("  size mismatch\n");
@@ -255,7 +298,7 @@ int main() {
             }
             ++failures;
         }
-        if (scene == 0) std::printf("  software:\n%s", Ascii(sw).c_str());
+        if (test == 0 || test == 5) std::printf("  software:\n%s", Ascii(sw).c_str());
         // Sample pixels for debugging
         for (auto [x, y] : std::initializer_list<std::pair<uint32, uint32>>{{5, 5}, {50, 50}, {150, 150}, {270, 50}, {40, 160}}) {
             if (x < sw.w && y < sw.h)

@@ -32,6 +32,7 @@
 #include <array>
 #include <cassert>
 #include <concepts>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <span>
@@ -141,6 +142,8 @@ struct VulkanVDPRenderer::Impl {
     VkDeviceSize uboAlign = 256;
     VkDescriptorPool descPool = VK_NULL_HANDLE;
     bool initialized = false;
+    /// @brief Use the background shader variant that emulates 64-bit integer math (GPUs without shaderInt64).
+    bool noInt64 = false;
 
     /// @brief Whether a memory barrier must be emitted before the next GPU operation.
     bool pendingBarrier = true;
@@ -1000,12 +1003,10 @@ struct VulkanVDPRenderer::Impl {
         }
         vkGetPhysicalDeviceFeatures2(physDevice, &f2);
 
-        if (!f2.features.shaderInt64) {
-            return util::ErrorMessage{"The GPU does not support 64-bit integers in shaders (shaderInt64)"};
-        }
+        noInt64 = !f2.features.shaderInt64 || std::getenv("YMIR_VK_NO_INT64") != nullptr;
 
         VkPhysicalDeviceFeatures enabled{};
-        enabled.shaderInt64 = VK_TRUE;
+        enabled.shaderInt64 = noInt64 ? VK_FALSE : VK_TRUE;
         enabled.shaderStorageImageExtendedFormats = f2.features.shaderStorageImageExtendedFormats;
 
         VkPhysicalDeviceVulkan12Features e12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
@@ -1193,7 +1194,10 @@ struct VulkanVDPRenderer::Impl {
             !r) {
             return r;
         }
-        if (auto r = CreatePipeline(vdp2.drawBGsPipe, "src/vdp/cs_vdp2_render_bgs.spv", "VDP2 background layers"); !r) {
+        if (auto r = CreatePipeline(vdp2.drawBGsPipe,
+                                    noInt64 ? "src/vdp/cs_vdp2_render_bgs_noint64.spv" : "src/vdp/cs_vdp2_render_bgs.spv",
+                                    "VDP2 background layers");
+            !r) {
             return r;
         }
         if (auto r = CreatePipeline(vdp2.composePipe, "src/vdp/cs_vdp2_compose.spv", "VDP2 compose"); !r) {

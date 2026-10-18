@@ -100,7 +100,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                 "Software, OpenGL ES, Vulkan and ANGLE emulate the Saturn VDP on the CPU and only differ in how the image is shown: " +
                     "OpenGL ES and ANGLE enable the filters and shaders below, Vulkan shows the image through the Vulkan API. " +
                     "Vulkan GPU (beta) renders the VDP1/VDP2 graphics with Vulkan compute shaders (port of Ymir's Direct3D 12 renderer); " +
-                    "it needs a GPU with 64-bit integer shader support and falls back to the software renderer otherwise. " +
+                    "it falls back to the software renderer if the GPU cannot run it. " +
                     "Enhanced resolution and widescreen hacks are not available yet.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )

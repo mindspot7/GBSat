@@ -280,6 +280,56 @@ bool GetSpecialColorCalcFlag(const BaseBGParams params, uint specColorCode, bool
 // ---------------------------------------------------------------------------------------------------------------------
 // Rotation parameter table fetching
 
+#ifndef YMIR_NO_INT64
+#define YMIR_NO_INT64 0
+#endif
+
+#if YMIR_NO_INT64
+// 64-bit signed integer emulation for GPUs without shaderInt64 support.
+// Values are stored as uint2(low word, high word) in two's complement.
+uint2 I64FromInt(int a) {
+    return uint2(uint(a), a < 0 ? 0xFFFFFFFFu : 0u);
+}
+
+uint2 I64Neg(uint2 v) {
+    const uint lo = ~v.x + 1u;
+    const uint hi = ~v.y + (lo == 0u ? 1u : 0u);
+    return uint2(lo, hi);
+}
+
+// Signed 32x32 -> 64-bit multiplication
+uint2 I64Mul(int a, int b) {
+    const uint ua = uint(abs(a));
+    const uint ub = uint(abs(b));
+    const uint a0 = ua & 0xFFFFu, a1 = ua >> 16;
+    const uint b0 = ub & 0xFFFFu, b1 = ub >> 16;
+    const uint p00 = a0 * b0;
+    const uint p01 = a0 * b1;
+    const uint p10 = a1 * b0;
+    const uint p11 = a1 * b1;
+    const uint mid = (p00 >> 16) + (p01 & 0xFFFFu) + (p10 & 0xFFFFu);
+    const uint lo = (p00 & 0xFFFFu) | (mid << 16);
+    const uint hi = p11 + (p01 >> 16) + (p10 >> 16) + (mid >> 16);
+    const uint2 r = uint2(lo, hi);
+    return ((a < 0) != (b < 0)) ? I64Neg(r) : r;
+}
+
+uint2 I64Add(uint2 a, uint2 b) {
+    const uint lo = a.x + b.x;
+    const uint carry = lo < a.x ? 1u : 0u;
+    return uint2(lo, a.y + b.y + carry);
+}
+
+// Arithmetic shift right by 1..31 bits
+uint2 I64Sar(uint2 v, uint s) {
+    return uint2((v.x >> s) | (v.y << (32u - s)), uint(int(v.y) >> s));
+}
+
+int I64Low(uint2 v) {
+    return int(v.x);
+}
+#endif
+
 struct RotTable {
     // Screen start coordinates (signed 13.10 fixed point)
     int Xst, Yst, Zst;
@@ -446,8 +496,13 @@ uint2 CalcRotationScreenCoords(uint2 pos, uint index) {
     // 10*(10-10) + 10*(10-10) + 10*(10-10) = 20 frac bits
     // 14*(23-24) + 14*(23-24) + 14*(23-24) = 38 total bits
     // reduce to 10 frac bits
+#if YMIR_NO_INT64
+    const int Xsp = I64Low(I64Sar(I64Add(I64Add(I64Mul(t.A, Tx), I64Mul(t.B, Ty)), I64Mul(t.C, Tz)), 10));
+    const int Ysp = I64Low(I64Sar(I64Add(I64Add(I64Mul(t.D, Tx), I64Mul(t.E, Ty)), I64Mul(t.F, Tz)), 10));
+#else
     const int Xsp = int((int64_t(t.A) * int64_t(Tx) + int64_t(t.B) * int64_t(Ty) + int64_t(t.C) * int64_t(Tz)) >> 10);
     const int Ysp = int((int64_t(t.D) * int64_t(Tx) + int64_t(t.E) * int64_t(Ty) + int64_t(t.F) * int64_t(Tz)) >> 10);
+#endif
 
     // Transformed view coordinates (18.10)
     // 10*(0-0) + 10*(0-0) + 10*(0-0) + 10 + 10 = 10+10+10 + 10+10 = 10 frac bits
@@ -503,10 +558,17 @@ uint2 CalcRotationScreenCoords(uint2 pos, uint index) {
     // = 10 + 10 = 10 frac bits
     // = 36 + 28 = 36 total bits
     // remove frac bits from result = 26 total bits
+#if YMIR_NO_INT64
+    return uint2(
+        uint(I64Low(I64Sar(I64Add(I64Sar(I64Mul(kx, scrX), 16), I64FromInt(Xp)), 10))),
+        uint(I64Low(I64Sar(I64Add(I64Sar(I64Mul(ky, scrY), 16), I64FromInt(Yp)), 10)))
+    );
+#else
     return uint2(
         (((int64_t(kx) * scrX) >> 16) + Xp) >> 10,
         (((int64_t(ky) * scrY) >> 16) + Yp) >> 10
     );
+#endif
 }
 
 RotCoefficient CalcRotationCoefficient(uint2 pos, uint index) {
