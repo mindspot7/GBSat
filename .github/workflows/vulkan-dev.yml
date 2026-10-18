@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port, vulkan ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**' ]
+    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/ymir-core/res/shaders/**', 'libs/ymir-core/src/ymir/gpu/**', 'libs/ymir-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/ymir-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**' ]
 
 jobs:
   shaders:
@@ -52,3 +52,13 @@ jobs:
           for f in $(find build -name '*.spv' | sort); do echo "== $(basename $f)"; spirv-dis "$f" | grep -E "OpName %g_|OpName %type|OpDecorate %g_[A-Za-z]* (Binding|DescriptorSet)|OpDecorate %[A-Za-z_]* (Binding|DescriptorSet)|OpExtension|OpCapability|OpMemoryModel|OpEntryPoint|OpExecutionMode" | sed 's/  */ /g' | head -60; done > binds.log
           echo "::notice title=SPIR-V bindings::$(head -c 60000 binds.log | sed 's/%/%25/g;s/\r/%0D/g;:a;N;$!ba;s/\n/%0A/g')"
           echo "::notice title=SPIR-V capabilities::$(cat caps.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+
+      - name: Create compute pipelines for all shaders (lavapipe)
+        run: |
+          set +e
+          g++ -std=c++20 -Ilibs/ymir-core/include apps/vk-test/vk_pipeline_test.cpp -o vkt -lvulkan > vkt_build.log 2>&1
+          if [ $? -ne 0 ]; then echo "::error title=vk test build failed::$(head -c 1500 vkt_build.log | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; fi
+          VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1) ./vkt build > vkt.log 2>&1
+          rc=$?
+          echo "::notice title=Pipeline test (rc=$rc)::$(head -c 6000 vkt.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+          exit $rc

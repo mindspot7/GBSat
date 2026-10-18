@@ -467,6 +467,7 @@ function(_shader_make_compile_spirv_command)
                 -fvk-b-shift 0 0
                 -fvk-t-shift 0 0
                 -fvk-u-shift 16 0
+                -fvk-use-dx-layout
                 ${_compile_flags}
                 ${_include_paths_args}
                 ${_macro_args}
