@@ -65,6 +65,8 @@ jobs:
           use_thin_lto = false
           ARGS
           sed -i 's/^          //' out/Android/args.gn
+          "$RUNNER_TEMP/depot_tools/ensure_bootstrap" || true
+          export DEPOT_TOOLS_UPDATE=1
           gn gen out/Android
           autoninja -C out/Android libEGL libGLESv2
           ls -la out/Android/*.so
