@@ -15,6 +15,7 @@ using namespace ymir;
 
 struct Frame {
     std::vector<uint32> px;
+    std::vector<uint32> prev; // previous frame (the Vulkan renderer delivers frames one frame late)
     uint32 w = 0, h = 0;
     int count = 0;
 };
@@ -179,8 +180,32 @@ static void SetupScene(Saturn &s, int scene) {
                  {0x14, 70}, {0x16, 200}, {0x18, 20}, {0x1A, 200}});                              // shadow
     Cmd(s, c++, {{0x00, 0x8000}});                                                               // end
 
-    Poke16(s, kVDP1Regs + 0x00, 0x0000);              // TVMR
-    Poke16(s, kVDP1Regs + 0x02, 0x0000);              // FBCR
+    if (scene == 8) {
+        // Palette-coded sprites/polygons (no MSB): VDP2 sprite type 0 decodes priority/color calc/palette
+        Poke16(s, kVDP2Regs + 0x0E0, 0x0000); // SPCTL: type 0, palette only
+        Poke16(s, kVDP2Regs + 0x0F0, 0x0505); // PRISA: sprite regs 0/1 priority 5
+        Poke16(s, kVDP2Regs + 0x0F2, 0x0606);
+        Poke16(s, kVDP2Regs + 0x0F4, 0x0202); // PRISC: regs 4/5 behind NBG0
+        Poke16(s, kVDP2Regs + 0x0F6, 0x0707);
+        const uint32 cmd2 = kVDP1VRAM + 2 * 0x20, cmd4 = kVDP1VRAM + 4 * 0x20, cmd5 = kVDP1VRAM + 5 * 0x20;
+        Poke16(s, cmd2 + 0x06, 0x0040);          // palette 0x40, priority reg 0
+        Poke16(s, cmd4 + 0x06, 0x8000 | 0x0080); // reg 4 (behind the background), palette 0x80 -- bit 15 is priority bit
+        Poke16(s, cmd5 + 0x06, 0x4000 | 0x00C0); // reg 2
+        // 4bpp palette texture for the sprites (color mode 0 = 16-color bank)
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; x += 4)
+                Poke16(s, kVDP1VRAM + 0x3000 + y * 8 + x / 2,
+                       (uint16)((((x + y) & 15) << 12) | (((x + 1 + y) & 15) << 8) | (((x + 2 + y) & 15) << 4) | ((x + 3 + y) & 15)));
+        for (int c : {6, 7, 8}) {
+            const uint32 cmd = kVDP1VRAM + c * 0x20;
+            Poke16(s, cmd + 0x04, 0x00C0);           // color mode 0 (16-color bank)
+            Poke16(s, cmd + 0x06, 0x0110);           // color bank
+            Poke16(s, cmd + 0x08, 0x3000 >> 3);
+            Poke16(s, cmd + 0x0A, 0x0210);
+        }
+    }
+    Poke16(s, kVDP1Regs + 0x00, scene == 7 ? 0x0008 : 0x0000); // TVMR (scene 7: VBlank erase)
+    Poke16(s, kVDP1Regs + 0x02, scene == 7 ? 0x0003 : 0x0000); // FBCR
     Poke16(s, kVDP1Regs + 0x06, 0x0000);              // EWDR
     Poke16(s, kVDP1Regs + 0x08, 0x0000);              // EWLR
     Poke16(s, kVDP1Regs + 0x0A, (40 << 9) | 223);     // EWRR
@@ -204,6 +229,7 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err) {
 
     auto onFrame = [](const uint32 *fb, uint32 w, uint32 h, void *ctx) {
         auto &f = *static_cast<Frame *>(ctx);
+        f.prev.swap(f.px);
         f.px.assign(fb, fb + (size_t)w * h);
         f.w = w;
         f.h = h;
@@ -211,6 +237,7 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err) {
     };
     saturn->VDP.SetSoftwareRenderCallback({&out, [](uint32 *fb, uint32 w, uint32 h, void *ctx) {
                                                auto &f = *static_cast<Frame *>(ctx);
+                                               f.prev.swap(f.px);
                                                f.px.assign(fb, fb + (size_t)w * h);
                                                f.w = w;
                                                f.h = h;
@@ -227,7 +254,22 @@ static bool Run(bool vulkan, int scene, Frame &out, std::string &err) {
         saturn->VDP.UseSoftwareRenderer();
     }
     SetupScene(*saturn, scene);
-    for (int i = 0; i < 12; ++i) saturn->RunFrame();
+    for (int i = 0; i < 12; ++i) {
+        if (scene >= 6) {
+            // Moving objects: shift the red polygon and the normal sprite every frame (exposes erase/swap bugs)
+            const uint16 dx = i * 7;
+            const uint32 cmd2 = kVDP1VRAM + 2 * 0x20, cmd6 = kVDP1VRAM + 6 * 0x20;
+            Poke16(*saturn, cmd2 + 0x0C, 20 + dx);
+            Poke16(*saturn, cmd2 + 0x10, 140 + dx);
+            Poke16(*saturn, cmd2 + 0x14, 140 + dx);
+            Poke16(*saturn, cmd2 + 0x18, 20 + dx);
+            Poke16(*saturn, cmd6 + 0x0C, 30 + dx * 2);
+            if (scene == 7) {
+                Poke16(*saturn, kVDP1Regs + 0x02, 0x0003); // FBCR: manual erase + swap at the next frame
+            }
+        }
+        saturn->RunFrame();
+    }
     return true;
 }
 
@@ -252,13 +294,15 @@ static std::string Ascii(const Frame &f, int cols = 64, int rows = 24) {
 
 int main() {
     int failures = 0;
-    for (int test = 0; test < 7; ++test) {
-        const int scene = test < 6 ? test : 5;
+    for (int test = 0; test < 10; ++test) {
+        const int scene = test < 6 ? test : test == 6 ? 5 : test - 1;
         const bool noInt64 = test == 6;
+        if (test == 7) unsetenv("YMIR_VK_NO_INT64");
         if (noInt64) setenv("YMIR_VK_NO_INT64", "1", 1);
         Frame sw, vk;
         std::string err;
         Run(false, scene, sw, err);
+        if (!sw.prev.empty()) sw.px = sw.prev; // compare against the same frame the Vulkan renderer delivered last
         if (!Run(true, scene, vk, err)) {
             std::printf("SCENE %d: Vulkan renderer failed to start: %s\n", scene, err.c_str());
             return 2;
