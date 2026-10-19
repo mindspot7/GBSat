@@ -31,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -79,16 +81,6 @@ fun LibraryScreen(
     var background by remember { mutableStateOf<ImageBitmap?>(null) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground)) {
-        // Blurred artwork of the selected game behind everything (blur needs Android 12+; older versions dim it more)
-        Crossfade(background, label = "bg") { bmp ->
-            if (bmp != null) {
-                val blur = Build.VERSION.SDK_INT >= 31
-                Image(bmp, null, Modifier.fillMaxSize().then(if (blur) Modifier.blur(28.dp) else Modifier),
-                    contentScale = ContentScale.Crop, alpha = if (blur) 0.45f else 0.18f)
-            }
-        }
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x991D1636), Color(0xCC161126)))))
-
         val wide = maxWidth >= 720.dp
         val menu: @Composable () -> Unit = {
             SideMenu(onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(it) }, onQuit = onQuit)
@@ -96,7 +88,7 @@ fun LibraryScreen(
         val content: @Composable () -> Unit = {
             Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Header(recentMode, onToggleRecent = { recentMode = !recentMode }, onMenu = { if (!wide) scope.launch { drawer.open() } })
-                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (wide) Box(Modifier.width(250.dp).fillMaxHeight()) { menu() }
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (recentMode) {
@@ -107,6 +99,7 @@ fun LibraryScreen(
                         }
                     }
                 }
+                HelpBar(recentMode)
             }
         }
         if (wide) content() else ModalNavigationDrawer(
@@ -292,16 +285,42 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
 
             val first = remember { FocusRequester() }
             LaunchedEffect(games.firstOrNull()?.path) { runCatching { first.requestFocus() } }
-            var selected by remember { mutableStateOf(games.first()) }
-            // Game shelf: one horizontal row of box art, sized to the screen (smaller on portrait and square screens)
+            var selected by remember { mutableStateOf<Storage.Game?>(null) }
+            var withStates by remember { mutableStateOf<Set<String>>(emptySet()) }
+            LaunchedEffect(games) { withStates = withContext(Dispatchers.IO) { Emulator.gamesWithStates() } }
+            // Game shelf: details of the selected game on top, one horizontal row of box art below
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val portrait = maxWidth < maxHeight * 1.2f
-                val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(140.dp, 250.dp) else (maxHeight * 0.62f).coerceIn(150.dp, 360.dp)
+                val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(130.dp, 240.dp) else (maxHeight * 0.58f).coerceIn(140.dp, 340.dp)
                 val cardW = cardH * 0.72f
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
+                    // Selected game: name, play time and badges (only while a game is selected)
+                    androidx.compose.animation.AnimatedVisibility(selected != null,
+                        enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+                        val g = selected
+                        if (g != null) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                            Text(g.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                val secs = Emulator.playTime(g.path)
+                                Icon(Icons.Default.Schedule, null, tint = Color.White.copy(alpha = .7f), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (secs >= 60) formatPlayTime(secs) else "Not played", style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = .75f))
+                                if (g.path in withStates) {
+                                    Spacer(Modifier.width(14.dp))
+                                    Icon(Icons.Default.Save, "Has save states", tint = Color(0xFF7FD7C4), modifier = Modifier.size(18.dp))
+                                }
+                                if (g.path in Emulator.achievementGames) {
+                                    Spacer(Modifier.width(10.dp))
+                                    Icon(Icons.Default.EmojiEvents, "Has achievements", tint = Gold, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
                     androidx.compose.foundation.lazy.LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = cardH * 0.12f, bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.Bottom,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -311,7 +330,7 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                                 g, coverVersion, cardW, cardH,
                                 modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
                                 onClick = { launch(g.path) }, onOptions = { gameMenu = g },
-                                onSelected = { bmp -> selected = g; onSelected(bmp) },
+                                onSelected = { selected = g },
                             )
                         }
                     }
@@ -322,21 +341,33 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                     )
                     Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(14.dp)
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .35f), Color.Transparent))))
-                    // Selected game
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-                        Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        val secs = Emulator.playTime(selected.path)
-                        Text(
-                            (if (secs >= 60) "Played ${formatPlayTime(secs)}" else "Not played yet") + " · ${games.size} games",
-                            style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .7f),
-                        )
-                        Text("A: Play   Y: Options   Long-press: options", style = MaterialTheme.typography.labelSmall,
-                            color = Gold.copy(alpha = .8f), modifier = Modifier.padding(top = 6.dp))
-                    }
                 }
             }
         }
+    }
+}
+
+/** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
+@Composable
+private fun HelpBar(recentMode: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ButtonHint("A", Color(0xFFE5483B), "Play")
+        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Options")
+        ButtonHint("B", Color(0xFFF2C230), "Back")
+    }
+}
+
+@Composable
+private fun ButtonHint(button: String, color: Color, label: String) {
+    Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(22.dp).clip(androidx.compose.foundation.shape.CircleShape).background(color), contentAlignment = Alignment.Center) {
+            Text(button, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -349,9 +380,10 @@ private fun GameCard(
     var cover by remember(g.title, version) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(g.title, version) { cover = Covers.load(g.title) }
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, label = "scale")
+    val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "scale")
     Box(
-        modifier.size(cardW, cardH).scale(scale)
+        modifier.zIndex(if (focused) 1f else 0f).size(cardW, cardH)
+            .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY || e.key == Key.ButtonX || e.key == Key.Menu)) { onOptions(); true } else false

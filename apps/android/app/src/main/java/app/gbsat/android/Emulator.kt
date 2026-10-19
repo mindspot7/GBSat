@@ -282,6 +282,19 @@ object Emulator {
         null
     }
 
+    // ---- Library badges: games with save states / RetroAchievements ----
+    var achievementGames by mutableStateOf<Set<String>>(emptySet()); private set
+    /** Called when RetroAchievements recognizes the running game. */
+    fun markAchievementGame() {
+        val g = currentGame ?: return
+        if (g !in achievementGames) {
+            achievementGames = achievementGames + g
+            prefs.edit().putStringSet("achievementGames", achievementGames).apply()
+        }
+    }
+    /** Paths of the games that have at least one save state. */
+    fun gamesWithStates(): Set<String> = recentStates().map { it.gamePath }.toSet()
+
     // ---- Play time per game (seconds, keyed by file name) ----
     private val playTimes = mutableStateMapOf<String, Long>()
     private var playStart = 0L
@@ -311,6 +324,7 @@ object Emulator {
         dataDir = prefs.getString("dataDir", null)?.let { File(it) }?.takeIf { (it.isDirectory || it.mkdirs()) && it.canWrite() }
             ?: appContext.filesDir
         loadPlayTimes()
+        achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)

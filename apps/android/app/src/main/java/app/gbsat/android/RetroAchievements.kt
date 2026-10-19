@@ -133,7 +133,7 @@ object RetroAchievements {
                     add += Notification("info", "RetroAchievements", "Logged in as $a ($n points)", 0, url)
                 }
                 "loginfail" -> { loginPending = false; loginError = a; user = null }
-                "game" -> { gameTitle = a; add += Notification("game", a, b, 0, url) }
+                "game" -> { gameTitle = a; Emulator.markAchievementGame(); add += Notification("game", a, b, 0, url) }
                 "gamefail" -> { gameTitle = null; add += Notification("info", "RetroAchievements", a, 0, "") }
                 "unlocked" -> add += Notification("unlocked", a, b, n, url)
                 "completed" -> add += Notification("completed", a, "All achievements earned!", 0, url)
