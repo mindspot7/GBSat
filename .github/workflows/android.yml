@@ -6,6 +6,9 @@ on:
     paths: [ 'apps/android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -80,3 +83,25 @@ jobs:
         with:
           name: ${{ steps.ver.outputs.name }}
           path: apps/android/app/build/outputs/apk/release/*.apk
+
+      # A release is published once per version: when apps/android/VERSION changes to a version that has no release yet,
+      # this build is published as release v<version> with the APK named GBSat-v<version>.apk and the matching
+      # CHANGELOG.md section as release notes.
+      - name: Publish release for a new version
+        if: github.ref == 'refs/heads/android-port'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(tr -d '[:space:]' < apps/android/VERSION)
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            echo "Release v${VER} already exists; nothing to publish"
+            exit 0
+          fi
+          cp "apps/android/app/build/outputs/apk/release/${{ steps.ver.outputs.name }}.apk" "GBSat-v${VER}.apk"
+          awk -v ver="$VER" '
+            /^## / { if (found) exit; if (index($0, "## " ver) == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "GBSat ${VER}" > notes.md
+          gh release create "v${VER}" "GBSat-v${VER}.apk" --target "$GITHUB_SHA" --title "GBSat ${VER}" --notes-file notes.md
+          echo "::notice title=Release::Published v${VER}"
