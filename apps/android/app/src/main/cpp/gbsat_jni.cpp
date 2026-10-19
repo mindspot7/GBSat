@@ -960,10 +960,12 @@ void ApplyVdpRenderer(bool gpu, bool force = false) {
 
 JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
-        g->glMode = (mode == 1 || mode == 3);
+        // Vulkan GPU (4) emulates the VDPs on the GPU and shows the frames through the OpenGL ES presenter, which
+        // provides the filters and shaders
+        g->glMode = (mode == 1 || mode == 3 || mode == 4);
         g->rendererMode = mode;
         g_crashRenderer = mode;
-        if (mode == 1 || mode == 3) {
+        if (g->glMode) {
             glr::SetBackend(mode == 3); // 3 = OpenGL ES through ANGLE (Vulkan)
         }
         const bool gpu = mode == 4;

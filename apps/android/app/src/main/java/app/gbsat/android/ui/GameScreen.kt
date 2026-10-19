@@ -205,7 +205,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                         Emulator.showToast(if (r.startsWith("!")) r.drop(1) else "Saved to $r")
                     }
                 }
-                if (Emulator.renderer == 1 || Emulator.renderer == 3) {
+                if (Emulator.renderer == 1 || Emulator.renderer == 3 || Emulator.renderer == 4) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
                     val shaderOrder = listOf(0, 2, 4, 3, 1) // menu cycles alphabetically: None, CRT, Dots, LCD3x, Scanlines
                     val filters = listOf("Nearest", "Bilinear")

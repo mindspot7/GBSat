@@ -100,12 +100,12 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU"),
                 rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0), change<Int> { Emulator.renderer = rendererIds[it] })
             Text(
-                "Software, OpenGL ES and ANGLE emulate the Saturn graphics on the CPU; OpenGL ES and ANGLE add the filters and shaders below. " +
-                    "Vulkan GPU renders the graphics on the GPU with Vulkan and shows them through Vulkan; " +
+                "Software, OpenGL ES and ANGLE emulate the Saturn graphics on the CPU; OpenGL ES, ANGLE and Vulkan GPU add the filters and shaders below. " +
+                    "Vulkan GPU renders the graphics on the GPU with Vulkan; " +
                     "it falls back to software rendering if the GPU cannot run it.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (Emulator.renderer == 1 || Emulator.renderer == 3) {
+            if (Emulator.renderer == 1 || Emulator.renderer == 3 || Emulator.renderer == 4) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), change<Int> { Emulator.filter = it })
                 // Shown alphabetically; internal ids: 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dots
                 val shaderIds = listOf(0, 2, 4, 3, 1)
@@ -126,7 +126,6 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                         "Higher values need a faster GPU.",
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                Choice("Texture filtering", listOf("Nearest", "Bilinear"), minOf(Emulator.filter, 1), change<Int> { Emulator.filter = it })
                 val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
                 Text(
                     if (probe.startsWith("ok|")) "Vulkan device: " + probe.split("|").drop(1).joinToString(", ") else "Vulkan unavailable: " + probe.removePrefix("error|"),

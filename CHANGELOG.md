@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- Vulkan GPU: frames are shown through the OpenGL ES presenter, so the shaders (CRT, Dots, LCD3x, Scanlines) and filters work with it, and the brief black frames of the Vulkan presenter on Mali are gone.
 - Vulkan presentation: one completion semaphore per swapchain image (fixes brief black frames on Mali GPUs).
 - Display: "Fullscreen" fills the whole area in portrait/square screens; the Vulkan presenter fills the view in every display mode (16:9 was letterboxed).
 - Vulkan GPU: VDP1 per-pixel buffers use storage buffers instead of texel buffers (fixes sprites duplicated in the upper half of the screen on Mali GPUs).
