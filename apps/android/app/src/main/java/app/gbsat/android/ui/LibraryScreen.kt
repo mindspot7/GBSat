@@ -136,7 +136,7 @@ fun LibraryScreen(
                 menuOpen,
                 enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
                 exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, bottom = 4.dp),
+                modifier = Modifier.align(Alignment.TopStart).padding(bottom = 4.dp),
             ) {
                 Box(Modifier.width(220.dp)) {
                     SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
@@ -177,12 +177,10 @@ private fun Header(recentMode: Boolean, modifier: Modifier, onToggleRecent: () -
         }
     }
     var headerFocused by remember { mutableStateOf(false) }
-    Panel(
+    Surface(shape = RoundedCornerShape(32.dp), color = PanelColor, modifier =
         modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
-            .border(if (headerFocused || menuOpen) 2.dp else 0.dp, if (headerFocused || menuOpen) Gold.copy(alpha = .7f) else Color.Transparent, RoundedCornerShape(32.dp))
             .focusProperties { canFocus = false } // touch only: the controller never moves to the top bar
             .clickable(onClick = onMenu),
-        RoundedCornerShape(32.dp),
     ) {
       BoxWithConstraints {
         val compact = maxWidth < 420.dp // narrow portrait screens: drop the subtitle, battery text and clock
