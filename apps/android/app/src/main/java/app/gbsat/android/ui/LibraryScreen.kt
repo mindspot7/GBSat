@@ -92,6 +92,9 @@ fun LibraryScreen(
     androidx.activity.compose.BackHandler { when { menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
     if (confirmQuit) AlertDialog(
         onDismissRequest = { confirmQuit = false },
+        // Compact on small, square and portrait screens: up to 90% of the width, at most 320dp
+        modifier = Modifier.fillMaxWidth(0.9f).widthIn(max = 320.dp),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
         icon = { Icon(Icons.Default.PowerSettingsNew, null) },
         title = { Text("Quit GBSat?") },
         confirmButton = { TextButton(onClick = { confirmQuit = false; onQuit() }) { Text("Quit") } },
