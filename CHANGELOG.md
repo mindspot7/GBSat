@@ -1,6 +1,7 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+- Illustrated multicolor menu icons; narrower dropdown menu with a solid background.
 - Library: cleaner shelf (selected game details above the box art, save state and achievement badges, bigger selected cover), fixed button help bar with Nintendo-style colored buttons; blurred background removed.
 - Setup wizard: preset is the last step, gradient background, colorful icons. High preset uses the Scanlines shader.
 - Library: menu drops down from the GBSat logo bar (tap anywhere on the bar); closer box art.

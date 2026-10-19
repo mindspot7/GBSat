@@ -1,50 +1,89 @@
+<div align="center">
+
 # GBSat
 
-**GBSat** is a Sega Saturn emulator for Android phones and handhelds (arm64, Android 9+), with a touch- and
-gamepad-friendly interface built in Jetpack Compose.
+**Sega Saturn emulation for Android phones and handhelds**
 
-## Features
+Vulkan GPU rendering up to 4x · Full controller navigation · Save states · RetroAchievements
 
-- **Game library** with cover art (downloaded automatically); CUE/BIN, CHD, ISO, MDS and CCD images
-- **Save states** with slots, screenshot previews and quick save/load
-- **Gamepad support**: full button remapping (including L3/R3), analog pad mode
-- **Hotkeys** for quick save, quick load, fast-forward (hold or toggle) and the menu, bound to a single button or a
-  button combination
-- **Quick menu** in game: save/load state, fast-forward, reset, disc tray, cheats, display mode, shaders, close game,
-  quit
-- **Fast boot**: skips the BIOS language and clock setup screens
-- **CD read speed**: up to 16x for shorter loading times
-- **Cheats**: Action Replay and raw address codes, import from `.cht` files
-- **Renderers**
-  - Software (CPU)
-  - OpenGL ES presentation with texture filtering (nearest, bilinear) and shaders (CRT, Dots, LCD3x, Scanlines)
-  - **Vulkan GPU**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders, internal resolution up to 4x,
-    same filters and shaders
-- **Display**: 4:3, Fullscreen or 16:9 (with built-in widescreen hacks for supported games), optional FPS counter
-- **RetroAchievements**: login, hardcore mode, unlock notifications and achievement list
-- Touch controls (can be hidden)
-- Crash reports shown on the next launch, with automatic fallback to the Software renderer
+[Download the latest APK](../../releases/latest) · [Changelog](CHANGELOG.md)
+
+<img src="docs/screenshots/library.png" width="760" alt="Game library">
+
+</div>
+
+## Highlights
+
+| | |
+| --- | --- |
+| 🚀 **Vulkan GPU renderer** | Saturn VDP1/VDP2 graphics on the GPU with Vulkan compute shaders, internal resolution up to **4x**. Software and OpenGL ES renderers for every other device. |
+| 🎮 **Built for handhelds** | The whole app works with a controller: D-pad, A/B/X/Y, Select for recent games, full remapping, hotkeys and an analog 3D Control Pad mode. Touch controls too. |
+| 💾 **Save states** | Slots with screenshot previews, quick save/load, **auto save and auto load**, and a "Recent" view to jump straight back into any state. |
+| 🏆 **RetroAchievements** | Login, hardcore mode, unlock notifications and achievement list. |
+| 🖼️ **Game library** | Box art downloaded automatically (with fuzzy title matching), custom covers, play time per game. |
+| 📺 **Display** | 4:3, Fullscreen or 16:9 with **built-in widescreen hacks** for ~20 games; CRT, Dots, LCD3x and Scanlines shaders. |
+| ⚡ **Quick presets** | High / Mid / Low tune the renderer, resolution, shader and frame skip in one tap. |
+
+## Screenshots
+
+<table>
+<tr>
+<td><img src="docs/screenshots/menu.png" alt="Settings menu"><br><sub>Settings menu with controller navigation</sub></td>
+<td><img src="docs/screenshots/settings-video.png" alt="Video settings"><br><sub>Video: presets, Vulkan GPU, resolution, shaders</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/settings-controls.png" alt="Controls"><br><sub>Button mapping on a Saturn pad diagram</sub></td>
+<td><img src="docs/screenshots/settings-performance.png" alt="Performance"><br><sub>Performance: frame skip, CD speed, emulation options</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/setup.png" alt="Setup wizard"><br><sub>First-run setup wizard</sub></td>
+<td><img src="docs/screenshots/settings-extras.png" alt="Extras"><br><sub>RetroAchievements</sub></td>
+</tr>
+</table>
+
+<sub>Screenshots show sample games with placeholder covers. They are rendered from the app's UI code by
+`ReadmeScreenshots.kt` (workflow "README screenshots").</sub>
+
+## All features
+
+**Emulation and video**
+- Renderers: Software (CPU), OpenGL ES, and Vulkan GPU (compute shaders, 1x–4x internal resolution)
+- Filters (Nearest, Bilinear) and shaders (CRT, Dots, LCD3x, Scanlines)
+- 4:3, Fullscreen and 16:9 display modes; widescreen hacks applied automatically
+- Frame skip, CD read speed up to 16x, fast boot (skips the BIOS setup screens), 4 MiB RAM cartridge, NTSC/PAL
+- Overlays: FPS, speed, renderer, resolution, on-screen fast-forward button
+
+**Audio**
+- Low-latency AAudio output, volume control, fast-forward audio (Default, Speed up, Mute)
+
+**Games and saves**
+- CUE/BIN, CHD, ISO, MDS and CCD images
+- Save states with slots and previews, quick slot, auto save/load, recent states view
+- Built-in cheat database (libretro-database), Action Replay and raw codes, `.cht` import
+- Game options: Continue from the latest state, Open fresh, choose a custom cover
+
+**Controls and interface**
+- Controller navigation everywhere, including the in-game quick menu (save/load, video, audio, overlays, cheats, disc tray, reset)
+- Button remapping (including L3/R3), hotkeys for quick save/load, fast-forward (hold or toggle) and the menu
+- First-run setup wizard, configurable data folder, crash reports with automatic fallback to the Software renderer
 
 ## Requirements
 
-- Android 9 or newer, 64-bit ARM (arm64-v8a)
-- A Sega Saturn BIOS image (512 KiB). None is included.
-- Your own game disc images
+- Android 9 or newer, 64-bit ARM (arm64-v8a). Vulkan GPU renderer: a Vulkan 1.1 GPU (Adreno, Mali, Xclipse…)
+- Your own Sega Saturn BIOS image (512 KiB). **None is included.**
+- Your own game disc images. **No games are included or downloaded.**
 
 ## Getting started
 
-1. Install the APK.
-2. Open **Settings** and select your BIOS file.
-3. Grant file access and pick the folder that holds your games.
-4. Choose a game in the library. The back button (or the menu button at the top left) opens the quick menu.
+1. Install the APK from the [Releases](../../releases/latest) page.
+2. Follow the setup wizard: select your BIOS, grant file access, pick your games folder and a preset.
+3. Choose a game in the library. In game, Back (or the on-screen menu button) opens the quick menu.
 
 ## Downloads and versions
 
-Download the latest APK (`GBSat-v<version>.apk`) from the **Releases** page. A release is published automatically when
-the version in `apps/android/VERSION` changes; its notes come from [CHANGELOG.md](CHANGELOG.md).
-
-Development builds of every push are available in the **Actions** tab (latest **Android APK** run, artifact
-`GBSat-v<version>-build<N>`). The installed version is shown in About.
+A release (`GBSat-v<version>.apk`) is published automatically when the version in `apps/android/VERSION` changes; its
+notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push are in the **Actions** tab (artifact
+`GBSat-v<version>-build<N>`). All APKs are signed with the same key, so updates install over each other.
 
 ## Building
 
@@ -60,6 +99,10 @@ Local build: Android Studio with SDK 35, NDK 27.2.12479018 and CMake 3.31.6, plu
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.
 
 ## License
+
+GBSat is based on [Ymir](https://github.com/StrikerX3/Ymir) by StrikerX3.
+Sega Saturn is a trademark of SEGA. GBSat is not affiliated with or endorsed by SEGA.
+
 
 Widescreen codes: SegaXtreme "Saturn Widescreen Codes & Patches" collection. Cheat database: libretro-database (CC BY-SA 4.0).
 
