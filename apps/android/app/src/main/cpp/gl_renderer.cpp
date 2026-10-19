@@ -1,10 +1,9 @@
 #include "gl_renderer.hpp"
 
-#define EGL_EGLEXT_PROTOTYPES
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
 #include <android/hardware_buffer.h>
 #include <android/log.h>
 
