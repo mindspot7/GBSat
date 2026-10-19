@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- The 4 MiB RAM expansion cartridge is always inserted (works with 1 MiB games); the Cartridge setting was removed.
 - Vulkan GPU: frames are shown through the OpenGL ES presenter, so the shaders (CRT, Dots, LCD3x, Scanlines) and filters work with it, and the brief black frames of the Vulkan presenter on Mali are gone.
 - Vulkan presentation: one completion semaphore per swapchain image (fixes brief black frames on Mali GPUs).
 - Display: "Fullscreen" fills the whole area in portrait/square screens; the Vulkan presenter fills the view in every display mode (16:9 was letterboxed).
@@ -12,9 +13,7 @@
 - Vulkan GPU: internal resolution up to 4x (Settings → Display → Internal resolution). VDP1 sprites and polygons are rasterized at the higher resolution; backgrounds stay native. Applies to non-interlaced, standard-resolution screens.
 - RetroAchievements (rcheevos): login, hardcore mode, unlock notifications with badges, achievement list in the quick menu, progress saved with save states.
 - Vulkan GPU: fixed sprites going behind backgrounds of equal priority on Adreno GPUs (Three Dirty Dwarves).
-- Quick menu: "Compare renderers (debug)" reports differences between Software and Vulkan GPU on the device.
 - Renderer list: the presentation-only "Vulkan" option was removed (Vulkan GPU replaces it); "Sharp bilinear" filter removed; display mode "Fill" renamed to "Fullscreen".
-- Quick menu: "Export debug state" saves the current state to Download/GBSat for bug reports.
 - Built-in cheat database (libretro-database, 190+ Saturn games) shown in the quick menu Cheats screen; supports conditional (D) codes and the libretro `.cht` format.
 - Quick menu: single "Reset" option (hard reset).
 - Vulkan GPU: VDP1 erase works on GPUs limited to fewer than 1024 threads per work group.

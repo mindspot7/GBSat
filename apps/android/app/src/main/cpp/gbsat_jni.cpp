@@ -139,13 +139,6 @@ struct Context {
     std::atomic<int> rendererMode{0}; // 0 = CPU window, 1 = GLES, 2 = Vulkan, 3 = ANGLE, 4 = Vulkan GPU VDP
     std::string gpuError; // last Vulkan VDP renderer error (guarded by winMutex)
 
-    // Renderer comparison (emulation thread only): captured frames
-    struct Captured {
-        std::vector<uint32_t> px, prev;
-        uint32_t w = 0, h = 0;
-        int count = 0;
-    };
-    Captured *capture = nullptr;
     bool vkFailed = false;
     bool vkLinear = false;
     std::string vkError;
@@ -305,14 +298,6 @@ void DrainCommands() {
 // Video
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
-    if (g->capture != nullptr) {
-        auto &c = *g->capture;
-        c.prev.swap(c.px);
-        c.px.assign(fb, fb + (size_t)width * height);
-        c.w = width;
-        c.h = height;
-        ++c.count;
-    }
     g->videoW.store(width, std::memory_order_relaxed);
     g->videoH.store(height, std::memory_order_relaxed);
     g->frameCounter.fetch_add(1, std::memory_order_relaxed);
@@ -988,117 +973,6 @@ JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
             ApplyVdpRenderer(true, true);
         }
     });
-}
-
-// Diagnostics: renders the next frames with the software and the Vulkan renderer from the same state and reports the
-// differences, plus the Vulkan renderer's intermediate layer data at some differing pixels.
-JNI_FN(jstring, nativeCompareRenderers)(JNIEnv *env, jclass) {
-    if (!g) {
-        return NewJStr(env, "not initialized");
-    }
-    const std::string report = RunSync([]() -> std::string {
-        auto &sat = *g->saturn;
-        auto &vdp = sat.VDP;
-        const bool wasGpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
-        auto state = std::make_unique<ymir::savestate::SaveState>();
-        sat.SaveState(*state);
-        const bool t1 = sat.configuration.swRenderer.threadedVDP1, t2 = sat.configuration.swRenderer.threadedVDP2,
-                   t3 = sat.configuration.swRenderer.threadedDeinterlacer;
-        sat.configuration.swRenderer.threadedVDP1 = false;
-        sat.configuration.swRenderer.threadedVDP2 = false;
-        sat.configuration.swRenderer.threadedDeinterlacer = false;
-
-        Context::Captured sw, vk, live;
-        std::string out;
-        // The running Vulkan renderer (not recreated), to catch problems that only show up after running for a while
-        if (wasGpu) {
-            g->capture = &live;
-            for (int i = 0; i < 4; ++i) sat.RunFrame();
-            g->capture = nullptr;
-            sat.LoadState(*state);
-        }
-        // Software
-        vdp.UseSoftwareRenderer();
-        sat.LoadState(*state);
-        g->capture = &sw;
-        for (int i = 0; i < 4; ++i) sat.RunFrame();
-        // Vulkan
-        auto r = vdp.UseVulkanRenderer(ymir::vdp::VulkanRendererContext{});
-        if (!r) {
-            out = "Vulkan renderer failed: " + r.Error().message;
-        } else {
-            sat.LoadState(*state);
-            g->capture = &vk;
-            for (int i = 0; i < 4; ++i) sat.RunFrame();
-        }
-        g->capture = nullptr;
-        if (out.empty()) {
-            auto *vkr = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>();
-            out += "GPU: " + vkr->DebugDeviceInfo() + "\n";
-            const auto &ref = sw.prev.empty() ? sw.px : sw.prev; // Vulkan delivers one frame late
-            char buf[256];
-            snprintf(buf, sizeof(buf), "software %ux%u (%d frames), vulkan %ux%u (%d frames)\n", sw.w, sw.h, sw.count,
-                     vk.w, vk.h, vk.count);
-            out += buf;
-            if (wasGpu) {
-                // Running renderer vs software
-                if (live.w == sw.w && live.h == sw.h && !live.px.empty() && !ref.empty()) {
-                    size_t ld = 0;
-                    uint32_t x0 = UINT32_MAX, x1 = 0, y0 = UINT32_MAX, y1 = 0;
-                    std::string ls;
-                    for (uint32_t y = 0; y < sw.h; ++y)
-                        for (uint32_t x = 0; x < sw.w; ++x) {
-                            const uint32_t a = ref[y * sw.w + x] & 0xFFFFFF, b = live.px[y * sw.w + x] & 0xFFFFFF;
-                            if (a != b) {
-                                if (++ld % 211 == 1 && ls.size() < 200) {
-                                    snprintf(buf, sizeof(buf), " (%u,%u) sw=%06X live=%06X", x, y, a, b);
-                                    ls += buf;
-                                }
-                                x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
-                            }
-                        }
-                    snprintf(buf, sizeof(buf), "running renderer: differing pixels %zu, area x %u-%u y %u-%u\n", ld, x0, x1, y0, y1);
-                    out += ld ? buf + ls + "\n" : "running renderer: differing pixels 0\n";
-                } else {
-                    snprintf(buf, sizeof(buf), "running renderer: frame %ux%u (%d frames)\n", live.w, live.h, live.count);
-                    out += buf;
-                }
-            }
-            out += "new renderer: ";
-            if (sw.w == vk.w && sw.h == vk.h && !ref.empty() && !vk.px.empty()) {
-                size_t diff = 0;
-                std::vector<std::pair<uint32_t, uint32_t>> samples;
-                uint32_t minY = UINT32_MAX, maxY = 0, minX = UINT32_MAX, maxX = 0;
-                for (uint32_t y = 0; y < sw.h; ++y) {
-                    for (uint32_t x = 0; x < sw.w; ++x) {
-                        const uint32_t a = ref[y * sw.w + x] & 0xFFFFFF, b = vk.px[y * sw.w + x] & 0xFFFFFF;
-                        if (a != b) {
-                            ++diff;
-                            minY = std::min(minY, y); maxY = std::max(maxY, y);
-                            minX = std::min(minX, x); maxX = std::max(maxX, x);
-                            if (samples.size() < 6 && (diff % 97) == 1) samples.push_back({x, y});
-                        }
-                    }
-                }
-                snprintf(buf, sizeof(buf), "differing pixels: %zu, area x %u-%u y %u-%u\n", diff, minX, maxX, minY, maxY);
-                out += diff ? buf : "differing pixels: 0\n";
-                for (auto [x, y] : samples) {
-                    snprintf(buf, sizeof(buf), "sw=%06X vk=%06X ", ref[y * sw.w + x] & 0xFFFFFF, vk.px[y * sw.w + x] & 0xFFFFFF);
-                    out += buf + vkr->DebugDescribePixel(x, y) + "\n";
-                }
-            }
-        }
-        // Restore
-        sat.configuration.swRenderer.threadedVDP1 = t1;
-        sat.configuration.swRenderer.threadedVDP2 = t2;
-        sat.configuration.swRenderer.threadedDeinterlacer = t3;
-        if (!wasGpu) {
-            vdp.UseSoftwareRenderer();
-        }
-        sat.LoadState(*state);
-        return out;
-    });
-    return NewJStr(env, report);
 }
 
 // RetroAchievements: initialization and achievement list (see gbsat_ra.cpp for the rest)

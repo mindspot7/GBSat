@@ -34,7 +34,7 @@ object Emulator {
     var pal by mutableStateOf(false)
     var threadedVdp by mutableStateOf(true)
     var preloadDisc by mutableStateOf(false)
-    var cartridge by mutableStateOf(0)
+    var cartridge by mutableStateOf(2) // 4 MiB RAM expansion (fixed; works with 1 MiB games too)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)
@@ -182,21 +182,6 @@ object Emulator {
         NativeBridge.nativeLoadState(f.absolutePath)
     }
 
-    /**
-     * Saves the current state to Download/GBSat so it can be shared for debugging (e.g. renderer issues).
-     * Returns the file path or an error message prefixed with "!".
-     */
-    suspend fun exportDebugState(): String = withContext(Dispatchers.IO) {
-        val game = currentGame ?: return@withContext "!No game loaded"
-        val name = game.substringAfterLast('/').substringBeforeLast('.').replace(Regex("[^A-Za-z0-9()_ -]"), "_")
-        val dir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "GBSat")
-        dir.mkdirs()
-        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
-        val f = File(dir, "$name-$stamp.state")
-        val err = NativeBridge.nativeSaveState(f.absolutePath)
-        if (err != null) "!$err" else f.absolutePath
-    }
-
     val biosFile get() = File(appContext.filesDir, "bios/ipl.bin")
 
     fun init(context: Context) {
@@ -208,7 +193,6 @@ object Emulator {
         pal = prefs.getBoolean("pal", false)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
         preloadDisc = prefs.getBoolean("preloadDisc", false)
-        cartridge = prefs.getInt("cartridge", 0)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
         showFps = prefs.getBoolean("showFps", false)
@@ -275,7 +259,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putInt("cartridge", cartridge).putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
+        putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale)
         .putBoolean("ffToggle", ffToggle).apply()
 

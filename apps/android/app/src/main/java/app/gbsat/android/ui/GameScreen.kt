@@ -126,22 +126,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    var debugReport by remember { mutableStateOf<String?>(null) }
-    debugReport?.let { report ->
-        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        AlertDialog(
-            onDismissRequest = { debugReport = null },
-            title = { Text("Renderer comparison") },
-            text = {
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Text(report, style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()))
-                }
-            },
-            confirmButton = { TextButton(onClick = { debugReport = null }) { Text("OK") } },
-            dismissButton = { TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(report)) }) { Text("Copy") } },
-        )
-    }
     if (stateMode != null) {
         val mode = stateMode!!
         var times by remember { mutableStateOf<List<Long?>>(emptyList()) }
@@ -193,18 +177,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     MenuItem(Icons.Default.EmojiEvents, "Achievements") { achievementsOpen = true }
                 }
                 MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
-                MenuItem(Icons.Default.Compare, "Compare renderers (debug)") {
-                    scope.launch {
-                        Emulator.showToast("Comparing Software and Vulkan GPU…")
-                        debugReport = withContext(Dispatchers.IO) { NativeBridge.nativeCompareRenderers().orEmpty() }
-                    }
-                }
-                MenuItem(Icons.Default.BugReport, "Export debug state") {
-                    scope.launch {
-                        val r = Emulator.exportDebugState()
-                        Emulator.showToast(if (r.startsWith("!")) r.drop(1) else "Saved to $r")
-                    }
-                }
                 if (Emulator.renderer == 1 || Emulator.renderer == 3 || Emulator.renderer == 4) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
                     val shaderOrder = listOf(0, 2, 4, 3, 1) // menu cycles alphabetically: None, CRT, Dots, LCD3x, Scanlines

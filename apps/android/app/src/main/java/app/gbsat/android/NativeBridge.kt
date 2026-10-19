@@ -31,7 +31,6 @@ object NativeBridge {
     @JvmStatic external fun nativeGetVulkanError(): String?
     @JvmStatic external fun nativeGetGpuError(): String?
     @JvmStatic external fun nativeSetCrashFile(path: String)
-    @JvmStatic external fun nativeCompareRenderers(): String?
 
     // RetroAchievements
     @JvmStatic external fun nativeRaInit(userAgent: String)
