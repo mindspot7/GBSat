@@ -92,13 +92,16 @@ fun LibraryScreen(
     androidx.activity.compose.BackHandler { when { menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
     if (confirmQuit) AlertDialog(
         onDismissRequest = { confirmQuit = false },
-        // Compact on small, square and portrait screens: up to 90% of the width, at most 320dp
-        modifier = Modifier.fillMaxWidth(0.9f).widthIn(max = 320.dp),
+        // Compact: about half of the screen width
+        modifier = Modifier.fillMaxWidth(0.55f).widthIn(min = 240.dp, max = 360.dp),
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-        icon = { Icon(Icons.Default.PowerSettingsNew, null) },
-        title = { Text("Quit GBSat?") },
-        confirmButton = { TextButton(onClick = { confirmQuit = false; onQuit() }) { Text("Quit") } },
-        dismissButton = { TextButton(onClick = { confirmQuit = false }) { Text("Cancel") } },
+        title = { Text("Confirm Quit?") },
+        confirmButton = {
+            val fr = remember { FocusRequester() }
+            LaunchedEffect(Unit) { kotlinx.coroutines.delay(50); runCatching { fr.requestFocus() } }
+            TextButton(onClick = { confirmQuit = false; onQuit() }, modifier = Modifier.focusRequester(fr)) { ButtonHint("A", Color(0xFFE5483B), "Confirm", Modifier) }
+        },
+        dismissButton = { TextButton(onClick = { confirmQuit = false }) { ButtonHint("B", Color(0xFFF2C230), "Cancel", Modifier) } },
     )
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
@@ -390,8 +393,9 @@ private fun Library(
                     }
                     Spacer(Modifier.weight(1f))
                     androidx.compose.foundation.lazy.LazyRow(
-                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = cardH * 0.12f, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        // Side padding leaves room for the enlarged (focused) first and last covers
+                        contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.12f, bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.Top,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -426,8 +430,8 @@ private fun HelpBar(recentMode: Boolean) {
 }
 
 @Composable
-private fun ButtonHint(button: String, color: Color, label: String) {
-    Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun ButtonHint(button: String, color: Color, label: String, modifier: Modifier = Modifier.padding(start = 16.dp)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(22.dp).clip(androidx.compose.foundation.shape.CircleShape).background(color), contentAlignment = Alignment.Center) {
             Text(button, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
         }
@@ -466,13 +470,13 @@ private fun GameCard(
                 bmp, g.title,
                 Modifier.fillMaxWidth().aspectRatio(ratio)
                     .clip(RoundedCornerShape(10.dp))
-                    .border(if (focused) 3.dp else 1.dp, if (focused) Focus else Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)),
+                    .border(1.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)),
                 contentScale = ContentScale.FillBounds,
             )
         } else {
             Column(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Color(0xFF241F3D))
-                    .border(if (focused) 3.dp else 1.dp, if (focused) Focus else Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
                     .padding(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
             ) {
