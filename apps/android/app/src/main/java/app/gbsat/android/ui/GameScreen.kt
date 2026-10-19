@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -129,7 +130,11 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     if (stateMode != null) {
         val mode = stateMode!!
         var times by remember { mutableStateOf<List<Long?>>(emptyList()) }
-        LaunchedEffect(mode) { times = withContext(Dispatchers.IO) { Emulator.slotTimes() } }
+        var thumbs by remember { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
+        LaunchedEffect(mode) {
+            times = withContext(Dispatchers.IO) { Emulator.slotTimes() }
+            thumbs = withContext(Dispatchers.IO) { (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() } }
+        }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -145,7 +150,15 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     if (err == null) { stateMode = null; onDismiss() } else message = err
                                 }
                             },
-                        ) { Text(label, Modifier.weight(1f)) }
+                        ) {
+                            val thumb = thumbs.getOrNull(slot)
+                            Box(Modifier.size(width = 80.dp, height = 60.dp).background(Color.Black, RoundedCornerShape(6.dp))) {
+                                if (thumb != null) androidx.compose.foundation.Image(thumb.asImageBitmap(), contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(label, Modifier.weight(1f))
+                        }
                     }
                     message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
                     TextButton(onClick = { stateMode = null; message = null }, modifier = Modifier.fillMaxWidth()) { Text("Back") }

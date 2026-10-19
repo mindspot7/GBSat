@@ -6,13 +6,14 @@ gamepad-friendly interface built in Jetpack Compose.
 ## Features
 
 - **Game library** with cover art (downloaded automatically); CUE/BIN, CHD, ISO, MDS and CCD images
-- **Save states** with slots plus quick save/load
+- **Save states** with slots, screenshot previews and quick save/load
 - **Gamepad support**: full button remapping (including L3/R3), analog pad mode
 - **Hotkeys** for quick save, quick load, fast-forward (hold or toggle) and the menu, bound to a single button or a
   button combination
 - **Quick menu** in game: save/load state, fast-forward, reset, disc tray, cheats, display mode, shaders, close game,
   quit
 - **Fast boot**: skips the BIOS language and clock setup screens
+- **CD read speed**: up to 16x for shorter loading times
 - **Cheats**: Action Replay and raw address codes, import from `.cht` files
 - **Renderers**
   - Software (CPU)

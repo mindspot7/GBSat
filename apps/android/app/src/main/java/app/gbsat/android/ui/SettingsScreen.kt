@@ -75,6 +75,13 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Section("Performance")
             Toggle("Threaded VDP", "Render VDP1/VDP2 on separate threads", Emulator.threadedVdp, change<Boolean> { Emulator.threadedVdp = it })
             Toggle("SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, change<Boolean> { Emulator.sh2Cache = it })
+            val cdSpeeds = listOf(2, 4, 8, 16)
+            Choice("CD read speed", listOf("Original (2x)", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0),
+                change<Int> { Emulator.cdSpeed = cdSpeeds[it] })
+            Text(
+                "Faster disc reads shorten loading screens. Some games may misbehave (e.g. videos or music out of sync); use Original if a game has problems.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Toggle("Preload disc into RAM", "Faster loading, uses memory", Emulator.preloadDisc, change<Boolean> { Emulator.preloadDisc = it })
 
             Section("Controls")

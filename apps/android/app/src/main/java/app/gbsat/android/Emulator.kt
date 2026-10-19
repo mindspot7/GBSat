@@ -40,6 +40,7 @@ object Emulator {
     var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
+    var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
     var resScale by mutableStateOf(1) // Vulkan GPU internal resolution scale (1x..4x)
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
     var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
@@ -175,8 +176,25 @@ object Emulator {
 
     suspend fun saveState(slot: Int): String? = withContext(Dispatchers.IO) {
         val f = stateFile(slot) ?: return@withContext "No game loaded"
-        NativeBridge.nativeSaveState(f.absolutePath)
+        val err = NativeBridge.nativeSaveState(f.absolutePath)
+        if (err == null) runCatching { saveThumbnail(thumbFile(f)) }
+        err
     }
+
+    private fun thumbFile(state: File) = File(state.path + ".png")
+
+    private fun saveThumbnail(out: File) {
+        val d = NativeBridge.nativeGetLastFrame() ?: return
+        val w = d[0]; val h = d[1]
+        if (w <= 0 || h <= 0 || d.size < w * h + 2) return
+        val bmp = android.graphics.Bitmap.createBitmap(d, 2, w, w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        out.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        bmp.recycle()
+    }
+
+    /** Screenshot taken when the slot was saved, or null. */
+    fun slotThumbnail(slot: Int): android.graphics.Bitmap? =
+        stateFile(slot)?.let { thumbFile(it) }?.takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.path) }
     suspend fun loadState(slot: Int): String? = withContext(Dispatchers.IO) {
         val f = stateFile(slot) ?: return@withContext "No game loaded"
         NativeBridge.nativeLoadState(f.absolutePath)
@@ -202,6 +220,7 @@ object Emulator {
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)
+        cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->
             runCatching {
@@ -250,6 +269,7 @@ object Emulator {
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetCartridge(cartridge)
         NativeBridge.nativeSetResolutionScale(resScale)
+        NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetRenderer(renderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (running) applyCheats()
@@ -260,7 +280,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed)
         .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */

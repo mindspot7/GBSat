@@ -24,6 +24,8 @@ object NativeBridge {
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetResolutionScale(scale: Int)
     @JvmStatic external fun nativeGetDiscHeader(): String?
+    @JvmStatic external fun nativeGetLastFrame(): IntArray?
+    @JvmStatic external fun nativeSetCdReadSpeed(factor: Int)
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
     @JvmStatic external fun nativeSetRenderer(mode: Int)

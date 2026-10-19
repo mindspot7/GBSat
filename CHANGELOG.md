@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.5.0
+- Save states show a screenshot of the moment they were saved.
+- CD read speed setting (Original 2x, 4x, 8x, 16x) to shorten loading times.
 - The 4 MiB RAM expansion cartridge is always inserted (works with 1 MiB games); the Cartridge setting was removed.
 - Vulkan GPU: frames are shown through the OpenGL ES presenter, so the shaders (CRT, Dots, LCD3x, Scanlines) and filters work with it, and the brief black frames of the Vulkan presenter on Mali are gone.
 - Vulkan presentation: one completion semaphore per swapchain image (fixes brief black frames on Mali GPUs).

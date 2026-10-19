@@ -104,6 +104,10 @@ struct AudioRing {
 
 struct Context {
     std::unique_ptr<ymir::Saturn> saturn;
+    // Last displayed frame (downscaled to at most ~352 px wide), for save state thumbnails. Guarded by lastFrameMutex.
+    std::mutex lastFrameMutex;
+    std::vector<uint32_t> lastFrame;
+    uint32_t lastFrameW = 0, lastFrameH = 0;
     std::string discHeader; // first 256 bytes of the disc's system area (IP.BIN header), printable ASCII
 
     // Threading
@@ -298,6 +302,19 @@ void DrainCommands() {
 // Video
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
+    {
+        const uint32_t step = std::max<uint32_t>(1, width / 352);
+        const uint32_t tw = width / step, th = height / step;
+        std::lock_guard lk(g->lastFrameMutex);
+        g->lastFrame.resize((size_t)tw * th);
+        for (uint32_t y = 0; y < th; ++y) {
+            const uint32_t *src = fb + (size_t)(y * step) * width;
+            uint32_t *dst = g->lastFrame.data() + (size_t)y * tw;
+            for (uint32_t x = 0; x < tw; ++x) dst[x] = src[x * step];
+        }
+        g->lastFrameW = tw;
+        g->lastFrameH = th;
+    }
     g->videoW.store(width, std::memory_order_relaxed);
     g->videoH.store(height, std::memory_order_relaxed);
     g->frameCounter.fetch_add(1, std::memory_order_relaxed);
@@ -849,6 +866,36 @@ JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
     jlongArray arr = env->NewLongArray(3);
     env->SetLongArrayRegion(arr, 0, 3, v);
     return arr;
+}
+
+// Last frame as [width, height, ARGB pixels...] for save state thumbnails (null if no frame yet).
+JNI_FN(jintArray, nativeGetLastFrame)(JNIEnv *env, jclass) {
+    if (!g) {
+        return nullptr;
+    }
+    std::lock_guard lk(g->lastFrameMutex);
+    if (g->lastFrame.empty()) {
+        return nullptr;
+    }
+    const size_t n = g->lastFrame.size();
+    std::vector<jint> out(n + 2);
+    out[0] = (jint)g->lastFrameW;
+    out[1] = (jint)g->lastFrameH;
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t p = g->lastFrame[i]; // R, G, B in bytes 0..2
+        out[i + 2] = (jint)(0xFF000000u | ((p & 0xFFu) << 16) | (p & 0xFF00u) | ((p >> 16) & 0xFFu));
+    }
+    jintArray arr = env->NewIntArray((jsize)out.size());
+    env->SetIntArrayRegion(arr, 0, (jsize)out.size(), out.data());
+    return arr;
+}
+
+// CD read speed factor (2 = original drive speed, up to 200).
+JNI_FN(void, nativeSetCdReadSpeed)(JNIEnv *, jclass, jint factor) {
+    if (g) {
+        const uint8_t f = static_cast<uint8_t>(std::clamp<jint>(factor, 2, 200));
+        Post([f] { g->saturn->configuration.cdblock.readSpeedFactor = f; });
+    }
 }
 
 // Disc header (IP.BIN): product number at 0x20, area symbols at 0x40, title at 0x60.
