@@ -25,9 +25,12 @@ import app.gbsat.android.keyName
 import app.gbsat.android.Storage
 import kotlinx.coroutines.launch
 
+/** Settings pages opened from the side menu (null shows everything). */
+enum class SettingsPage(val label: String) { System("System"), Video("Video"), Performance("Performance"), Controls("Controls"), RetroAchievements("RetroAchievements"), About("About") }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (String) -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (String) -> Unit, page: SettingsPage? = null) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -59,11 +62,12 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Settings") },
+            title = { Text(page?.label ?: "Settings") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
         )
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (page == null || page == SettingsPage.System) {
             Section("System")
             ListItem(
                 headlineContent = { Text("Saturn BIOS (IPL ROM)") },
@@ -97,6 +101,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             )
             Toggle("Fast boot", "Skip the BIOS clock/language setup screens after the first run", Emulator.fastBoot, change<Boolean> { Emulator.fastBoot = it })
 
+            }
+            if (page == null || page == SettingsPage.Performance) {
             Section("Performance")
             Toggle("Threaded VDP", "Render VDP1/VDP2 on separate threads", Emulator.threadedVdp, change<Boolean> { Emulator.threadedVdp = it })
             Toggle("SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, change<Boolean> { Emulator.sh2Cache = it })
@@ -110,10 +116,14 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             )
             Toggle("Preload disc into RAM", "Faster loading, uses memory", Emulator.preloadDisc, change<Boolean> { Emulator.preloadDisc = it })
 
+            }
+            if (page == null || page == SettingsPage.Controls) {
             Section("Controls")
             Choice("Controller", listOf("Control Pad", "3D Control Pad"), if (Emulator.analogPad) 1 else 0, change<Int> { Emulator.analogPad = it == 1 })
             Toggle("On-screen controls", "Show touch pad while playing", Emulator.showTouchControls, change<Boolean> { Emulator.showTouchControls = it })
 
+            }
+            if (page == null || page == SettingsPage.Controls) {
             Section("Gamepad mapping")
             Text("Tap Remap, then press the controller button you want to use.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
             SaturnButton.entries.forEach { b ->
@@ -126,6 +136,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             }
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
+            }
+            if (page == null || page == SettingsPage.Video) {
             Section("Display")
             val preset = Emulator.currentPreset
             Choice("Preset", Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
@@ -180,6 +192,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             )
             Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
+            }
+            if (page == null || page == SettingsPage.RetroAchievements) {
             Section("RetroAchievements")
             Toggle("Enable RetroAchievements", "Earn achievements from retroachievements.org (needs an account and internet)",
                 app.gbsat.android.RetroAchievements.enabled) { app.gbsat.android.RetroAchievements.changeEnabled(it) }
@@ -214,6 +228,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     ra.hardcore) { ra.changeHardcore(it) }
             }
 
+            }
+            if (page == null || page == SettingsPage.Controls) {
             Section("Hotkeys")
             Text("Bind a single button or hold several buttons together (a combination) and release. L3/R3 are supported.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
@@ -232,6 +248,8 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             }
             Choice("Fast-forward hotkey", listOf("Hold", "Toggle"), if (Emulator.ffToggle) 1 else 0, change<Int> { Emulator.ffToggle = it == 1 })
 
+            }
+            if (page == null || page == SettingsPage.About) {
             Spacer(Modifier.height(24.dp))
             val ctx = androidx.compose.ui.platform.LocalContext.current
             val versionName = remember {
@@ -242,6 +260,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Text("GBSat is based on Ymir, GPLv3 software by StrikerX3 and contributors. This Android port is a derivative work and is released under the same license. " +
                 "Cheat database: libretro-database (CC BY-SA 4.0).",
                 style = MaterialTheme.typography.bodySmall)
+            }
             Spacer(Modifier.height(32.dp))
         }
     }

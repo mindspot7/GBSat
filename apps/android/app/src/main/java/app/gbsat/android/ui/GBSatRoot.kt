@@ -17,6 +17,7 @@ private enum class Screen { Library, Settings }
 fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
     GBSatTheme {
         var screen by remember { mutableStateOf(Screen.Library) }
+        var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
         val inGame = Emulator.running
@@ -52,7 +53,8 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
                     Box(Modifier.padding(pad).fillMaxSize()) {
                         when (screen) {
                             Screen.Library -> LibraryScreen(
-                                onOpenSettings = { screen = Screen.Settings },
+                                onOpenSettings = { settingsPage = it; screen = Screen.Settings },
+                                onQuit = onQuitApp,
                                 onRequestAllFiles = onRequestAllFiles,
                                 launch = { path ->
                                     scope.launch {
@@ -64,6 +66,7 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
                                 onBack = { screen = Screen.Library },
                                 onRequestAllFiles = onRequestAllFiles,
                                 toast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
+                                page = settingsPage,
                             )
                         }
                     }

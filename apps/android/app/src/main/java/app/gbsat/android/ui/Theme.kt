@@ -1,21 +1,23 @@
 package app.gbsat.android.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val Violet = Color(0xFF8B7CFF)
-private val dark = darkColorScheme(
-    primary = Violet, onPrimary = Color(0xFF14111F), secondary = Color(0xFF5BD6C8),
-    background = Color(0xFF0F0D17), surface = Color(0xFF17142A), surfaceVariant = Color(0xFF221E3A),
-    onBackground = Color(0xFFEAE7FF), onSurface = Color(0xFFEAE7FF),
-)
-private val light = lightColorScheme(
-    primary = Color(0xFF5B4BE0), secondary = Color(0xFF0E8F83),
-    background = Color(0xFFF7F5FF), surface = Color.White, surfaceVariant = Color(0xFFEBE7FF),
+// Dark purple "Saturn" palette used across the app
+private val Violet = Color(0xFFB9A6FF)
+private val Gold = Color(0xFFE8C26A)
+private val scheme = darkColorScheme(
+    primary = Violet, onPrimary = Color(0xFF1A1433), primaryContainer = Color(0xFF3A2D73), onPrimaryContainer = Color(0xFFEDE7FF),
+    secondary = Gold, onSecondary = Color(0xFF2A1F05), secondaryContainer = Color(0xFF4A3A1A), onSecondaryContainer = Color(0xFFFFE9B8),
+    tertiary = Color(0xFF7FD7C4),
+    background = Color(0xFF1D1636), onBackground = Color(0xFFEDE9FF),
+    surface = Color(0xFF221B3F), onSurface = Color(0xFFEDE9FF),
+    surfaceVariant = Color(0xFF2E2655), onSurfaceVariant = Color(0xFFCBC3EA),
+    surfaceContainer = Color(0xFF261F47), surfaceContainerHigh = Color(0xFF2E2655), surfaceContainerHighest = Color(0xFF372E63),
+    surfaceContainerLow = Color(0xFF211A3D), surfaceContainerLowest = Color(0xFF1A1431),
+    outline = Color(0xFF6E6596), outlineVariant = Color(0xFF433A6E),
 )
 
 @Composable
-fun GBSatTheme(content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) dark else light, content = content)
+fun GBSatTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = scheme, content = content)
