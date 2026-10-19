@@ -25,7 +25,7 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [29], qualifiers = "w853dp-h480dp-land-xhdpi")
+@Config(sdk = [29], application = android.app.Application::class, qualifiers = "w853dp-h480dp-land-xhdpi")
 class ReadmeScreenshots {
     @get:Rule val rule = createComposeRule()
     private val out = System.getProperty("screenshotDir") ?: "build/screenshots"
