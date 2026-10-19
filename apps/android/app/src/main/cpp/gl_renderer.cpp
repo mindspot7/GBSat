@@ -1,10 +1,15 @@
 #include "gl_renderer.hpp"
 
+#define EGL_EGLEXT_PROTOTYPES
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
+#include <android/hardware_buffer.h>
 #include <android/log.h>
 
 #include <atomic>
+#include <cstring>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -112,6 +117,17 @@ struct State {
     uint32_t fw = 0, fh = 0, fscale = 1;
     bool frameReady = false;
 
+    // Zero-copy path: frames are written straight into GPU-visible AHardwareBuffers (no glTexSubImage2D upload, no
+    // intermediate copy). Several slots rotate so the emulator never writes the buffer being displayed.
+    static constexpr int kSlots = 4;
+    struct Slot {
+        AHardwareBuffer *hb = nullptr;
+        uint32_t w = 0, h = 0, stride = 0;
+        uint32_t gen = 0; // bumped when the buffer is reallocated
+    } slots[kSlots];
+    int readySlot = -1, shownSlot = -1, writingSlot = -1;
+    std::atomic<bool> hbDisabled{false}; // set when the device lacks the EGL/GL extensions or allocation fails
+
     std::atomic<int> filter{1};
     std::atomic<int> shader{0};
     bool dirty = false;
@@ -160,6 +176,17 @@ void Loop() {
     std::vector<uint32_t> local;
     uint32_t lw = 0, lh = 0;
     bool haveFrame = false;
+    int frameSlot = -1; // slot of the new frame (zero-copy path), -1 = frame in `local`
+    struct SlotGl { GLuint tex = 0; EGLImageKHR img = EGL_NO_IMAGE_KHR; uint32_t gen = 0; } slotGl[State::kSlots];
+    auto eglGetNativeClientBuffer = (PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC)eglGetProcAddress("eglGetNativeClientBufferANDROID");
+    auto imageTargetTexture = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    auto createImage = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+    auto destroyImage = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+    if (!eglGetNativeClientBuffer || !imageTargetTexture || !createImage || !destroyImage) {
+        S.hbDisabled = true;
+    }
+    GLuint drawTex = 0; // texture sampled this frame
+    uint32_t drawW = 0, drawH = 0;
 
     for (;;) {
         bool newFrame = false;
@@ -213,7 +240,14 @@ void Loop() {
                 }
             }
             if (S.frameReady) {
-                std::swap(local, S.frame);
+                if (S.readySlot >= 0) {
+                    frameSlot = S.readySlot;
+                    S.shownSlot = frameSlot;
+                    S.readySlot = -1;
+                } else {
+                    frameSlot = -1;
+                    std::swap(local, S.frame);
+                }
                 lw = S.fw;
                 lh = S.fh;
                 texScale = (float)S.fscale;
@@ -227,7 +261,36 @@ void Loop() {
             continue;
         }
 
-        if (newFrame) {
+        if (newFrame && frameSlot >= 0) {
+            // Zero-copy: sample the hardware buffer directly through an EGLImage
+            auto &gl = slotGl[frameSlot];
+            const auto &sl = S.slots[frameSlot];
+            if (gl.gen != sl.gen || gl.img == EGL_NO_IMAGE_KHR) {
+                if (gl.img != EGL_NO_IMAGE_KHR) { destroyImage(dpy, gl.img); gl.img = EGL_NO_IMAGE_KHR; }
+                if (!gl.tex) {
+                    glGenTextures(1, &gl.tex);
+                    glBindTexture(GL_TEXTURE_2D, gl.tex);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                }
+                const EGLint attrs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
+                gl.img = createImage(dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, eglGetNativeClientBuffer(sl.hb), attrs);
+                glBindTexture(GL_TEXTURE_2D, gl.tex);
+                if (gl.img != EGL_NO_IMAGE_KHR) imageTargetTexture(GL_TEXTURE_2D, (GLeglImageOES)gl.img);
+                if (gl.img == EGL_NO_IMAGE_KHR || glGetError() != GL_NO_ERROR) {
+                    LOGE("EGLImage from AHardwareBuffer failed, using texture uploads");
+                    S.hbDisabled = true; // next frames come through the upload path
+                    continue;
+                }
+                gl.gen = sl.gen;
+            }
+            drawTex = gl.tex;
+            drawW = lw;
+            drawH = lh;
+        } else if (newFrame) {
+            drawTex = tex;
             glBindTexture(GL_TEXTURE_2D, tex);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
             if (lw != texW || lh != texH) {
@@ -237,6 +300,8 @@ void Loop() {
             } else {
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, lw, lh, GL_RGBA, GL_UNSIGNED_BYTE, local.data());
             }
+            drawW = texW;
+            drawH = texH;
         }
 
         EGLint sw = 0, sh = 0;
@@ -248,13 +313,13 @@ void Loop() {
         glUseProgram(prog);
         glBindVertexArray(vao);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex);
+        glBindTexture(GL_TEXTURE_2D, drawTex ? drawTex : tex);
         glUniform1i(glGetUniformLocation(prog, "uTex"), 0);
-        glUniform2f(uTexSize, (float)texW, (float)texH);
+        glUniform2f(uTexSize, (float)drawW, (float)drawH);
         {
             // Hi-res (640/704 wide) and interlaced (448+ lines) modes, used by many games in menus and title screens,
             // are mapped back to the low-res grid so the scanline/dot patterns keep the same size instead of doubling up
-            float nw = (float)texW / texScale, nh = (float)texH / texScale;
+            float nw = (float)drawW / texScale, nh = (float)drawH / texScale;
             if (nw >= 560.0f) nw *= 0.5f;
             if (nh >= 400.0f) nh *= 0.5f;
             glUniform2f(uSrcSize, nw, nh);
@@ -298,11 +363,70 @@ void SetWindow(ANativeWindow *window) {
     S.cv.notify_all();
 }
 
+bool SubmitHardwareBuffer(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale) {
+    int idx = -1;
+    {
+        std::lock_guard lk(S.m);
+        if (!S.started) return true;
+        for (int i = 0; i < State::kSlots; i++) {
+            if (i != S.readySlot && i != S.shownSlot) { idx = i; break; }
+        }
+        if (idx < 0) return false;
+        S.writingSlot = idx;
+    }
+    auto &sl = S.slots[idx];
+    bool ok = true;
+    if (!sl.hb || sl.w != width || sl.h != height) {
+        if (sl.hb) { AHardwareBuffer_release(sl.hb); sl.hb = nullptr; }
+        AHardwareBuffer_Desc d{};
+        d.width = width;
+        d.height = height;
+        d.layers = 1;
+        d.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+        d.usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+        ok = AHardwareBuffer_allocate(&d, &sl.hb) == 0;
+        if (ok) {
+            AHardwareBuffer_describe(sl.hb, &d);
+            sl.w = width; sl.h = height; sl.stride = d.stride; sl.gen++;
+        }
+    }
+    void *dst = nullptr;
+    ok = ok && AHardwareBuffer_lock(sl.hb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, nullptr, &dst) == 0 && dst;
+    if (ok) {
+        if (sl.stride == width) {
+            memcpy(dst, fb, (size_t)width * height * 4);
+        } else {
+            for (uint32_t y = 0; y < height; y++) {
+                memcpy((uint32_t *)dst + (size_t)y * sl.stride, fb + (size_t)y * width, (size_t)width * 4);
+            }
+        }
+        AHardwareBuffer_unlock(sl.hb, nullptr);
+    }
+    std::lock_guard lk(S.m);
+    S.writingSlot = -1;
+    if (!ok) {
+        S.hbDisabled = true;
+        LOGE("AHardwareBuffer path unavailable, using texture uploads");
+        return false;
+    }
+    S.readySlot = idx;
+    S.fw = width;
+    S.fh = height;
+    S.fscale = scale ? scale : 1;
+    S.frameReady = true;
+    S.cv.notify_all();
+    return true;
+}
+
 void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale) {
+    if (!S.hbDisabled.load() && SubmitHardwareBuffer(fb, width, height, scale)) {
+        return;
+    }
     std::lock_guard lk(S.m);
     if (!S.started) {
         return;
     }
+    S.readySlot = -1;
     S.frame.assign(fb, fb + (size_t)width * height);
     S.fw = width;
     S.fh = height;

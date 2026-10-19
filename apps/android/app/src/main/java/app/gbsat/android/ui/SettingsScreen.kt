@@ -260,7 +260,7 @@ private fun AudioPage() {
 @Composable
 private fun PerformancePage() {
     Group("Speed", Icons.Default.Speed) {
-        ToggleRow(Icons.Default.SkipNext, "Frame skip", "Renders every other frame to keep full speed on slower devices",
+        ToggleRow(Icons.Default.SkipNext, "Frame skip (auto)", "Skips rendering frames only while the game runs below full speed",
             Emulator.frameSkip, ch { Emulator.frameSkip = it })
         Divider()
         val cdSpeeds = listOf(2, 4, 8, 16)

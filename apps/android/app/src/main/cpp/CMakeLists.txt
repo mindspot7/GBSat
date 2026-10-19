@@ -34,7 +34,7 @@ target_include_directories(rcheevos PUBLIC "${RCHEEVOS_DIR}/include" "${RCHEEVOS
 target_compile_definitions(rcheevos PUBLIC RC_DISABLE_LUA RC_CLIENT_SUPPORTS_HASH)
 set_target_properties(rcheevos PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp gl_renderer.cpp)
+add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp gl_renderer.cpp cpu_tuning.cpp)
 target_include_directories(gbsat PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_features(gbsat PRIVATE cxx_std_20)
 target_link_libraries(gbsat PRIVATE ymir::ymir-core rcheevos cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Performance: automatic frame skip (skips frames only while below full speed; also in the in-game Video menu), emulation and VDP threads pinned to the fast CPU cores with an Android performance hint session (Android 13+), zero-copy frame presentation through AHardwareBuffer (no texture upload; falls back automatically).
 - Quit dialog: centered, A confirms. Back from a settings page returns to the open menu on that entry. 20dp cover spacing; the shelf keeps the selected cover in the second slot so the last one is never cut off.
 - "Confirm Quit?" dialog with A/B buttons, half-width. No selection outline on covers, 16dp spacing, last cover no longer cut off.
 - Presets: Low uses the Software renderer, Mid has no shader. Shaders keep their size in hi-res/interlaced screens (menus and title screens of games such as Daytona USA).

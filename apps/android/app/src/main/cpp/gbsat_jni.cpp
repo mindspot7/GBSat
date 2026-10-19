@@ -16,6 +16,7 @@
 
 #include "gbsat_ra.hpp"
 #include "gl_renderer.hpp"
+#include "cpu_tuning.hpp"
 
 extern "C" {
 #include <md5.h>
@@ -145,7 +146,9 @@ struct Context {
     std::atomic<uint32_t> videoW{320}, videoH{224};
     std::atomic<bool> palMode{false};
     std::atomic<uint32_t> lastScale{1};
-    std::atomic<bool> frameSkip{false}; // skip rendering every other frame
+    std::atomic<bool> frameSkip{false}; // automatic frame skip: skip rendering only while running below full speed
+    bool behind = false;                // last frame finished late (emulation thread only)
+    int skipRun = 0;                    // consecutive skipped frames
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
     uint32_t resScale = 1; // Vulkan GPU renderer internal resolution scale (1..4)
@@ -512,6 +515,8 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // Emulation thread
 
 void EmuLoop() {
+    cputune::PinEmulationThreads();
+    auto lastPin = steady_clock::now();
     auto nextFrame = steady_clock::now();
     auto fpsWindowStart = steady_clock::now();
     int fpsFrames = 0;
@@ -531,10 +536,14 @@ void EmuLoop() {
         }
 
         {
-            const bool skip = g->frameSkip.load() && (g->frameParity = !g->frameParity);
+            // Automatic frame skip: when the previous frame finished late, skip rendering this one (at most 2 in a row,
+            // so the picture keeps updating); at full speed every frame is rendered
+            const bool skip = g->frameSkip.load() && g->behind && g->skipRun < 2;
+            g->skipRun = skip ? g->skipRun + 1 : 0;
             g->saturn->VDP.SetSkipFrameRender(skip);
             g->skipPresent = skip;
         }
+        const auto workStart = steady_clock::now();
         g->saturn->RunFrame();
         g->palMode.store(g->saturn->GetVideoStandard() == ymir::core::config::sys::VideoStandard::PAL, std::memory_order_relaxed);
         bool skipNext = false;
@@ -560,6 +569,11 @@ void EmuLoop() {
         ++fpsFrames;
 
         const auto now = steady_clock::now();
+        cputune::ReportFrameWork(duration_cast<nanoseconds>(now - workStart).count());
+        if (now - lastPin >= seconds(3)) { // render threads are recreated when the renderer changes
+            lastPin = now;
+            cputune::PinEmulationThreads();
+        }
         if (now - fpsWindowStart >= seconds(1)) {
             g->fps = fpsFrames / duration<float>(now - fpsWindowStart).count();
             fpsFrames = 0;
@@ -577,6 +591,8 @@ void EmuLoop() {
         }
 
         if (g->audioOk.load()) {
+            // Behind when the audio buffer drains below half of its target (the game can't keep up)
+            g->behind = g->ring.Fill() < g->targetFill.load() / 2;
             // Audio-driven pacing: keep ~46 ms buffered.
             while (g->running.load() && !g->paused.load() && g->ring.Fill() > g->targetFill.load()) {
                 std::this_thread::sleep_for(microseconds(500));
@@ -585,6 +601,7 @@ void EmuLoop() {
             const bool pal = g->saturn->GetVideoStandard() == ymir::core::config::sys::VideoStandard::PAL;
             nextFrame += nanoseconds((int64_t)(1e9 / (pal ? 50.0 : 59.82)));
             const auto t = steady_clock::now();
+            g->behind = t > nextFrame + milliseconds(2);
             if (nextFrame > t) {
                 std::this_thread::sleep_until(nextFrame);
             } else if (t - nextFrame > milliseconds(100)) {
@@ -933,7 +950,7 @@ JNI_FN(jintArray, nativeGetLastFrame)(JNIEnv *env, jclass) {
     return arr;
 }
 
-// Frame skipping (renders every other frame).
+// Automatic frame skipping (skips rendering only while running below full speed).
 JNI_FN(void, nativeSetFrameSkip)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         g->frameSkip = on;
