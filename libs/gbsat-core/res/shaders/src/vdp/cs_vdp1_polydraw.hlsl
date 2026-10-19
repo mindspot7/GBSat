@@ -72,7 +72,7 @@ ByteAddressBuffer g_vram : register(t4);
 #if POLYSPEC_SHADING_MODE == POLYSPEC_SHADING_MODE_OIT
 
 // Half-Transparency uses per-pixel linked lists for order-independent transparency
-VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_listHeads : register(u1);
+RWStructuredBuffer<uint> g_listHeads : register(u1);
 RWStructuredBuffer<OITFragment> g_fragments : register(u2);
 RWByteAddressBuffer g_counter : register(u3);
 
@@ -84,7 +84,7 @@ RWByteAddressBuffer g_fbramOut : register(u1);
 #else
 
 // All other modes write to the internal output buffer
-VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u1);
+RWStructuredBuffer<uint> g_internalSpriteOut : register(u1);
 
 #endif
 

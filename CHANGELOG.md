@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- Vulkan GPU: VDP1 per-pixel buffers use storage buffers instead of texel buffers (fixes sprites duplicated in the upper half of the screen on Mali GPUs).
 - Built-in widescreen hacks for about 20 games (codes from the SegaXtreme "Saturn Widescreen Codes & Patches" collection), enabled automatically with the 16:9 display mode.
 - Gamepad: default bindings are restored for buttons without a key, six-button pads (C/Z) are mapped, analog-only L2/R2 triggers work as buttons, and face buttons reported as keyboard keys are accepted.
 - Shaders listed alphabetically; "(beta)" dropped from the Vulkan GPU label.

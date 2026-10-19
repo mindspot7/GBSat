@@ -43,10 +43,10 @@ cbuffer RenderParamsBuffer : register(b0) {
 StructuredBuffer<OITFragment> g_fragments : register(t1);
 
 RWByteAddressBuffer g_fbramOut : register(u1);
-VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_listHeads : register(u2);
+RWStructuredBuffer<uint> g_listHeads : register(u2);
 #else
 RWByteAddressBuffer g_fbramOut : register(u1);
-VK_IMAGE_FORMAT("r32ui") RWBuffer<uint> g_internalSpriteOut : register(u2);
+RWStructuredBuffer<uint> g_internalSpriteOut : register(u2);
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------

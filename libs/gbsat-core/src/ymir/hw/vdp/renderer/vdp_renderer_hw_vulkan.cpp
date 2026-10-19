@@ -1100,12 +1100,14 @@ struct VulkanVDPRenderer::Impl {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(physDevice, &props);
         // Reduce the resolution scale until the scaled buffers and images fit the device limits
-        while (maxScale > 1 && ((uint64)kVDP1FBRAMSize * 2 * 2 * ScaleSq() > props.limits.maxTexelBufferElements ||
+        while (maxScale > 1 && ((uint64)kVDP1FBRAMSize * 2 * 2 * ScaleSq() * 4 > props.limits.maxStorageBufferRange ||
                                 OutMaxW() > props.limits.maxImageDimension2D ||
                                 OutMaxH() > props.limits.maxImageDimension2D)) {
             --maxScale;
         }
-        if (props.limits.maxTexelBufferElements < kVDP1FBRAMSize * 2 * 2) {
+        // Large per-pixel buffers are storage buffers (some Mali drivers mis-address texel buffers beyond 64K
+        // elements); only small buffers use texel views.
+        if (props.limits.maxTexelBufferElements < 65536) {
             return util::ErrorMessage{fmt::format("The GPU's texel buffers are too small ({} elements)",
                                                   props.limits.maxTexelBufferElements)};
         }
@@ -1190,7 +1192,7 @@ struct VulkanVDPRenderer::Impl {
             const VkDescriptorPoolSize sizes[] = {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, sets},
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sets},
-                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, sets * 8},
+                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, sets * 12},
                 {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, sets * 4},
                 {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, sets * 4},
                 {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, sets * 8},
@@ -1315,9 +1317,9 @@ struct VulkanVDPRenderer::Impl {
             YMIR_VK_TRY(CreateBuffer(f.cmdParamsBuffer, sizeof(VDP1CommandParams) * f.cpuCmdParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 command params" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.internalSpriteOutBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2 * ScaleSq(),
-                                     kStorageTexel, false, VK_FORMAT_R32_UINT, "VDP1 internal sprite output" + sfx));
+                                     kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 internal sprite output" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.oitListHeadsBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2 * ScaleSq(),
-                                     kStorageTexel, false, VK_FORMAT_R32_UINT, "VDP1 OIT list heads" + sfx));
+                                     kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 OIT list heads" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.oitFragmentsBuffer, sizeof(VDP1OITFragment) * kMaxVDP1OITFragmentsPerDispatch,
                                      kSSBO, false, VK_FORMAT_UNDEFINED, "VDP1 OIT fragments" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.oitCounterBuffer, sizeof(HLSLuint), kSSBO, false, VK_FORMAT_UNDEFINED,
