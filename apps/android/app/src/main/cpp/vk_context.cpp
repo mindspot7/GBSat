@@ -28,7 +28,8 @@ struct Ctx {
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkSemaphore imageAvail = VK_NULL_HANDLE;
-    VkSemaphore renderDone = VK_NULL_HANDLE;
+    VkSemaphore renderDone = VK_NULL_HANDLE; // unused (kept for layout); see renderDoneSems
+    std::vector<VkSemaphore> renderDoneSems; // one per swapchain image: a present may still wait on the previous one
     VkFence fence = VK_NULL_HANDLE;
     // Staging + source image
     VkBuffer staging = VK_NULL_HANDLE;
@@ -319,7 +320,8 @@ bool Init(ANativeWindow *window, std::string &error) {
     vkAllocateCommandBuffers(g.device, &cai, &g.cmd);
     VkSemaphoreCreateInfo sem{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     vkCreateSemaphore(g.device, &sem, nullptr, &g.imageAvail);
-    vkCreateSemaphore(g.device, &sem, nullptr, &g.renderDone);
+    g.renderDoneSems.resize(g.images.size());
+    for (auto &rs : g.renderDoneSems) vkCreateSemaphore(g.device, &sem, nullptr, &rs);
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     vkCreateFence(g.device, &fci, nullptr, &g.fence);
@@ -336,7 +338,7 @@ void Shutdown() {
         DestroyStaging();
         if (g.fence) vkDestroyFence(g.device, g.fence, nullptr);
         if (g.imageAvail) vkDestroySemaphore(g.device, g.imageAvail, nullptr);
-        if (g.renderDone) vkDestroySemaphore(g.device, g.renderDone, nullptr);
+        for (auto rs : g.renderDoneSems) if (rs) vkDestroySemaphore(g.device, rs, nullptr);
         if (g.pool) vkDestroyCommandPool(g.device, g.pool, nullptr);
         if (g.swapchain) vkDestroySwapchainKHR(g.device, g.swapchain, nullptr);
         vkDestroyDevice(g.device, nullptr);
@@ -352,10 +354,10 @@ bool IsReady() { return g.ready; }
 
 bool PresentRGBA(const uint32_t *pixels, uint32_t w, uint32_t h, bool linear) {
     if (!g.ready || !w || !h) return false;
-    if (!EnsureSrc(w, h)) return false;
-
     // Never block the emulation thread: if the GPU/display is not ready, drop this frame.
     if (vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, 0) != VK_SUCCESS) return true;
+    // (Re)create the source image only once the previous frame no longer uses it
+    if (!EnsureSrc(w, h)) return false;
 
     uint32_t idx = 0;
     VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, 0, g.imageAvail, VK_NULL_HANDLE, &idx);
@@ -415,12 +417,12 @@ bool PresentRGBA(const uint32_t *pixels, uint32_t w, uint32_t h, bool linear) {
     si.commandBufferCount = 1;
     si.pCommandBuffers = &g.cmd;
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores = &g.renderDone;
+    si.pSignalSemaphores = &g.renderDoneSems[idx];
     if (vkQueueSubmit(g.queue, 1, &si, g.fence) != VK_SUCCESS) return false;
 
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores = &g.renderDone;
+    pi.pWaitSemaphores = &g.renderDoneSems[idx];
     pi.swapchainCount = 1;
     pi.pSwapchains = &g.swapchain;
     pi.pImageIndices = &idx;
