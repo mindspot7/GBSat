@@ -16,7 +16,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.shadows.ShadowEnvironment
 import java.io.File
 
 /**
@@ -26,7 +25,7 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w853dp-h480dp-land-xhdpi")
+@Config(sdk = [29], qualifiers = "w853dp-h480dp-land-xhdpi")
 class ReadmeScreenshots {
     @get:Rule val rule = createComposeRule()
     private val out = System.getProperty("screenshotDir") ?: "build/screenshots"
@@ -42,7 +41,6 @@ class ReadmeScreenshots {
 
     @Before fun setup() {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
-        ShadowEnvironment.setIsExternalStorageManager(true)
         setField("appContext", ctx)
         setField("prefs", ctx.getSharedPreferences("gbsat", Context.MODE_PRIVATE))
         val data = File(ctx.filesDir, "data").apply { mkdirs() }
@@ -69,7 +67,7 @@ class ReadmeScreenshots {
 
     @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}, {}) })
     @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
-    @Test fun setup() = shot("setup", { SetupWizard({}, {}) }) {
+    @Test fun wizard() = shot("setup", { SetupWizard({}, {}) }) {
         repeat(5) { rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300) }
     }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, {}, SettingsPage.Video) })
