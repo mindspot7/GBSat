@@ -80,10 +80,23 @@ fun LibraryScreen(
     var recentMode by remember { mutableStateOf(false) }
     var background by remember { mutableStateOf<ImageBitmap?>(null) }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground)) {
+    val menuFocus = remember { FocusRequester() }
+    var wideLayout by remember { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
+        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (e.key) {
+            Key.ButtonX -> { // X: menu
+                if (wideLayout) runCatching { menuFocus.requestFocus() } else scope.launch { if (drawer.isOpen) drawer.close() else { drawer.open(); runCatching { menuFocus.requestFocus() } } }
+                true
+            }
+            Key.ButtonSelect -> { recentMode = !recentMode; true } // Select: all games / recent save states
+            else -> false
+        }
+    }) {
+        wideLayout = maxWidth >= 720.dp
         val wide = maxWidth >= 720.dp
         val menu: @Composable () -> Unit = {
-            SideMenu(onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(it) }, onQuit = onQuit)
+            SideMenu(onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
         }
         val content: @Composable () -> Unit = {
             Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -189,11 +202,11 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 }
 
 @Composable
-private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit) {
+private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester) {
     Panel(Modifier.fillMaxSize()) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("OPTIONS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-            MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6)) { onOpenSettings(SettingsPage.System) }
+            MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6), Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
             MenuEntry(Icons.Default.Tv, "Video", Color(0xFF7FD7C4)) { onOpenSettings(SettingsPage.Video) }
             MenuEntry(Icons.Default.VolumeUp, "Audio", Color(0xFF9BE37B)) { onOpenSettings(SettingsPage.Audio) }
             MenuEntry(Icons.Default.Speed, "Performance", Color(0xFFFFB86B)) { onOpenSettings(SettingsPage.Performance) }
@@ -207,10 +220,10 @@ private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit
 }
 
 @Composable
-private fun MenuEntry(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+private fun MenuEntry(icon: ImageVector, label: String, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
+        modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
             .background(if (focused) Color.White.copy(alpha = .14f) else Color.Transparent)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
@@ -356,7 +369,8 @@ private fun HelpBar(recentMode: Boolean) {
     ) {
         ButtonHint("A", Color(0xFFE5483B), "Play")
         if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Options")
-        ButtonHint("B", Color(0xFFF2C230), "Back")
+        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
+        ButtonHint("−", Color(0xFF6B6B7B), if (recentMode) "All games" else "Recent")
     }
 }
 
@@ -386,7 +400,7 @@ private fun GameCard(
             .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY || e.key == Key.ButtonX || e.key == Key.Menu)) { onOptions(); true } else false
+                if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY)) { onOptions(); true } else false
             }
             .combinedClickable(onClick = onClick, onLongClick = onOptions),
         contentAlignment = Alignment.BottomCenter,
@@ -454,7 +468,7 @@ private fun StateCard(s: Emulator.RecentState, modifier: Modifier, onClick: () -
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "scale")
     val title = s.gamePath.substringAfterLast('/').substringBeforeLast('.')
-    val slot = if (s.slot == Emulator.QUICK_SLOT) "Quick save" else "Slot ${s.slot + 1}"
+    val slot = when (s.slot) { Emulator.QUICK_SLOT -> "Quick save"; Emulator.AUTO_SLOT -> "Auto save"; else -> "Slot ${s.slot + 1}" }
     val date = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(s.time))
     Column(modifier.scale(scale)) {
         Box(

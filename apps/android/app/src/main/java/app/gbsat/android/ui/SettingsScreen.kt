@@ -162,6 +162,11 @@ private fun SystemPage(
             ActionRow(Icons.Default.PhoneAndroid, "Move back to internal storage", "Copies the data and uses it after a restart", "Move", onDataInternal)
         }
     }
+    Group("Save states", Icons.Default.Save) {
+        ToggleRow(Icons.Default.Save, "Auto save", "Save the game's state when you close it", Emulator.autoSave, ch { Emulator.autoSave = it })
+        Divider()
+        ToggleRow(Icons.Default.Restore, "Auto load", "Continue from the auto save when you start the game", Emulator.autoLoad, ch { Emulator.autoLoad = it })
+    }
     Group("Startup", Icons.Default.RocketLaunch) {
         ToggleRow(Icons.Default.FastForward, "Fast boot", "Skip the BIOS clock and language screens", Emulator.fastBoot, ch { Emulator.fastBoot = it })
     }

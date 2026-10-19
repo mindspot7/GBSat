@@ -45,6 +45,8 @@ object Emulator {
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
     var frameSkip by mutableStateOf(false) // render every other frame
     var volume by mutableStateOf(100)      // audio volume, percent
+    var autoSave by mutableStateOf(false)  // save state when leaving a game
+    var autoLoad by mutableStateOf(false)  // load that state when starting the game
     var ffAudio by mutableStateOf(0)       // fast-forward audio: 0 default, 1 speed up, 2 mute
 
     // ---- Presets: groups of video/performance options ----
@@ -197,9 +199,10 @@ object Emulator {
     // ---- Save states ----
     const val STATE_SLOTS = 5
     const val QUICK_SLOT = 99
+    const val AUTO_SLOT = 98
     private val statesDir get() = File(dataDir, "states")
     private fun stateFile(slot: Int): File? =
-        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/${if (slot == QUICK_SLOT) "quick" else slot.toString()}.savestate") }
+        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/${when (slot) { QUICK_SLOT -> "quick"; AUTO_SLOT -> "auto"; else -> slot.toString() }}.savestate") }
 
     /** Last-modified time per slot, or null if empty. */
     fun slotTimes(): List<Long?> = (0 until STATE_SLOTS).map { stateFile(it)?.takeIf { f -> f.exists() }?.lastModified() }
@@ -235,7 +238,7 @@ object Emulator {
             val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
             dir.listFiles { f -> f.name.endsWith(".savestate") }?.forEach { f ->
                 val name = f.name.removeSuffix(".savestate")
-                val slot = if (name == "quick") QUICK_SLOT else name.toIntOrNull() ?: return@forEach
+                val slot = when (name) { "quick" -> QUICK_SLOT; "auto" -> AUTO_SLOT; else -> name.toIntOrNull() ?: return@forEach }
                 out += RecentState(game, slot, f.lastModified(), thumbFile(f).takeIf { it.exists() })
             }
         }
@@ -346,6 +349,8 @@ object Emulator {
         cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
         frameSkip = prefs.getBoolean("frameSkip", false)
         volume = prefs.getInt("volume", 100).coerceIn(0, 100)
+        autoSave = prefs.getBoolean("autoSave", false)
+        autoLoad = prefs.getBoolean("autoLoad", false)
         ffAudio = prefs.getInt("ffAudio", 0).coerceIn(0, 2)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->
@@ -407,7 +412,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putInt("ffAudio", ffAudio)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */
@@ -425,7 +430,9 @@ object Emulator {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
-            currentGame = path; running = true; loadCheats(); pause(false)
+            currentGame = path; running = true; loadCheats()
+            if (autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
+            pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
         }
         err
@@ -435,7 +442,20 @@ object Emulator {
     fun toggleFastForward() { fastForward = !fastForward; NativeBridge.nativeSetFastForward(fastForward) }
     fun reset(hard: Boolean) = NativeBridge.nativeReset(hard)
     fun toggleTray() { trayOpen = !trayOpen; NativeBridge.nativeSetTrayOpen(trayOpen) }
+    /** Closes the game, saving the auto save state first when enabled. */
     fun quitGame() {
+        if (autoSave && running && currentGame != null) {
+            pause(true)
+            scope.launch { saveState(AUTO_SLOT); closeGame() }
+        } else closeGame()
+    }
+
+    /** Saves the auto save state synchronously (used when quitting the app from a game). */
+    fun autoSaveBlocking() {
+        if (autoSave && running && currentGame != null) kotlinx.coroutines.runBlocking { saveState(AUTO_SLOT) }
+    }
+
+    private fun closeGame() {
         pause(true); accountPlayTime(); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
         RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }
