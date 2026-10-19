@@ -133,7 +133,7 @@ fun LibraryScreen(
             // The whole logo bar opens the menu, which drops down right below it
             Header(recentMode, Modifier.onSizeChanged { headerPx = it.height }, onToggleRecent = { recentMode = !recentMode },
                 onMenu = { if (docked) runCatching { menuFocus.requestFocus() } else menuOpen = !menuOpen }, menuOpen = menuOpen && !docked)
-            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().weight(1f)) {
             if (docked) {
                 Box(Modifier.width(220.dp).fillMaxHeight().onFocusChanged { menuOpen = it.hasFocus }) {
                     SideMenu(onOpenSettings = { MenuState.selected = it; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus, fill = true)
@@ -143,7 +143,7 @@ fun LibraryScreen(
                 if (recentMode) {
                     RecentStates(launchState = launchState, onSelected = {})
                 } else {
-                    Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
+                    Library(edgePad = if (docked) 4.dp else 20.dp, onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
                         launch = { MenuState.selected = null; launch(it) }, onSelected = {}, open = { MenuState.selected = null; open(it) },
                         launchState = { MenuState.selected = null; launchState(it) })
                 }
@@ -326,7 +326,7 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 
 @Composable
 private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester, fill: Boolean = false) {
-    Surface(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), border = PanelBorder, shadowElevation = 12.dp) {
+    Surface(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), shadowElevation = 12.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             listOf(
@@ -379,6 +379,7 @@ private fun lerpColor(a: Color, b: Color, t: Float) = androidx.compose.ui.graphi
 
 @Composable
 private fun Library(
+    edgePad: androidx.compose.ui.unit.Dp,
     onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit,
     open: (String) -> Unit, launchState: (Emulator.RecentState) -> Unit,
 ) {
@@ -463,7 +464,7 @@ private fun Library(
                     androidx.compose.animation.AnimatedVisibility(selected != null,
                         enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
                         val g = selected
-                        if (g != null) Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp)) {
+                        if (g != null) Column(Modifier.fillMaxWidth().padding(start = edgePad + 8.dp, end = 20.dp, top = 8.dp)) {
                             Text(g.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -493,7 +494,7 @@ private fun Library(
                     androidx.compose.foundation.lazy.LazyRow(
                         state = rowState,
                         // Side padding leaves room for the enlarged (focused) first and last covers
-                        contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.06f, bottom = 6.dp),
+                        contentPadding = PaddingValues(start = edgePad + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.06f, bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.Top,
                         modifier = Modifier.fillMaxWidth(),
