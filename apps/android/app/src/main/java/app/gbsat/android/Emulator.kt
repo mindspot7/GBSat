@@ -32,7 +32,6 @@ object Emulator {
     var gamesDir by mutableStateOf("")
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
-    var pal by mutableStateOf(false)
     var threadedVdp by mutableStateOf(true)
     var preloadDisc by mutableStateOf(false)
     var cartridge by mutableStateOf(2) // 4 MiB RAM expansion (fixed; works with 1 MiB games too)
@@ -285,7 +284,6 @@ object Emulator {
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
-        pal = prefs.getBoolean("pal", false)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
@@ -343,7 +341,6 @@ object Emulator {
     fun applyOptions() {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
-        NativeBridge.nativeSetVideoStandard(pal)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetCartridge(cartridge)
         NativeBridge.nativeSetResolutionScale(resScale)
@@ -357,7 +354,7 @@ object Emulator {
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip)
         .putBoolean("ffToggle", ffToggle).apply()

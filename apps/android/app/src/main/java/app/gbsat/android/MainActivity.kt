@@ -33,6 +33,11 @@ class MainActivity : ComponentActivity() {
         if (Emulator.running) Emulator.pause(true)
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) setImmersiveMode(true) // hide the system bars again after dialogs, pickers or app switches
+    }
+
     private fun quitApp() {
         NativeBridge.nativeShutdown()
         finishAndRemoveTask()

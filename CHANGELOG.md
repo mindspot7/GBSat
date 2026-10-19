@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.5.0
+- The app runs full screen (system bars hidden; swipe from the edge to show them).
+- Removed the "Video standard" setting: NTSC/PAL is selected automatically from the game disc.
 - Removed the ANGLE renderer (same CPU emulation as OpenGL ES with no measurable gain); its libraries are no longer bundled, making the APK smaller.
 - Presets (High, Mid, Low) in the setup wizard, Settings and the in-game menu; changing a preset option shows "Custom".
 - In-game menu: renderer and internal resolution options.

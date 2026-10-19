@@ -21,7 +21,7 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
         val scope = rememberCoroutineScope()
         val inGame = Emulator.running
 
-        LaunchedEffect(inGame) { onImmersive(inGame) }
+        LaunchedEffect(inGame) { onImmersive(true) } // the whole app runs full screen
 
         Emulator.lastCrash?.let { report ->
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
