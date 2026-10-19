@@ -259,7 +259,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
+        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale)
         .putBoolean("ffToggle", ffToggle).apply()
 
