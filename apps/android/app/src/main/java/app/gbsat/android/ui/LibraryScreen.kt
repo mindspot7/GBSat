@@ -657,7 +657,8 @@ private fun GameCard(
 @Composable
 private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected: (ImageBitmap?) -> Unit) {
     var states by remember { mutableStateOf<List<Emulator.RecentState>?>(null) }
-    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates().distinctBy { it.gamePath } } // latest state of each game }
+    // Latest save state of each game
+    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates().distinctBy { it.gamePath } } }
     val list = states
     when {
         list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
