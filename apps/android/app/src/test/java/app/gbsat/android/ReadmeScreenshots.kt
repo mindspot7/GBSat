@@ -6,6 +6,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
 import app.gbsat.android.ui.*
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -73,6 +75,13 @@ class ReadmeScreenshots {
     @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareLibrary() = shot("square-library", { LibraryScreen({}, {}, {}, {}, {}) })
     @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareMenu() = shot("square-menu", { LibraryScreen({}, {}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareQuit() = shot("square-quit", { LibraryScreen({}, {}, {}, {}, {}) }) {
+        androidx.test.espresso.Espresso.pressBack()
+    }
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test fun libraryEnd() = shot("dbg-library-end", { LibraryScreen({}, {}, {}, {}, {}) }) {
+        repeat(9) { rule.onRoot().performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionRight) }; rule.mainClock.advanceTimeBy(400) }
+    }
+    @Test fun quit() = shot("dbg-quit", { LibraryScreen({}, {}, {}, {}, {}) }) {
         androidx.test.espresso.Espresso.pressBack()
     }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, {}, SettingsPage.Video) })

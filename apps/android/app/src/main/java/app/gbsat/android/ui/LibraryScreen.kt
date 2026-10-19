@@ -37,6 +37,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onSizeChanged
@@ -83,26 +84,13 @@ fun LibraryScreen(
 ) {
     val scope = rememberCoroutineScope()
     var recentMode by remember { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
+    var menuOpen by MenuState.open
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(menuOpen) { if (menuOpen) { kotlinx.coroutines.delay(50); runCatching { menuFocus.requestFocus() } } }
     var confirmQuit by remember { mutableStateOf(false) }
     var headerPx by remember { mutableIntStateOf(0) }
     // B / Back: close the menu, leave Recent, otherwise ask before quitting
-    androidx.activity.compose.BackHandler { when { menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
-    if (confirmQuit) AlertDialog(
-        onDismissRequest = { confirmQuit = false },
-        // Compact: about half of the screen width
-        modifier = Modifier.fillMaxWidth(0.55f).widthIn(min = 240.dp, max = 360.dp),
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-        title = { Text("Confirm Quit?") },
-        confirmButton = {
-            val fr = remember { FocusRequester() }
-            LaunchedEffect(Unit) { kotlinx.coroutines.delay(50); runCatching { fr.requestFocus() } }
-            TextButton(onClick = { confirmQuit = false; onQuit() }, modifier = Modifier.focusRequester(fr)) { ButtonHint("A", Color(0xFFE5483B), "Confirm", Modifier) }
-        },
-        dismissButton = { TextButton(onClick = { confirmQuit = false }) { ButtonHint("B", Color(0xFFF2C230), "Cancel", Modifier) } },
-    )
+    androidx.activity.compose.BackHandler { when { confirmQuit -> confirmQuit = false; menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -139,7 +127,50 @@ fun LibraryScreen(
                 modifier = Modifier.align(Alignment.TopStart).padding(bottom = 4.dp),
             ) {
                 Box(Modifier.width(220.dp)) {
-                    SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
+                    // The menu stays open while a settings page is shown, so Back returns to it with that entry selected
+                    SideMenu(onOpenSettings = { MenuState.selected = it; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
+                }
+            }
+        }
+        if (confirmQuit) QuitDialog(onConfirm = { confirmQuit = false; onQuit() }, onCancel = { confirmQuit = false })
+    }
+}
+
+/** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
+private object MenuState {
+    val open = mutableStateOf(false)
+    var selected by mutableStateOf<SettingsPage?>(null)
+}
+
+/** "Confirm Quit?" drawn in the app window (not a separate dialog window), so the A/B controller mapping applies. */
+@Composable
+private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
+    val fr = remember { FocusRequester() }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(50); runCatching { fr.requestFocus() } }
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f))
+            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = onCancel)
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.ButtonA, Key.DirectionCenter, Key.Enter -> { onConfirm(); true }
+                    Key.ButtonB -> { onCancel(); true }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            Modifier.fillMaxWidth(0.55f).widthIn(min = 240.dp, max = 360.dp)
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {},
+            shape = RoundedCornerShape(24.dp), color = Color(0xFF231C42), border = PanelBorder, shadowElevation = 16.dp,
+        ) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Confirm Quit?", style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onConfirm, modifier = Modifier.focusRequester(fr)) { ButtonHint("A", Color(0xFFE5483B), "Confirm", Modifier) }
+                    TextButton(onClick = onCancel) { ButtonHint("B", Color(0xFFF2C230), "Cancel", Modifier) }
                 }
             }
         }
@@ -237,13 +268,15 @@ private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), border = PanelBorder, shadowElevation = 12.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-            MenuEntry(MenuIcon.System, "System", Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
-            MenuEntry(MenuIcon.Video, "Video") { onOpenSettings(SettingsPage.Video) }
-            MenuEntry(MenuIcon.Audio, "Audio") { onOpenSettings(SettingsPage.Audio) }
-            MenuEntry(MenuIcon.Performance, "Performance") { onOpenSettings(SettingsPage.Performance) }
-            MenuEntry(MenuIcon.Controls, "Controls") { onOpenSettings(SettingsPage.Controls) }
-            MenuEntry(MenuIcon.Extras, "Extras") { onOpenSettings(SettingsPage.Extras) }
-            MenuEntry(MenuIcon.About, "About") { onOpenSettings(SettingsPage.About) }
+            listOf(
+                Triple(MenuIcon.System, "System", SettingsPage.System), Triple(MenuIcon.Video, "Video", SettingsPage.Video),
+                Triple(MenuIcon.Audio, "Audio", SettingsPage.Audio), Triple(MenuIcon.Performance, "Performance", SettingsPage.Performance),
+                Triple(MenuIcon.Controls, "Controls", SettingsPage.Controls), Triple(MenuIcon.Extras, "Extras", SettingsPage.Extras),
+                Triple(MenuIcon.About, "About", SettingsPage.About),
+            ).forEach { (icon, label, page) ->
+                val sel = (MenuState.selected ?: SettingsPage.System) == page
+                MenuEntry(icon, label, if (sel) Modifier.focusRequester(focus) else Modifier) { onOpenSettings(page) }
+            }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = .12f))
             MenuEntry(MenuIcon.Quit, "Quit", onClick = onQuit)
         }
@@ -393,7 +426,7 @@ private fun Library(
                     androidx.compose.foundation.lazy.LazyRow(
                         // Side padding leaves room for the enlarged (focused) first and last covers
                         contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.12f, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.Top,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
