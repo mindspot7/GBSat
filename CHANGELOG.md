@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — Public release
 - Save state folders are named after the game (existing folders are renamed automatically).
 - Landscape: the settings menu is docked on the left and the library works beside it (X or Left/Right switch between them). The button help bar is shown only when a controller is connected.
 - Performance: automatic frame skip (skips frames only while below full speed; also in the in-game Video menu), emulation and VDP threads pinned to the fast CPU cores with an Android performance hint session (Android 13+), zero-copy frame presentation through AHardwareBuffer (no texture upload; falls back automatically).
