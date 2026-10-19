@@ -40,18 +40,6 @@ jobs:
           echo "LD_LIBRARY_PATH=/opt/dxc/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           /opt/dxc/bin/dxc --version || true
 
-      - name: Fetch prebuilt ANGLE libraries (optional)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p apps/android/app/src/main/jniLibs/arm64-v8a
-          if [ -f apps/android/prebuilt/angle-android-arm64.tar.gz ]; then
-            tar xzf apps/android/prebuilt/angle-android-arm64.tar.gz -C apps/android/app/src/main/jniLibs/arm64-v8a
-            ls -la apps/android/app/src/main/jniLibs/arm64-v8a
-          else
-            echo "::warning title=ANGLE::no prebuilt ANGLE libraries yet (run the 'Build ANGLE' workflow); ANGLE option will fall back to system GLES"
-          fi
-
       - name: Restore signing key (same key across builds so new APKs install over old ones)
         uses: actions/cache@v4
         with:
@@ -92,4 +80,3 @@ jobs:
         with:
           name: ${{ steps.ver.outputs.name }}
           path: apps/android/app/build/outputs/apk/release/*.apk
-# angle bundled

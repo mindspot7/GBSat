@@ -132,21 +132,21 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Choice("Preset", Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
                 preset?.ordinal ?: Emulator.Preset.entries.size) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
             Text(
-                "High: Vulkan GPU at 4x with the LCD3x shader, for powerful devices. Mid: ANGLE with the Dots shader. " +
+                "High: Vulkan GPU at 4x with the LCD3x shader, for powerful devices. Mid: OpenGL ES with the Dots shader. " +
                     "Low: OpenGL ES with frame skip, for modest devices. Changing any of these options sets the preset to Custom.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
-            // Renderer modes shown (internal ids): Software 0, OpenGL ES 1, ANGLE 3, Vulkan GPU 4
-            val rendererIds = listOf(0, 1, 3, 4)
-            Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU"),
+            // Renderer modes shown (internal ids): Software 0, OpenGL ES 1, Vulkan GPU 4
+            val rendererIds = listOf(0, 1, 4)
+            Choice("Renderer", listOf("Software", "OpenGL ES", "Vulkan GPU"),
                 rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0), change<Int> { Emulator.renderer = rendererIds[it] })
             Text(
-                "Software, OpenGL ES and ANGLE emulate the Saturn graphics on the CPU; OpenGL ES, ANGLE and Vulkan GPU add the filters and shaders below. " +
+                "Software and OpenGL ES emulate the Saturn graphics on the CPU; OpenGL ES and Vulkan GPU add the filters and shaders below. " +
                     "Vulkan GPU renders the graphics on the GPU with Vulkan; " +
                     "it falls back to software rendering if the GPU cannot run it.",
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (Emulator.renderer == 1 || Emulator.renderer == 3 || Emulator.renderer == 4) {
+            if (Emulator.renderer == 1 || Emulator.renderer == 4) {
                 Choice("Texture filtering", listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), change<Int> { Emulator.filter = it })
                 // Shown alphabetically; internal ids: 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dots
                 val shaderIds = listOf(0, 2, 4, 3, 1)

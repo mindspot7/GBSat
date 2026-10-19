@@ -40,7 +40,7 @@ object Emulator {
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
-    var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
+    var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
     var frameSkip by mutableStateOf(false) // render every other frame
 
     // ---- Presets: groups of video/performance options ----
@@ -50,8 +50,8 @@ object Emulator {
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at 4x with the LCD grid, accurate SH-2 cache
         Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 3, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
-        // Mid-range: CPU rendering shown through ANGLE with the dot shader
-        Preset.Mid -> PresetValues(renderer = 3, resScale = 1, shader = 4, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        // Mid-range: CPU rendering through OpenGL ES with the dot shader
+        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 4, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
         // Modest devices: CPU rendering through OpenGL ES, no shader, frame skip
         Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
     }
@@ -293,7 +293,7 @@ object Emulator {
         showFps = prefs.getBoolean("showFps", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         // "Vulkan" (present-only, id 2) was replaced by Vulkan GPU, which also presents through Vulkan
-        renderer = prefs.getInt("renderer", 0).let { if (it == 2) 4 else it }
+        renderer = prefs.getInt("renderer", 0).let { when (it) { 2 -> 4; 3 -> 1; else -> it } } // ANGLE (3) was removed
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)

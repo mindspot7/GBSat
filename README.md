@@ -54,7 +54,7 @@ the bottom of the Settings screen. Changes are listed in [CHANGELOG.md](CHANGELO
 | `libs/gbsat-core` | Emulator core, including the Vulkan compute renderer |
 | `vendor/` | Third-party libraries (git submodules) |
 | `apps/vk-test` | Host test comparing the software and Vulkan renderers |
-| `.github/workflows` | APK build, Vulkan shader/renderer checks, ANGLE build |
+| `.github/workflows` | APK build, Vulkan shader/renderer checks |
 
 Local build: Android Studio with SDK 35, NDK 27.2.12479018 and CMake 3.31.6, plus the DirectX Shader Compiler
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.

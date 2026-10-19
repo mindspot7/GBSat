@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0
+- Removed the ANGLE renderer (same CPU emulation as OpenGL ES with no measurable gain); its libraries are no longer bundled, making the APK smaller.
 - Presets (High, Mid, Low) in the setup wizard, Settings and the in-game menu; changing a preset option shows "Custom".
 - In-game menu: renderer and internal resolution options.
 - Shaders (Scanlines, Dots) follow the original pixels at higher internal resolutions.

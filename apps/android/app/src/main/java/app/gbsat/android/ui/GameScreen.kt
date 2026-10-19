@@ -187,8 +187,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     val all = Emulator.Preset.entries
                     Emulator.applyPreset(all[((Emulator.currentPreset?.ordinal ?: -1) + 1) % all.size])
                 }
-                val rendererIds = listOf(0, 1, 3, 4)
-                val rendererNames = listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU")
+                val rendererIds = listOf(0, 1, 4)
+                val rendererNames = listOf("Software", "OpenGL ES", "Vulkan GPU")
                 MenuItem(Icons.Default.Memory, "Renderer: " + rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
                     Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
                     Emulator.savePrefs(); Emulator.applyOptions()
@@ -205,7 +205,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     MenuItem(Icons.Default.EmojiEvents, "Achievements") { achievementsOpen = true }
                 }
                 MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
-                if (Emulator.renderer == 1 || Emulator.renderer == 3 || Emulator.renderer == 4) {
+                if (Emulator.renderer == 1 || Emulator.renderer == 4) {
                     val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
                     val shaderOrder = listOf(0, 2, 4, 3, 1) // menu cycles alphabetically: None, CRT, Dots, LCD3x, Scanlines
                     val filters = listOf("Nearest", "Bilinear")
