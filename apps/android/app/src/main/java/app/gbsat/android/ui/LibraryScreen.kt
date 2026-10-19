@@ -37,6 +37,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -165,7 +166,7 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
     Panel(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
             .border(if (headerFocused || menuOpen) 2.dp else 0.dp, if (headerFocused || menuOpen) Gold.copy(alpha = .7f) else Color.Transparent, RoundedCornerShape(32.dp))
-            .onFocusChanged { headerFocused = it.isFocused }
+            .focusProperties { canFocus = false } // touch only: the controller never moves to the top bar
             .clickable(onClick = onMenu),
         RoundedCornerShape(32.dp),
     ) {
@@ -212,6 +213,7 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
     Box(
         Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
             .background(if (focused) Color.White.copy(alpha = .18f) else Color.Transparent)
+            .focusProperties { canFocus = false }
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -413,7 +415,7 @@ private fun HelpBar(recentMode: Boolean) {
         horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
     ) {
         ButtonHint("A", Color(0xFFE5483B), "Play")
-        if (!recentMode) ButtonHint("+", Color(0xFF6B6B7B), "Game options")
+        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
         ButtonHint("X", Color(0xFF3B7BE5), "Settings")
         ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
         ButtonHint("−", Color(0xFF6B6B7B), if (recentMode) "All games" else "Recent")
@@ -446,16 +448,16 @@ private fun GameCard(
             .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonStart) { onOptions(); true } else false
+                if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonY) { onOptions(); true } else false
             }
             .combinedClickable(onClick = onClick, onLongClick = onOptions),
         contentAlignment = Alignment.BottomCenter,
     ) {
         val bmp = cover
         if (bmp != null) {
-            // Every cover has the same width; its proportions are kept within a narrow range (tall US cases are
-            // stretched slightly, square JP/EU cases slightly squeezed) so the shelf looks even
-            val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.66f, 0.80f)
+            // Every cover has the same width; square covers keep their proportions (shorter), only very tall ones are
+            // widened slightly so the shelf looks even
+            val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.66f, 1.25f)
             Image(
                 bmp, g.title,
                 Modifier.fillMaxWidth().aspectRatio(ratio)
