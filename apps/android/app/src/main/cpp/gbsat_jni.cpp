@@ -1104,7 +1104,7 @@ JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
     if (!g) {
         return;
     }
-    const uint32_t s = static_cast<uint32_t>(std::clamp<jint>(scale, 1, 4));
+    const uint32_t s = static_cast<uint32_t>(std::clamp<jint>(scale, 1, 6));
     Post([s] {
         if (s == g->resScale) {
             return;

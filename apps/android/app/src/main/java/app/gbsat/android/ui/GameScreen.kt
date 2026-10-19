@@ -223,8 +223,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 if (Emulator.renderer == 4) {
-                                    MenuItem(Icons.Default.HighQuality, "Internal resolution", value = "${Emulator.resScale}x") {
-                                        Emulator.resScale = Emulator.resScale % 4 + 1; Emulator.savePrefs(); Emulator.applyOptions()
+                                    MenuItem(Icons.Default.HighQuality, "Internal resolution", value = Emulator.resScaleLabel) {
+                                        // 1x → 2x → 3x → 4x → Native → 1x
+                                        Emulator.resScale = when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }; Emulator.savePrefs(); Emulator.applyOptions()
                                     }
                                 }
                                 if (Emulator.renderer == 1 || Emulator.renderer == 4) {

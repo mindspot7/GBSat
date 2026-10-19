@@ -1011,7 +1011,7 @@ struct VulkanVDPRenderer::Impl {
     }
 
     util::VoidResult<> Initialize(const VulkanRendererContext &context) {
-        maxScale = std::clamp<uint32>(context.resolutionScale, 1u, 4u);
+        maxScale = std::clamp<uint32>(context.resolutionScale, 1u, 6u); // up to 6x for "Native" on 1440p screens (reduced below if the GPU limits are exceeded)
         if (auto result = CreateDevice(context); !result) {
             return result;
         }

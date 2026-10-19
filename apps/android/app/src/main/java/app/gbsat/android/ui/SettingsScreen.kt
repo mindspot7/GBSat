@@ -194,8 +194,9 @@ private fun VideoPage() {
             ch { Emulator.renderer = rendererIds[it] })
         if (Emulator.renderer == 4) {
             Divider()
-            ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU",
-                listOf("1x", "2x", "3x", "4x"), Emulator.resScale - 1, ch { Emulator.resScale = it + 1 })
+            ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
+                listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
+                ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
             val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
             if (gpuErr.isNotEmpty()) Text("Last GPU error: $gpuErr", color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))

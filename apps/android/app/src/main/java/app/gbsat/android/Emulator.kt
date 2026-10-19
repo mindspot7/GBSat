@@ -81,7 +81,15 @@ object Emulator {
     var setupDone by mutableStateOf(true)
     fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
     var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
-    var resScale by mutableStateOf(1) // Vulkan GPU internal resolution scale (1x..4x)
+    var resScale by mutableStateOf(1) // Vulkan GPU internal resolution scale (1x..4x); 0 = Native (matches the screen)
+    /** Scale used for "Native": the screen's short side divided by the Saturn's ~224 lines, rounded (1x..6x). */
+    val nativeScale: Int
+        get() {
+            val m = appContext.resources.displayMetrics
+            return Math.round(minOf(m.widthPixels, m.heightPixels) / 224f).coerceIn(1, 6)
+        }
+    val effectiveScale get() = if (resScale == 0) nativeScale else resScale
+    val resScaleLabel get() = if (resScale == 0) "Native (${nativeScale}x)" else "${resScale}x"
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
     var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
@@ -382,7 +390,7 @@ object Emulator {
         renderer = prefs.getInt("renderer", 0).let { when (it) { 2 -> 4; 3 -> 1; else -> it } } // ANGLE (3) was removed
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
-        resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)
+        resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
         cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
         frameSkip = prefs.getBoolean("frameSkip", false)
         volume = prefs.getInt("volume", 100).coerceIn(0, 100)
@@ -435,7 +443,7 @@ object Emulator {
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetCartridge(cartridge)
-        NativeBridge.nativeSetResolutionScale(resScale)
+        NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
         NativeBridge.nativeSetAudio(volume, ffAudio)
