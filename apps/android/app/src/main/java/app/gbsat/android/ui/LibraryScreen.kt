@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
@@ -74,6 +75,7 @@ fun LibraryScreen(
     launch: (String) -> Unit,
     launchState: (Emulator.RecentState) -> Unit,
     onQuit: () -> Unit,
+    open: (String) -> Unit = launch,
 ) {
     val scope = rememberCoroutineScope()
     var recentMode by remember { mutableStateOf(false) }
@@ -107,7 +109,7 @@ fun LibraryScreen(
                     RecentStates(launchState = launchState, onSelected = {})
                 } else {
                     Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
-                        launch = launch, onSelected = {})
+                        launch = launch, onSelected = {}, open = open, launchState = launchState)
                 }
                 if (menuOpen) {
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f))
@@ -244,14 +246,34 @@ private fun MenuEntry(icon: ImageVector, label: String, tint: Color, modifier: M
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(30.dp), tint = tint)
-        Spacer(Modifier.width(16.dp))
+        IconTile(icon, tint)
+        Spacer(Modifier.width(14.dp))
         Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
 }
 
+/** Glossy app-style icon tile: color gradient, soft top highlight and drop shadow. */
 @Composable
-private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit) {
+fun IconTile(icon: ImageVector, color: Color, size: androidx.compose.ui.unit.Dp = 40.dp) {
+    val shape = RoundedCornerShape(size * 0.3f)
+    Box(
+        Modifier.size(size).shadow(6.dp, shape, ambientColor = color, spotColor = color).clip(shape)
+            .background(Brush.linearGradient(listOf(lerpColor(color, Color.White, .25f), lerpColor(color, Color.Black, .35f)))),
+        contentAlignment = Alignment.Center,
+    ) {
+        // highlight on the upper half
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.White.copy(alpha = .35f), 0.5f to Color.Transparent)))
+        Icon(icon, null, Modifier.size(size * 0.58f), tint = Color.White)
+    }
+}
+
+private fun lerpColor(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
+
+@Composable
+private fun Library(
+    onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit,
+    open: (String) -> Unit, launchState: (Emulator.RecentState) -> Unit,
+) {
     var games by remember { mutableStateOf<List<Storage.Game>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -290,6 +312,8 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                 gameMenu = null
             }
             gameMenu?.let { g ->
+                var latest by remember(g) { mutableStateOf<Emulator.RecentState?>(null) }
+                LaunchedEffect(g) { latest = withContext(Dispatchers.IO) { Emulator.latestState(g.path) } }
                 AlertDialog(
                     onDismissRequest = { gameMenu = null },
                     title = { Text(g.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -298,15 +322,20 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                             val secs = Emulator.playTime(g.path)
                             Text(if (secs >= 60) "Played ${formatPlayTime(secs)}" else "Not played yet", style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.height(12.dp))
+                            val st = latest
+                            TextButton(enabled = st != null, onClick = { gameMenu = null; st?.let(launchState) }) {
+                                Icon(Icons.Default.PlayCircle, null); Spacer(Modifier.width(8.dp))
+                                Text(if (st != null) "Continue" else "Continue (no save state)")
+                            }
+                            TextButton(onClick = { gameMenu = null; open(g.path) }) {
+                                Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Open")
+                            }
                             TextButton(onClick = { picker.launch(arrayOf("image/*")) }) {
                                 Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Choose cover image")
                             }
-                            TextButton(onClick = { scope.launch { Covers.clearCustom(g.title); coverVersion++ }; gameMenu = null }) {
-                                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Reset / re-download cover")
-                            }
                         }
                     },
-                    confirmButton = { TextButton(onClick = { gameMenu = null; launch(g.path) }) { Text("Play") } },
+                    confirmButton = {},
                     dismissButton = { TextButton(onClick = { gameMenu = null }) { Text("Close") } },
                 )
             }

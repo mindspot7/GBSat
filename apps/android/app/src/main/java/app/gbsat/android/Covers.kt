@@ -27,7 +27,7 @@ object Covers {
     private fun safe(title: String) = title.replace(Regex("[&*/:`<>?\\\\|\"]"), "_")
     private fun custom(title: String) = File(dir, "custom/${safe(title)}.img")
     private fun cached(title: String) = File(dir, "${safe(title)}.png")
-    private fun miss(title: String) = File(dir, "${safe(title)}.miss2")
+    private fun miss(title: String) = File(dir, "${safe(title)}.miss3")
 
     private fun decode(f: File): ImageBitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -51,8 +51,30 @@ object Covers {
     private const val BASE = "https://thumbnails.libretro.com/Sega%20-%20Saturn/Named_Boxarts/"
     @Volatile private var index: List<String>? = null
 
-    private fun norm(t: String) = t.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ").lowercase()
-        .replace(Regex("[^a-z0-9]+"), " ").trim()
+    // Cleans a title for matching: drops region/disc tags (even unbalanced ones such as "(CD1 (BR)"), disc markers,
+    // punctuation and articles, and spells "&" as "and".
+    private fun norm(t: String) = t
+        .replace(Regex("\\([^)]*\\)?|\\[[^]]*]?"), " ")
+        .replace(Regex("(?i)\\b(cd|disc|disk|dvd)\\s*\\d+\\b"), " ")
+        .replace("&", " and ")
+        .lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .replace(Regex("\\b(the|a|an)\\b"), " ")
+        .replace(Regex("\\s+"), " ").trim()
+
+    // Western titles of games whose box art is listed under the Japanese name
+    private val aliases = mapOf(
+        "sakura wars" to "sakura taisen",
+        "sakura wars 2" to "sakura taisen 2",
+        "grandia" to "grandia",
+        "dragon force 2" to "dragon force ii",
+        "langrisser 3" to "langrisser iii",
+        "princess crown" to "princess crown",
+        "radiant silvergun" to "radiant silvergun",
+        "dead or alive" to "dead or alive",
+        "x men vs street fighter" to "x men vs street fighter",
+        "marvel super heroes vs street fighter" to "marvel super heroes vs street fighter",
+    )
 
     // Lists the thumbnail server's file names once, so titles can be matched even when the disc image name differs.
     private fun loadIndex(): List<String> {
@@ -68,13 +90,36 @@ object Covers {
         return list
     }
 
+    private fun words(s: String) = s.split(" ").filter { it.isNotEmpty() }.toSet()
+
+    /**
+     * Finds the closest name on the thumbnail server: exact match after cleaning first (also through the alias list),
+     * then the best word overlap. Prefers USA, then Europe, then Japan, and the first disc.
+     */
     private fun fuzzy(title: String): String? {
-        val want = norm(title)
+        var want = norm(title)
         if (want.isEmpty()) return null
-        val cands = loadIndex().filter { norm(it) == want }
-        if (cands.isEmpty()) return null
-        // Prefer USA, then Europe, then anything else.
-        return cands.firstOrNull { "(USA" in it } ?: cands.firstOrNull { "(Europe" in it } ?: cands.first()
+        aliases[want]?.let { want = it }
+        val all = loadIndex()
+        if (all.isEmpty()) return null
+        fun pick(c: List<String>) = c.sortedWith(compareBy(
+            { if ("(USA" in it) 0 else if ("(Europe" in it) 1 else if ("(Japan" in it) 2 else 3 },
+            { if ("Disc 1" in it || "Disc" !in it) 0 else 1 },
+        )).firstOrNull()
+        pick(all.filter { norm(it) == want })?.let { return it }
+        // Word overlap (Jaccard); the candidate must share the first word and most of the words
+        val w = words(want)
+        val first = want.substringBefore(' ')
+        var best: String? = null
+        var bestScore = 0.0
+        for (name in all) {
+            val n = norm(name)
+            if (!n.startsWith(first)) continue
+            val nw = words(n)
+            val score = (w intersect nw).size.toDouble() / (w union nw).size
+            if (score > bestScore || (score == bestScore && best != null && pick(listOf(best, name)) == name)) { best = name; bestScore = score }
+        }
+        return if (bestScore >= 0.6) best else null
     }
 
     suspend fun load(title: String): ImageBitmap? = withContext(Dispatchers.IO) {
@@ -83,7 +128,7 @@ object Covers {
             ?: cached(title).takeIf { it.exists() }?.let(::decode)
             ?: run {
                 if (miss(title).exists()) return@run null
-                val stripped = title.replace(Regex("\\s*\\((Disc|Disk)\\s*\\d+\\)"), "").trim()
+                val stripped = title.replace(Regex("(?i)\\s*\\((Disc|Disk|CD)\\s*\\d+\\)?"), "").trim()
                 val ok = download(title, cached(title)) || (stripped != title && download(stripped, cached(title))) ||
                     (fuzzy(title)?.let { download(it, cached(title)) } ?: false)
                 if (ok) decode(cached(title)) else { miss(title).writeText("1"); null }

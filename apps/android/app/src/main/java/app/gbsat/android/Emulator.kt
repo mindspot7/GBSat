@@ -248,7 +248,7 @@ object Emulator {
 
     /** Starts a game and loads one of its save states. Returns an error message or null. */
     suspend fun launchState(s: RecentState): String? {
-        launch(s.gamePath)?.let { return it }
+        launch(s.gamePath, useAutoLoad = false)?.let { return it }
         return loadState(s.slot)
     }
 
@@ -428,12 +428,15 @@ object Emulator {
         err
     }
 
-    suspend fun launch(path: String): String? = withContext(Dispatchers.IO) {
+    /** Most recent save state of a game (auto, quick or slot), or null. */
+    fun latestState(path: String): RecentState? = recentStates().firstOrNull { it.gamePath == path }
+
+    suspend fun launch(path: String, useAutoLoad: Boolean = true): String? = withContext(Dispatchers.IO) {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
             currentGame = path; running = true; loadCheats()
-            if (autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
+            if (useAutoLoad && autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
             pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
         }
