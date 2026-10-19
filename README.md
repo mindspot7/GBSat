@@ -17,9 +17,9 @@ gamepad-friendly interface built in Jetpack Compose.
 - **Cheats**: Action Replay and raw address codes, import from `.cht` files
 - **Renderers**
   - Software (CPU)
-  - OpenGL ES and ANGLE presentation with texture filtering (nearest, bilinear) and shaders
-    (scanlines, CRT, LCD3x, dots)
-  - **Vulkan GPU**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders
+  - OpenGL ES presentation with texture filtering (nearest, bilinear) and shaders (CRT, Dots, LCD3x, Scanlines)
+  - **Vulkan GPU**: Saturn VDP1/VDP2 graphics rendered with Vulkan compute shaders, internal resolution up to 4x,
+    same filters and shaders
 - **Display**: 4:3, Fullscreen or 16:9 (with built-in widescreen hacks for supported games), optional FPS counter
 - **RetroAchievements**: login, hardcore mode, unlock notifications and achievement list
 - Touch controls (can be hidden)
