@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Small screens (e.g. 720x720): the interface scales down to fit. Menu opens over the button bar. Wider spacing between covers, shelf bar replaced by a soft cover reflection. Select hint removed.
+
 ## 0.9.0
 - Illustrated multicolor menu icons; narrower dropdown menu with a solid background.
 - Library: cleaner shelf (selected game details above the box art, save state and achievement badges, bigger selected cover), fixed button help bar with Nintendo-style colored buttons; blurred background removed.

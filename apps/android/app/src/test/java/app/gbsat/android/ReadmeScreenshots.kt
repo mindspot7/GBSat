@@ -70,6 +70,8 @@ class ReadmeScreenshots {
     @Test fun wizard() = shot("setup", { SetupWizard({}, {}) }) {
         repeat(5) { rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300) }
     }
+    @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareLibrary() = shot("square-library", { LibraryScreen({}, {}, {}, {}, {}) })
+    @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareMenu() = shot("square-menu", { LibraryScreen({}, {}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, {}, SettingsPage.Video) })
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, {}, SettingsPage.Controls) })
     @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, {}, SettingsPage.Performance) })

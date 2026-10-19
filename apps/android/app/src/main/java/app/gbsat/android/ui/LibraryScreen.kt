@@ -37,6 +37,9 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -84,6 +87,7 @@ fun LibraryScreen(
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(menuOpen) { if (menuOpen) { kotlinx.coroutines.delay(50); runCatching { menuFocus.requestFocus() } } }
     var confirmQuit by remember { mutableStateOf(false) }
+    var headerPx by remember { mutableIntStateOf(0) }
     // B / Back: close the menu, leave Recent, otherwise ask before quitting
     androidx.activity.compose.BackHandler { when { menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
     if (confirmQuit) AlertDialog(
@@ -104,7 +108,7 @@ fun LibraryScreen(
     }) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The whole logo bar opens the menu, which drops down right below it
-            Header(recentMode, onToggleRecent = { recentMode = !recentMode }, onMenu = { menuOpen = !menuOpen }, menuOpen = menuOpen)
+            Header(recentMode, Modifier.onSizeChanged { headerPx = it.height }, onToggleRecent = { recentMode = !recentMode }, onMenu = { menuOpen = !menuOpen }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 if (recentMode) {
                     RecentStates(launchState = launchState, onSelected = {})
@@ -112,22 +116,26 @@ fun LibraryScreen(
                     Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
                         launch = launch, onSelected = {}, open = open, launchState = launchState)
                 }
-                if (menuOpen) {
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f))
-                        .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { menuOpen = false })
-                }
-                androidx.compose.animation.AnimatedVisibility(
-                    menuOpen,
-                    enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
-                    exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
-                    modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp),
-                ) {
-                    Box(Modifier.width(220.dp).heightIn(max = 520.dp)) {
-                        SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
-                    }
-                }
             }
             HelpBar(recentMode)
+        }
+        // Menu and scrim drop down below the logo bar, over the shelf and the button help bar
+        val headerDp = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
+        Box(Modifier.fillMaxSize().safeDrawingPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp + headerDp + 8.dp)) {
+            if (menuOpen) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .35f))
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { menuOpen = false })
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                menuOpen,
+                enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, bottom = 4.dp),
+            ) {
+                Box(Modifier.width(220.dp)) {
+                    SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
+                }
+            }
         }
     }
 }
@@ -143,7 +151,7 @@ private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = Rou
     Surface(modifier, shape = shape, color = PanelColor, border = PanelBorder, content = content)
 
 @Composable
-private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -> Unit, menuOpen: Boolean) {
+private fun Header(recentMode: Boolean, modifier: Modifier, onToggleRecent: () -> Unit, onMenu: () -> Unit, menuOpen: Boolean) {
     val ctx = LocalContext.current
     var time by remember { mutableStateOf("") }
     var battery by remember { mutableIntStateOf(-1) }
@@ -164,7 +172,7 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
     }
     var headerFocused by remember { mutableStateOf(false) }
     Panel(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
+        modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
             .border(if (headerFocused || menuOpen) 2.dp else 0.dp, if (headerFocused || menuOpen) Gold.copy(alpha = .7f) else Color.Transparent, RoundedCornerShape(32.dp))
             .focusProperties { canFocus = false } // touch only: the controller never moves to the top bar
             .clickable(onClick = onMenu),
@@ -380,8 +388,8 @@ private fun Library(
                     Spacer(Modifier.weight(1f))
                     androidx.compose.foundation.lazy.LazyRow(
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = cardH * 0.12f, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         items(games.size, key = { games[it].path }) { i ->
@@ -394,13 +402,6 @@ private fun Library(
                             )
                         }
                     }
-                    // Shelf board
-                    Box(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(10.dp).clip(RoundedCornerShape(5.dp))
-                            .background(Brush.verticalGradient(listOf(Color(0xFF6E5BC4), Color(0xFF2A2150)))),
-                    )
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(14.dp)
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .35f), Color.Transparent))))
                 }
             }
         }
@@ -418,7 +419,6 @@ private fun HelpBar(recentMode: Boolean) {
         if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
         ButtonHint("X", Color(0xFF3B7BE5), "Settings")
         ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
-        ButtonHint("−", Color(0xFF6B6B7B), if (recentMode) "All games" else "Recent")
     }
 }
 
@@ -443,8 +443,9 @@ private fun GameCard(
     LaunchedEffect(g.title, version) { cover = Covers.load(g.title) }
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "scale")
+    Column(modifier.zIndex(if (focused) 1f else 0f).width(cardW)) {
     Box(
-        modifier.zIndex(if (focused) 1f else 0f).size(cardW, cardH)
+        Modifier.size(cardW, cardH)
             .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
@@ -477,6 +478,23 @@ private fun GameCard(
                 Text(g.title, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
+    // Soft mirror reflection of the cover below it, fading out
+    val refl = cover
+    if (refl != null) {
+        val ratio = (refl.width.toFloat() / refl.height).coerceIn(0.66f, 1.25f)
+        Box(
+            Modifier.padding(top = 3.dp).fillMaxWidth().height(cardH * 0.16f).clipToBounds()
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .30f), Color.Transparent)), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                },
+        ) {
+            Image(refl, null, Modifier.fillMaxWidth().aspectRatio(ratio).wrapContentHeight(Alignment.Top, unbounded = true)
+                .graphicsLayer { scaleY = -1f }.clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.FillBounds)
+        }
+    } else Spacer(Modifier.height(cardH * 0.16f + 3.dp))
     }
     // Keep the background in sync when the cover finishes loading while selected
     LaunchedEffect(cover) { if (focused) onSelected(cover) }

@@ -19,5 +19,17 @@ private val scheme = darkColorScheme(
     outline = Color(0xFF6E6596), outlineVariant = Color(0xFF433A6E),
 )
 
+/**
+ * Small screens (e.g. 720x720 handhelds, ~360dp per side) get the whole interface scaled down, so the layouts made for
+ * 480dp+ screens fit without cutting content. Screens with at least 480dp on the short side are not changed.
+ */
 @Composable
-fun GBSatTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = scheme, content = content)
+fun GBSatTheme(content: @Composable () -> Unit) {
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    val shortSide = minOf(cfg.screenWidthDp, cfg.screenHeightDp).coerceAtLeast(1)
+    val f = (shortSide / 480f).coerceIn(0.72f, 1f)
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * f, d.fontScale),
+    ) { MaterialTheme(colorScheme = scheme, content = content) }
+}
