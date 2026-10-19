@@ -67,6 +67,14 @@ class MainActivity : ComponentActivity() {
     private var r2Key = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Library: Select switches between all games and recent save states. Handled here because right after start or
+        // after closing a game nothing may be focused yet, and Compose key handlers only see events while focused.
+        if (!Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                app.gbsat.android.ui.MenuState.recent.value = !app.gbsat.android.ui.MenuState.recent.value
+            }
+            return true
+        }
         // Remap dialog is open: the next physical button press becomes the binding.
         Emulator.remapTarget?.let { target ->
             val fromPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0

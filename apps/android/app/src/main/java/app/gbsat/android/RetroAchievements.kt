@@ -47,6 +47,9 @@ object RetroAchievements {
     var loginPending by mutableStateOf(false); private set
     var loginError by mutableStateOf<String?>(null); private set
     var gameTitle by mutableStateOf<String?>(null); private set
+    /** Profile picture of the logged-in user. */
+    var avatarUrl by mutableStateOf<String?>(null); private set
+    private var userAgent = "GBSat"
 
     /** Pending on-screen notifications (unlocks, game info, errors). The UI shows and removes them. */
     var notifications by mutableStateOf<List<Notification>>(emptyList())
@@ -56,7 +59,9 @@ object RetroAchievements {
         cacheDir = File(context.cacheDir, "ra_badges").apply { mkdirs() }
         enabled = prefs.getBoolean("enabled", false)
         hardcore = prefs.getBoolean("hardcore", false)
-        NativeBridge.nativeRaInit("GBSat/$version (Android ${Build.VERSION.RELEASE})")
+        userAgent = "GBSat/$version (Android ${Build.VERSION.RELEASE})"
+        NativeBridge.nativeRaInit(userAgent)
+        avatarUrl = prefs.getString("avatar", null)
         NativeBridge.nativeRaSetHardcore(enabled && hardcore)
         val savedUser = prefs.getString("user", null)
         val token = prefs.getString("token", null)
@@ -129,7 +134,8 @@ object RetroAchievements {
             when (kind) {
                 "login" -> {
                     user = a; score = n; loginPending = false; loginError = null
-                    prefs.edit().putString("token", b).apply()
+                    avatarUrl = url.ifBlank { "https://media.retroachievements.org/UserPic/$a.png" }
+                    prefs.edit().putString("token", b).putString("avatar", avatarUrl).apply()
                     add += Notification("info", "RetroAchievements", "Logged in as $a ($n points)", 0, url)
                 }
                 "loginfail" -> { loginPending = false; loginError = a; user = null }
@@ -173,6 +179,50 @@ object RetroAchievements {
     }
 
     // ---- Badge images (cached on disk) ----
+    private fun request(params: String): org.json.JSONObject? = runCatching {
+        val c = URL("https://retroachievements.org/dorequest.php?$params").openConnection() as HttpURLConnection
+        c.connectTimeout = 10000; c.readTimeout = 15000
+        c.setRequestProperty("User-Agent", userAgent)
+        org.json.JSONObject(c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) })
+    }.getOrNull()
+
+    /**
+     * Achievements of any game in the library (not only the running one), with the user's unlocks. Returns a null
+     * summary when the game is not recognized or has no achievements.
+     */
+    suspend fun gameAchievements(path: String): Pair<GameSummary?, List<Achievement>> = withContext(Dispatchers.IO) {
+        val none = null to emptyList<Achievement>()
+        val u = user ?: return@withContext none
+        val t = prefs.getString("token", null) ?: return@withContext none
+        val hash = NativeBridge.nativeRaHashFile(path) ?: return@withContext none
+        val gameId = request("r=gameid&m=$hash")?.optLong("GameID", 0L) ?: 0L
+        if (gameId <= 0) return@withContext none
+        val enc = { s: String -> java.net.URLEncoder.encode(s, "UTF-8") }
+        val patch = request("r=patch&u=${enc(u)}&t=${enc(t)}&g=$gameId")?.optJSONObject("PatchData") ?: return@withContext none
+        val unlocked = HashSet<Long>()
+        for (h in listOf(0, 1)) {
+            request("r=unlocks&u=${enc(u)}&t=${enc(t)}&g=$gameId&h=$h")?.optJSONArray("UserUnlocks")?.let { arr ->
+                for (i in 0 until arr.length()) unlocked += arr.optLong(i)
+            }
+        }
+        val list = mutableListOf<Achievement>()
+        val arr = patch.optJSONArray("Achievements")
+        for (i in 0 until (arr?.length() ?: 0)) {
+            val a = arr!!.getJSONObject(i)
+            if (a.optInt("Flags", 3) != 3) continue // unofficial
+            val badge = a.optString("BadgeName")
+            val id = a.optLong("ID")
+            list += Achievement(id, a.optString("Title"), a.optString("Description"), a.optInt("Points"), id in unlocked,
+                "https://media.retroachievements.org/Badge/$badge.png", "https://media.retroachievements.org/Badge/${badge}_lock.png", "",
+                if (id in unlocked) "Unlocked" else "Locked")
+        }
+        if (list.isEmpty()) return@withContext none
+        list.sortBy { !it.unlocked }
+        val icon = patch.optString("ImageIconURL").ifBlank { "https://media.retroachievements.org" + patch.optString("ImageIcon") }
+        GameSummary(patch.optString("Title"), list.count { it.unlocked }, list.size, list.filter { it.unlocked }.sumOf { it.points },
+            list.sumOf { it.points }, icon, "", false) to list
+    }
+
     private val memCache = HashMap<String, ImageBitmap>()
 
     suspend fun image(url: String): ImageBitmap? {

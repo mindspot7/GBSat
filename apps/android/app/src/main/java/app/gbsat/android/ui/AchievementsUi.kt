@@ -76,9 +76,12 @@ fun RaNotifications(modifier: Modifier = Modifier) {
 
 /** Achievement list for the running game. */
 @Composable
-fun AchievementsScreen(onBack: () -> Unit) {
+fun AchievementsScreen(
+    onBack: () -> Unit,
+    load: suspend () -> Pair<RetroAchievements.GameSummary?, List<RetroAchievements.Achievement>> = { RetroAchievements.achievements() },
+) {
     var data by remember { mutableStateOf<Pair<RetroAchievements.GameSummary?, List<RetroAchievements.Achievement>>?>(null) }
-    LaunchedEffect(Unit) { data = RetroAchievements.achievements() }
+    LaunchedEffect(Unit) { data = load() }
 
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface,

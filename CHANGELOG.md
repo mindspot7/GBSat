@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- RetroAchievements: user picture, name and points at the top of the menu; Game options → Achievements shows any game's achievements and your unlocks. "Cover image" label. No highlight box around the selected cover. Select works right after start and after closing a game.
+
 ## 1.0.0 — Public release
 - Save state folders are named after the game (existing folders are renamed automatically).
 - Landscape: the settings menu is docked on the left and the library works beside it (X or Left/Right switch between them). The button help bar is shown only when a controller is connected.

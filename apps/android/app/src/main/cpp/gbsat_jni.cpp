@@ -1119,6 +1119,28 @@ JNI_FN(void, nativeRaInit)(JNIEnv *env, jclass, jstring userAgent) {
 }
 
 // Returned as UTF-8 bytes: titles may contain characters that JNI's modified UTF-8 strings cannot carry.
+// RetroAchievements hash of a disc image that is not running (same rule as nativeLoadDisc), for the game's achievement list.
+JNI_FN(jstring, nativeRaHashFile)(JNIEnv *env, jclass, jstring path) {
+    auto disc = std::make_shared<ymir::media::Disc>();
+    if (!ymir::media::LoadDisc(JStr(env, path), *disc, false, [](ymir::media::MessageType, std::string) {}) || disc->sessions.empty()) {
+        return nullptr;
+    }
+    const auto &session = disc->sessions.front();
+    const auto &track = session.tracks[session.firstTrackIndex];
+    std::array<uint8_t, 2048> sector{};
+    if (!track.ReadSectorUserData(track.startFrameAddress, sector)) {
+        return nullptr;
+    }
+    md5_state_t md5;
+    md5_byte_t digest[16];
+    md5_init(&md5);
+    md5_append(&md5, sector.data(), 512);
+    md5_finish(&md5, digest);
+    char hex[33];
+    for (int i = 0; i < 16; ++i) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    return env->NewStringUTF(hex);
+}
+
 JNI_FN(jbyteArray, nativeRaAchievements)(JNIEnv *env, jclass) {
     const std::string s = g ? RunSync([] { return ra::AchievementList(); }) : std::string{};
     jbyteArray arr = env->NewByteArray((jsize)s.size());

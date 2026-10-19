@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.gbsat.android.Covers
 import app.gbsat.android.Emulator
 import app.gbsat.android.R
+import app.gbsat.android.RetroAchievements
 import app.gbsat.android.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -83,7 +84,7 @@ fun LibraryScreen(
     open: (String) -> Unit = launch,
 ) {
     val scope = rememberCoroutineScope()
-    var recentMode by remember { mutableStateOf(false) }
+    var recentMode by MenuState.recent
     var menuOpen by MenuState.open
     val menuFocus = remember { FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -125,7 +126,6 @@ fun LibraryScreen(
                 if (docked && menuOpen) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) else menuOpen = !menuOpen
                 true
             }
-            Key.ButtonSelect -> { recentMode = !recentMode; true } // Select: all games / recent save states
             else -> false
         }
     }) {
@@ -174,6 +174,30 @@ fun LibraryScreen(
     }
 }
 
+/** Logged-in RetroAchievements user (picture, name, points) at the top of the menu. */
+@Composable
+private fun RaUserHeader() {
+    val ra = RetroAchievements
+    val name = ra.user ?: return
+    if (!ra.enabled) return
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        var pic by remember(ra.avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
+        LaunchedEffect(ra.avatarUrl) { pic = ra.avatarUrl?.let { ra.image(it) } }
+        Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF3A2D73)), contentAlignment = Alignment.Center) {
+            val p = pic
+            if (p != null) Image(p, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else Icon(Icons.Default.AccountCircle, null, tint = Color.White.copy(alpha = .8f))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${ra.score} pts" + if (ra.hardcoreActive) " · Hardcore" else "", style = MaterialTheme.typography.labelMedium,
+                color = Gold, maxLines = 1)
+        }
+    }
+    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .12f))
+}
+
 /** True while a physical controller (gamepad/joystick) is connected; updates when one is plugged in or removed. */
 @Composable
 fun rememberHasGamepad(): Boolean {
@@ -200,6 +224,8 @@ fun rememberHasGamepad(): Boolean {
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
 internal object MenuState {
     val open = mutableStateOf(false)
+    /** Library shows recent save states instead of all games (Select; toggled in MainActivity so it works without focus). */
+    val recent = mutableStateOf(false)
     var selected by mutableStateOf<SettingsPage?>(null)
 }
 
@@ -328,6 +354,7 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester, fill: Boolean = false) {
     Surface(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), shadowElevation = 12.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+            RaUserHeader()
             Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             listOf(
                 Triple(MenuIcon.System, "System", SettingsPage.System), Triple(MenuIcon.Video, "Video", SettingsPage.Video),
@@ -414,6 +441,14 @@ private fun Library(
             val ctx = LocalContext.current
             val scope = rememberCoroutineScope()
             var gameMenu by remember { mutableStateOf<Storage.Game?>(null) }
+            var achievementsFor by remember { mutableStateOf<String?>(null) }
+            achievementsFor?.let { path ->
+                androidx.activity.compose.BackHandler { achievementsFor = null }
+                // Drawn over the shelf (same parent box), so the controller mapping of the main window applies
+                Box(Modifier.zIndex(10f).fillMaxSize()) {
+                    AchievementsScreen(onBack = { achievementsFor = null }, load = { RetroAchievements.gameAchievements(path) })
+                }
+            }
             var coverVersion by remember { mutableIntStateOf(0) }
             val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 val g = gameMenu
@@ -439,8 +474,13 @@ private fun Library(
                             TextButton(onClick = { gameMenu = null; open(g.path) }) {
                                 Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Open")
                             }
+                            if (RetroAchievements.enabled && RetroAchievements.user != null) {
+                                TextButton(onClick = { gameMenu = null; achievementsFor = g.path }) {
+                                    Icon(Icons.Default.EmojiEvents, null); Spacer(Modifier.width(8.dp)); Text("Achievements")
+                                }
+                            }
                             TextButton(onClick = { picker.launch(arrayOf("image/*")) }) {
-                                Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Choose cover image")
+                                Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Cover image")
                             }
                         }
                     },
@@ -562,7 +602,9 @@ private fun GameCard(
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonY) { onOptions(); true } else false
             }
-            .combinedClickable(onClick = onClick, onLongClick = onOptions),
+            // No focus/press highlight box: the enlarged cover is the selection
+            .combinedClickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null,
+                onClick = onClick, onLongClick = onOptions),
         contentAlignment = Alignment.BottomCenter,
     ) {
         val bmp = cover
