@@ -147,19 +147,21 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
         }
     }
     Panel(Modifier.fillMaxWidth(), RoundedCornerShape(32.dp)) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+      BoxWithConstraints {
+        val compact = maxWidth < 420.dp // narrow portrait screens: drop the subtitle, battery text and clock
+        Row(Modifier.padding(horizontal = if (compact) 10.dp else 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("GBSat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(if (recentMode) "Recent · save states" else "Sega Saturn Emulation", style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = .7f), maxLines = 1)
+                    color = Color.White.copy(alpha = .7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // Library / Recent switch
             FocusableIcon(if (recentMode) Icons.Default.GridView else Icons.Default.History,
                 if (recentMode) "Show all games" else "Show recent save states", Gold, onToggleRecent)
             Spacer(Modifier.width(8.dp))
-            Text(time, style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = .9f))
+            if (!compact) Text(time, style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = .9f))
             if (battery >= 0) {
                 Spacer(Modifier.width(12.dp))
                 Icon(
@@ -171,11 +173,12 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
                         else -> Icons.Default.Battery1Bar
                     }, null, tint = if (battery <= 20 && !charging) Color(0xFFFF6B6B) else Color(0xFF6BE58A),
                 )
-                Text("$battery%", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = .9f))
+                if (!compact) Text("$battery%", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = .9f))
             }
             Spacer(Modifier.width(4.dp))
             FocusableIcon(Icons.Default.MoreVert, "Menu", Gold, onMenu)
         }
+      }
     }
 }
 

@@ -137,9 +137,10 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
             times = withContext(Dispatchers.IO) { Emulator.slotTimes() }
             thumbs = withContext(Dispatchers.IO) { (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() } }
         }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
+            val maxStateHeight = maxHeight - 32.dp
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.heightIn(max = maxStateHeight).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("$mode state", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
                     for (slot in 0 until Emulator.STATE_SLOTS) {
                         val t = times.getOrNull(slot)

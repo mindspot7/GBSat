@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -41,18 +43,28 @@ private val padPressed = Color.White.copy(alpha = .5f)
 
 @Composable
 fun TouchControls(modifier: Modifier, landscape: Boolean) {
-    Box(modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+    BoxWithConstraints(modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        // Scale the controls down on small or square screens so they never overlap each other
+        val needW = 400.dp
+        val needH = if (landscape) 330.dp else 290.dp
+        val s = minOf(1f, maxWidth / needW, maxHeight / needH).coerceAtLeast(0.5f)
+        fun Modifier.scaled(originX: Float, originY: Float) =
+            graphicsLayer { scaleX = s; scaleY = s; transformOrigin = TransformOrigin(originX, originY) }
+        val shoulderTop = if (landscape) 56.dp * s else 0.dp
+
         // Shoulders
-        Row(Modifier.align(Alignment.TopStart).padding(top = if (landscape) 56.dp else 0.dp)) { Shoulder("L", SaturnButton.L) }
-        Row(Modifier.align(Alignment.TopEnd).padding(top = if (landscape) 56.dp else 0.dp)) { Shoulder("R", SaturnButton.R) }
+        Row(Modifier.align(Alignment.TopStart).padding(top = shoulderTop).scaled(0f, 0f)) { Shoulder("L", SaturnButton.L) }
+        Row(Modifier.align(Alignment.TopEnd).padding(top = shoulderTop).scaled(1f, 0f)) { Shoulder("R", SaturnButton.R) }
 
         // Left: D-pad or analog stick
-        Box(Modifier.align(if (landscape) Alignment.BottomStart else Alignment.CenterStart).padding(bottom = 16.dp)) {
+        Box(Modifier.align(if (landscape) Alignment.BottomStart else Alignment.CenterStart).padding(bottom = 16.dp * s)
+            .scaled(0f, if (landscape) 1f else 0.5f)) {
             if (Emulator.analogPad) AnalogStick() else DPad()
         }
 
         // Right: face buttons
-        Box(Modifier.align(if (landscape) Alignment.BottomEnd else Alignment.CenterEnd).padding(bottom = 16.dp).size(190.dp)) {
+        Box(Modifier.align(if (landscape) Alignment.BottomEnd else Alignment.CenterEnd).padding(bottom = 16.dp * s)
+            .scaled(1f, if (landscape) 1f else 0.5f).size(190.dp)) {
             Face("X", SaturnButton.X, Modifier.align(Alignment.TopStart).offset(x = 0.dp, y = 8.dp))
             Face("Y", SaturnButton.Y, Modifier.align(Alignment.TopCenter).offset(y = (-4).dp))
             Face("Z", SaturnButton.Z, Modifier.align(Alignment.TopEnd).offset(y = 8.dp))
@@ -62,7 +74,7 @@ fun TouchControls(modifier: Modifier, landscape: Boolean) {
         }
 
         // Start
-        Box(Modifier.align(Alignment.BottomCenter)) { StartButton() }
+        Box(Modifier.align(Alignment.BottomCenter).scaled(0.5f, 1f)) { StartButton() }
     }
 }
 

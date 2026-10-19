@@ -56,8 +56,22 @@ jobs:
             -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
+      - name: Release signing key (repository secrets)
+        env:
+          KEYSTORE_B64: ${{ secrets.GBSAT_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/gbsat-release.jks"
+            echo "GBSAT_KEYSTORE_FILE=$RUNNER_TEMP/gbsat-release.jks" >> "$GITHUB_ENV"
+            echo "::notice title=Signing::APK signed with the GBSat release key"
+          else
+            echo "::warning title=Signing::GBSAT_KEYSTORE_BASE64 secret not set; APK signed with the cached debug key"
+          fi
+
       - name: Build release APK
         working-directory: apps/android
+        env:
+          GBSAT_KEYSTORE_PASSWORD: ${{ secrets.GBSAT_KEYSTORE_PASSWORD }}
         run: |
           set +e
           gradle --no-daemon assembleRelease --stacktrace > build.log 2>&1

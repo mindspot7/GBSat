@@ -45,12 +45,21 @@ android {
     }
 
     signingConfigs {
-        // Debug-keystore signing keeps the release APK installable without extra setup.
+        // Permanent release key: CI decodes the GBSAT_KEYSTORE_BASE64 secret to GBSAT_KEYSTORE_FILE. Every APK signed
+        // with it installs over the previous one. Without it (forks, local builds) the debug keystore is used.
+        val releaseKey = System.getenv("GBSAT_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
         create("sideload") {
-            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            if (releaseKey != null) {
+                storeFile = releaseKey
+                storePassword = System.getenv("GBSAT_KEYSTORE_PASSWORD")
+                keyAlias = "gbsat"
+                keyPassword = System.getenv("GBSAT_KEYSTORE_PASSWORD")
+            } else {
+                storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
