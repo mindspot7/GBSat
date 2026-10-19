@@ -128,6 +128,14 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             TextButton(onClick = { Emulator.resetKeyMap() }) { Text("Reset mapping to defaults") }
 
             Section("Display")
+            val preset = Emulator.currentPreset
+            Choice("Preset", Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
+                preset?.ordinal ?: Emulator.Preset.entries.size) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
+            Text(
+                "High: Vulkan GPU at 4x with the LCD3x shader, for powerful devices. Mid: ANGLE with the Dots shader. " +
+                    "Low: OpenGL ES with frame skip, for modest devices. Changing any of these options sets the preset to Custom.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
+            )
             // Renderer modes shown (internal ids): Software 0, OpenGL ES 1, ANGLE 3, Vulkan GPU 4
             val rendererIds = listOf(0, 1, 3, 4)
             Choice("Renderer", listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU"),

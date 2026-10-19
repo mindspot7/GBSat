@@ -31,6 +31,7 @@ out vec4 outColor;
 uniform sampler2D uTex;
 uniform vec2 uTexSize;
 uniform vec2 uOutSize;
+uniform vec2 uSrcSize; // native (1x) size of the frame: patterns follow the original pixels at any internal resolution
 uniform int uFilter;
 uniform int uShader;
 
@@ -68,7 +69,7 @@ void main() {
     }
 
     vec3 col = texture(uTex, filterUv(uv)).rgb;
-    float line = fract(uv.y * uTexSize.y);
+    float line = fract(uv.y * uSrcSize.y);
 
     if (uShader == 1) {
         col *= 0.60 + 0.40 * sin(line * PI);
@@ -88,7 +89,7 @@ void main() {
         col *= mask * gap * 1.5;
     } else if (uShader == 4) {
         // Dot matrix: round dot per source pixel
-        vec2 c = fract(uv * uTexSize) - 0.5;
+        vec2 c = fract(uv * uSrcSize) - 0.5;
         col *= smoothstep(0.62, 0.30, length(c));
         col *= 1.25;
     }
@@ -108,7 +109,7 @@ struct State {
     bool windowPending = false;
 
     std::vector<uint32_t> frame;
-    uint32_t fw = 0, fh = 0;
+    uint32_t fw = 0, fh = 0, fscale = 1;
     bool frameReady = false;
 
     std::atomic<int> filter{1};
@@ -157,8 +158,10 @@ void Loop() {
     EGLSurface surf = EGL_NO_SURFACE;
     ANativeWindow *win = nullptr;
     GLuint prog = 0, tex = 0, vao = 0;
+    GLint uSrcSize = -1;
     GLint uTexSize = -1, uOutSize = -1, uFilter = -1, uShader = -1;
     uint32_t texW = 0, texH = 0;
+    float texScale = 1.0f;
     std::vector<uint32_t> local;
     uint32_t lw = 0, lh = 0;
     bool haveFrame = false;
@@ -195,6 +198,7 @@ void Loop() {
                             glAttachShader(prog, fs);
                             glLinkProgram(prog);
                             uTexSize = glGetUniformLocation(prog, "uTexSize");
+                            uSrcSize = glGetUniformLocation(prog, "uSrcSize");
                             uOutSize = glGetUniformLocation(prog, "uOutSize");
                             uFilter = glGetUniformLocation(prog, "uFilter");
                             uShader = glGetUniformLocation(prog, "uShader");
@@ -217,6 +221,7 @@ void Loop() {
                 std::swap(local, S.frame);
                 lw = S.fw;
                 lh = S.fh;
+                texScale = (float)S.fscale;
                 S.frameReady = false;
                 newFrame = true;
                 haveFrame = true;
@@ -251,6 +256,7 @@ void Loop() {
         glBindTexture(GL_TEXTURE_2D, tex);
         glUniform1i(glGetUniformLocation(prog, "uTex"), 0);
         glUniform2f(uTexSize, (float)texW, (float)texH);
+        glUniform2f(uSrcSize, (float)texW / texScale, (float)texH / texScale);
         glUniform2f(uOutSize, (float)sw, (float)sh);
         glUniform1i(uFilter, S.filter.load());
         glUniform1i(uShader, S.shader.load());
@@ -290,7 +296,7 @@ void SetWindow(ANativeWindow *window) {
     S.cv.notify_all();
 }
 
-void Submit(const uint32_t *fb, uint32_t width, uint32_t height) {
+void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale) {
     std::lock_guard lk(S.m);
     if (!S.started) {
         return;
@@ -298,6 +304,7 @@ void Submit(const uint32_t *fb, uint32_t width, uint32_t height) {
     S.frame.assign(fb, fb + (size_t)width * height);
     S.fw = width;
     S.fh = height;
+    S.fscale = scale ? scale : 1;
     S.frameReady = true;
     S.cv.notify_all();
 }

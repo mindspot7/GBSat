@@ -114,6 +114,9 @@ public:
     void VDP2EndFrame() override;
     void VDP2SetSkipFrame(bool skip) override;
 
+    /// @brief Internal resolution scale of the frame passed to the frame ready callback (call from the callback).
+    uint32 DeliveredFrameScale() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

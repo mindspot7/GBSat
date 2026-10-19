@@ -183,6 +183,21 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
                     Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
                 }
+                MenuItem(Icons.Default.Tune, "Preset: " + (Emulator.currentPreset?.label ?: "Custom")) {
+                    val all = Emulator.Preset.entries
+                    Emulator.applyPreset(all[((Emulator.currentPreset?.ordinal ?: -1) + 1) % all.size])
+                }
+                val rendererIds = listOf(0, 1, 3, 4)
+                val rendererNames = listOf("Software", "OpenGL ES", "ANGLE", "Vulkan GPU")
+                MenuItem(Icons.Default.Memory, "Renderer: " + rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
+                    Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
+                    Emulator.savePrefs(); Emulator.applyOptions()
+                }
+                if (Emulator.renderer == 4) {
+                    MenuItem(Icons.Default.HighQuality, "Internal resolution: ${Emulator.resScale}x") {
+                        Emulator.resScale = Emulator.resScale % 4 + 1; Emulator.savePrefs(); Emulator.applyOptions()
+                    }
+                }
                 MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
                 }

@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.5.0
+- Presets (High, Mid, Low) in the setup wizard, Settings and the in-game menu; changing a preset option shows "Custom".
+- In-game menu: renderer and internal resolution options.
+- Shaders (Scanlines, Dots) follow the original pixels at higher internal resolutions.
 - Frame skip option (renders every other frame).
 - Play time recorded per game and shown in the library.
 - Emulator data location can be changed (BIOS, saves, save states, cheats, covers are copied to the new folder).

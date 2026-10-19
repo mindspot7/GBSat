@@ -295,6 +295,7 @@ struct VulkanVDPRenderer::Impl {
         bool readbackPending = false;
         uint32 readbackW = 0;
         uint32 readbackH = 0;
+        uint32 readbackScale = 1;
 
         // VDP1
         GpuBuffer spanParamsBuffer;
@@ -2627,6 +2628,8 @@ struct VulkanVDPRenderer::Impl {
 
     /// @brief Frame skipping: skip VDP2 rendering, composition and readback of the current frame.
     bool skipFrame = false;
+    /// @brief Internal resolution scale of the frame being delivered (valid during the frame ready callback).
+    uint32 deliveredScale = 1;
 
     void VDP2ComposeLines(uint32 y) {
         // Bail out if there's nothing to render
@@ -2683,6 +2686,7 @@ struct VulkanVDPRenderer::Impl {
         frameCtx.readbackPending = true;
         frameCtx.readbackW = outW;
         frameCtx.readbackH = outH;
+        frameCtx.readbackScale = vdp2.outScale;
         }
         vdp2.outScaleLocked = false; // the next frame may pick a different scale
 
@@ -2749,6 +2753,7 @@ struct VulkanVDPRenderer::Impl {
         }
         WaitFrame(frameCtx);
         frameCtx.readbackPending = false;
+        deliveredScale = frameCtx.readbackScale;
         auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
         const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
         for (size_t i = 0; i < count; ++i) {
@@ -2928,6 +2933,10 @@ void VulkanVDPRenderer::VDP2BeginFrame() {
 
 void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
     m_impl->VDP2RenderLine(y);
+}
+
+uint32 VulkanVDPRenderer::DeliveredFrameScale() const {
+    return m_impl->deliveredScale;
 }
 
 void VulkanVDPRenderer::VDP2SetSkipFrame(bool skip) {

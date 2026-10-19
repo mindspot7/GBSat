@@ -42,6 +42,28 @@ object Emulator {
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
     var frameSkip by mutableStateOf(false) // render every other frame
+
+    // ---- Presets: groups of video/performance options ----
+    enum class Preset(val label: String) { Low("Low"), Mid("Mid"), High("High") }
+    private data class PresetValues(val renderer: Int, val resScale: Int, val shader: Int, val filter: Int,
+                                    val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
+    private fun presetValues(p: Preset) = when (p) {
+        // Powerful devices: GPU rendering at 4x with the LCD grid, accurate SH-2 cache
+        Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 3, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
+        // Mid-range: CPU rendering shown through ANGLE with the dot shader
+        Preset.Mid -> PresetValues(renderer = 3, resScale = 1, shader = 4, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        // Modest devices: CPU rendering through OpenGL ES, no shader, frame skip
+        Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
+    }
+    /** The preset matching the current options, or null ("Custom") when any of them was changed. */
+    val currentPreset: Preset?
+        get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache, threadedVdp) }
+    fun applyPreset(p: Preset) {
+        val v = presetValues(p)
+        renderer = v.renderer; resScale = v.resScale; shader = v.shader; filter = v.filter
+        frameSkip = v.frameSkip; sh2Cache = v.sh2Cache; threadedVdp = v.threadedVdp
+        savePrefs(); applyOptions()
+    }
     var setupDone by mutableStateOf(true)
     fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
     var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)

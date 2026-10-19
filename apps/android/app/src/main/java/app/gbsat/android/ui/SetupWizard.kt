@@ -50,7 +50,7 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
         }
     }
 
-    val steps = 5
+    val steps = 6
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp)) {
         LinearProgressIndicator(progress = { (step + 1f) / steps }, modifier = Modifier.fillMaxWidth())
         Column(
@@ -77,6 +77,29 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
                     if (Emulator.gamesDir.isNotBlank()) Status(Emulator.gamesDir)
                 }
                 4 -> {
+                    Page(Icons.Default.Tune, "Preset",
+                        "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.")
+                    val descriptions = mapOf(
+                        Emulator.Preset.High to "Vulkan GPU at 4x resolution, LCD3x shader. For powerful devices.",
+                        Emulator.Preset.Mid to "ANGLE renderer, Dots shader. For mid-range devices.",
+                        Emulator.Preset.Low to "OpenGL ES with frame skip, no shader. For modest devices.",
+                    )
+                    listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low).forEach { p ->
+                        val selected = Emulator.currentPreset == p
+                        OutlinedCard(onClick = { Emulator.applyPreset(p) }, modifier = Modifier.fillMaxWidth(),
+                            border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = selected, onClick = { Emulator.applyPreset(p) })
+                                Column {
+                                    Text(p.label, style = MaterialTheme.typography.titleMedium)
+                                    Text(descriptions.getValue(p), style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+                5 -> {
                     Page(Icons.Default.Storage, "Emulator data",
                         "BIOS, saves, save states, cheats and covers are kept in the app's internal storage. " +
                             "You can store them in a folder of your choice instead (easier to back up).")

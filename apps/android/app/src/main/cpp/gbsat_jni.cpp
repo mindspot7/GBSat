@@ -326,7 +326,11 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     g->frameCounter.fetch_add(1, std::memory_order_relaxed);
 
     if (g->glMode.load(std::memory_order_relaxed)) {
-        glr::Submit(fb, width, height);
+        uint32_t scale = 1;
+        if (auto *vkr = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
+            scale = vkr->DeliveredFrameScale();
+        }
+        glr::Submit(fb, width, height, scale);
         return;
     }
 
@@ -1015,7 +1019,19 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         // Vulkan GPU (4) emulates the VDPs on the GPU and shows the frames through the OpenGL ES presenter, which
         // provides the filters and shaders
-        g->glMode = (mode == 1 || mode == 3 || mode == 4);
+        const bool newGl = (mode == 1 || mode == 3 || mode == 4);
+        const bool oldGl = g->glMode.load();
+        if (oldGl && !newGl) {
+            glr::Shutdown(); // switching to CPU presentation in game: release the GL surface
+        } else if (!oldGl && newGl) {
+            std::lock_guard lk(g->winMutex);
+            if (g->window) {
+                ANativeWindow_release(g->window);
+                g->window = nullptr;
+            }
+            g->curW = g->curH = 0;
+        }
+        g->glMode = newGl;
         g->rendererMode = mode;
         g_crashRenderer = mode;
         if (g->glMode) {
