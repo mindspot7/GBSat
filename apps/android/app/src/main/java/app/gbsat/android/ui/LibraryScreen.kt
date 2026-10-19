@@ -496,10 +496,12 @@ private fun GameCard(
     LaunchedEffect(g.title, version) { cover = Covers.load(g.title) }
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "scale")
-    Column(modifier.zIndex(if (focused) 1f else 0f).width(cardW)) {
+    // Cover and reflection scale together around the cover's bottom edge, so the reflection always starts below it
+    val reflH = cardH * 0.16f + 4.dp
+    Column(modifier.zIndex(if (focused) 1f else 0f).width(cardW)
+        .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, cardH / (cardH + reflH)) }) {
     Box(
-        Modifier.size(cardW, cardH)
-            .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
+        Modifier.size(cardW, cardH).clipToBounds()
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonY) { onOptions(); true } else false
@@ -537,7 +539,7 @@ private fun GameCard(
     if (refl != null) {
         val ratio = (refl.width.toFloat() / refl.height).coerceIn(0.66f, 1.25f)
         Box(
-            Modifier.padding(top = 3.dp).fillMaxWidth().height(cardH * 0.16f).clipToBounds()
+            Modifier.padding(top = 4.dp).fillMaxWidth().height(cardH * 0.16f).clipToBounds()
                 .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
@@ -547,7 +549,7 @@ private fun GameCard(
             Image(refl, null, Modifier.fillMaxWidth().aspectRatio(ratio).wrapContentHeight(Alignment.Top, unbounded = true)
                 .graphicsLayer { scaleY = -1f }.clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.FillBounds)
         }
-    } else Spacer(Modifier.height(cardH * 0.16f + 3.dp))
+    } else Spacer(Modifier.height(reflH))
     }
     // Keep the background in sync when the cover finishes loading while selected
     LaunchedEffect(cover) { if (focused) onSelected(cover) }
