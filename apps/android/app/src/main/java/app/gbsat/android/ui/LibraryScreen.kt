@@ -80,7 +80,16 @@ fun LibraryScreen(
     var menuOpen by remember { mutableStateOf(false) }
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(menuOpen) { if (menuOpen) { kotlinx.coroutines.delay(50); runCatching { menuFocus.requestFocus() } } }
-    androidx.activity.compose.BackHandler(menuOpen) { menuOpen = false }
+    var confirmQuit by remember { mutableStateOf(false) }
+    // B / Back: close the menu, leave Recent, otherwise ask before quitting
+    androidx.activity.compose.BackHandler { when { menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
+    if (confirmQuit) AlertDialog(
+        onDismissRequest = { confirmQuit = false },
+        icon = { Icon(Icons.Default.PowerSettingsNew, null) },
+        title = { Text("Quit GBSat?") },
+        confirmButton = { TextButton(onClick = { confirmQuit = false; onQuit() }) { Text("Quit") } },
+        dismissButton = { TextButton(onClick = { confirmQuit = false }) { Text("Cancel") } },
+    )
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -124,6 +133,7 @@ private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF1D1636), Col
 private val PanelColor = Color(0xFF1B1830).copy(alpha = 0.88f)
 private val PanelBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
 private val Gold = Color(0xFFE8C26A)
+private val Focus = Color(0xFFC9B8FF) // selection outline (light violet)
 
 @Composable
 private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = RoundedCornerShape(24.dp), content: @Composable () -> Unit) =
@@ -210,7 +220,7 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester) {
     Panel(Modifier.fillMaxWidth()) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
-            Text("OPTIONS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+            Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6), Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
             MenuEntry(Icons.Default.Tv, "Video", Color(0xFF7FD7C4)) { onOpenSettings(SettingsPage.Video) }
             MenuEntry(Icons.Default.VolumeUp, "Audio", Color(0xFF9BE37B)) { onOpenSettings(SettingsPage.Audio) }
@@ -311,12 +321,12 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                 val portrait = maxWidth < maxHeight * 1.2f
                 val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(130.dp, 240.dp) else (maxHeight * 0.58f).coerceIn(140.dp, 340.dp)
                 val cardW = cardH * 0.72f
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
+                Column(Modifier.fillMaxSize()) {
                     // Selected game: name, play time and badges (only while a game is selected)
                     androidx.compose.animation.AnimatedVisibility(selected != null,
                         enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
                         val g = selected
-                        if (g != null) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                        if (g != null) Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp)) {
                             Text(g.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -336,6 +346,7 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                             }
                         }
                     }
+                    Spacer(Modifier.weight(1f))
                     androidx.compose.foundation.lazy.LazyRow(
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = cardH * 0.12f, bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -373,8 +384,9 @@ private fun HelpBar(recentMode: Boolean) {
         horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
     ) {
         ButtonHint("A", Color(0xFFE5483B), "Play")
-        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Options")
-        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
+        if (!recentMode) ButtonHint("+", Color(0xFF6B6B7B), "Game options")
+        ButtonHint("X", Color(0xFF3B7BE5), "Settings")
+        ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
         ButtonHint("−", Color(0xFF6B6B7B), if (recentMode) "All games" else "Recent")
     }
 }
@@ -405,25 +417,27 @@ private fun GameCard(
             .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY)) { onOptions(); true } else false
+                if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonStart) { onOptions(); true } else false
             }
             .combinedClickable(onClick = onClick, onLongClick = onOptions),
         contentAlignment = Alignment.BottomCenter,
     ) {
         val bmp = cover
         if (bmp != null) {
-            // Box art keeps its own proportions inside the slot and stands on the shelf
+            // Every cover has the same width; its proportions are kept within a narrow range (tall US cases are
+            // stretched slightly, square JP/EU cases slightly squeezed) so the shelf looks even
+            val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.66f, 0.80f)
             Image(
                 bmp, g.title,
-                Modifier.fillMaxWidth().aspectRatio(bmp.width.toFloat() / bmp.height, matchHeightConstraintsFirst = bmp.height > bmp.width * 1.39f)
+                Modifier.fillMaxWidth().aspectRatio(ratio)
                     .clip(RoundedCornerShape(10.dp))
-                    .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)),
-                contentScale = ContentScale.Fit,
+                    .border(if (focused) 3.dp else 1.dp, if (focused) Focus else Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)),
+                contentScale = ContentScale.FillBounds,
             )
         } else {
             Column(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Color(0xFF241F3D))
-                    .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
+                    .border(if (focused) 3.dp else 1.dp, if (focused) Focus else Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
                     .padding(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
             ) {

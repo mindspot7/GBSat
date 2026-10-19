@@ -5,6 +5,7 @@
 - Setup wizard: preset is the last step, gradient background, colorful icons. High preset uses the Scanlines shader.
 - Library: menu drops down from the GBSat logo bar (tap anywhere on the bar); closer box art.
 - In-game menu: new Overlays submenu (FPS, speed, renderer, resolution, fast-forward button, touch controls); on-screen fast-forward button.
+- Library: covers with even width (proportions kept in a narrow range), game details at the top, light violet selection outline, Start opens the game options, B asks before quitting.
 - Controller: X opens the menu, Select switches between all games and recent save states.
 - Auto save / auto load: the game state is saved when closing a game and restored when starting it (System → Save states).
 - Overlays: show FPS, speed, renderer and resolution.
