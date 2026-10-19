@@ -209,7 +209,14 @@ private fun VideoPage() {
         }
     }
     Group("Overlay", Icons.Default.Layers) {
-        ToggleRow(Icons.Default.Speed, "Show FPS", "Emulation speed in the corner of the screen", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
+        ToggleRow(Icons.Default.Speed, "Show FPS", "Frames per second", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.Percent, "Show speed", "Emulation speed in percent (100% = full speed)", Emulator.showSpeed) { Emulator.showSpeed = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.Memory, "Show renderer", "Software, OpenGL ES or Vulkan GPU", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Saturn resolution and, with Vulkan GPU scaling, the internal resolution",
+            Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
     }
 }
 

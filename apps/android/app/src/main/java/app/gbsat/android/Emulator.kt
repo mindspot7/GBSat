@@ -38,6 +38,9 @@ object Emulator {
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)
+    var showSpeed by mutableStateOf(false)
+    var showRenderer by mutableStateOf(false)
+    var showResolution by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
     var frameSkip by mutableStateOf(false) // render every other frame
@@ -317,6 +320,9 @@ object Emulator {
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
         showFps = prefs.getBoolean("showFps", false)
+        showSpeed = prefs.getBoolean("showSpeed", false)
+        showRenderer = prefs.getBoolean("showRenderer", false)
+        showResolution = prefs.getBoolean("showResolution", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         // "Vulkan" (present-only, id 2) was replaced by Vulkan GPU, which also presents through Vulkan
         renderer = prefs.getInt("renderer", 0).let { when (it) { 2 -> 4; 3 -> 1; else -> it } } // ANGLE (3) was removed
@@ -386,7 +392,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
+        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
 

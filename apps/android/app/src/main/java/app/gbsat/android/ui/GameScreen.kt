@@ -37,10 +37,11 @@ import kotlinx.coroutines.withContext
 fun GameScreen(onQuitApp: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var fps by remember { mutableFloatStateOf(0f) }
+    var stats by remember { mutableStateOf(longArrayOf(0, 320, 224, 0, 1)) }
 
     BackHandler(enabled = !menu) { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
-        while (true) { fps = NativeBridge.nativeGetStats()[0] / 100f; delay(500) }
+        while (true) { stats = NativeBridge.nativeGetStats(); fps = stats[0] / 100f; delay(500) }
     }
     LaunchedEffect(Emulator.menuRequest) {
         if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }
@@ -84,7 +85,21 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 onClick = { menu = true; Emulator.pause(true) },
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
             ) { Icon(Icons.Default.Menu, "Menu") }
-            if (Emulator.showFps) Text("%.1f fps".format(fps), color = Color.White, modifier = Modifier.padding(start = 8.dp))
+            // Overlays: FPS, speed, renderer, resolution
+            val lines = buildList {
+                if (Emulator.showFps) add("%.1f fps".format(fps))
+                if (Emulator.showSpeed) {
+                    val target = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f
+                    add("%d%%".format((fps / target * 100f).toInt()))
+                }
+                if (Emulator.showRenderer) add(when (Emulator.renderer) { 0 -> "Software"; 1 -> "OpenGL ES"; else -> "Vulkan GPU" })
+                if (Emulator.showResolution) {
+                    val w = stats.getOrElse(1) { 320 }; val h = stats.getOrElse(2) { 224 }; val sc = stats.getOrElse(4) { 1 }.coerceAtLeast(1)
+                    add(if (sc > 1) "${w / sc}×${h / sc} → ${w}×${h} (${sc}x)" else "${w}×${h}")
+                }
+            }
+            if (lines.isNotEmpty()) Text(lines.joinToString("  ·  "), color = Color.White, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(start = 8.dp).background(Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
         }
 
         RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
@@ -222,6 +237,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     }
                                 }
                                 MenuItem(Icons.Default.Speed, "Show FPS", value = if (Emulator.showFps) "On" else "Off") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Percent, "Show speed", value = if (Emulator.showSpeed) "On" else "Off") { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Memory, "Show renderer", value = if (Emulator.showRenderer) "On" else "Off") { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.PhotoSizeSelectLarge, "Show resolution", value = if (Emulator.showResolution) "On" else "Off") { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
                             }
                             MenuPage.Audio -> {
                                 MenuItem(Icons.Default.VolumeDown, "Volume down", value = "${Emulator.volume}%") {

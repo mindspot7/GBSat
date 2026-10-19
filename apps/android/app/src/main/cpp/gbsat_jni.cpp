@@ -143,6 +143,8 @@ struct Context {
     ANativeWindow *window = nullptr;
     int32_t curW = 0, curH = 0;
     std::atomic<uint32_t> videoW{320}, videoH{224};
+    std::atomic<bool> palMode{false};
+    std::atomic<uint32_t> lastScale{1};
     std::atomic<bool> frameSkip{false}; // skip rendering every other frame
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -342,6 +344,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         if (auto *vkr = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
             scale = vkr->DeliveredFrameScale();
         }
+        g->lastScale.store(scale, std::memory_order_relaxed);
         glr::Submit(fb, width, height, scale);
         return;
     }
@@ -532,6 +535,7 @@ void EmuLoop() {
             g->skipPresent = skip;
         }
         g->saturn->RunFrame();
+        g->palMode.store(g->saturn->GetVideoStandard() == ymir::core::config::sys::VideoStandard::PAL, std::memory_order_relaxed);
         bool skipNext = false;
         const bool cheatsAllowed = !ra::IsHardcore();
         for (const auto &c : g->cheats) {
@@ -892,14 +896,17 @@ JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
 
 // Stats: [fps*100, videoW, videoH]
 JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
-    jlong v[3] = {0, 320, 224};
+    // [fps*100, output width, output height, PAL (0/1), internal resolution scale]
+    jlong v[5] = {0, 320, 224, 0, 1};
     if (g) {
         v[0] = (jlong)(g->fps.load() * 100.0f);
         v[1] = g->videoW.load();
         v[2] = g->videoH.load();
+        v[3] = g->palMode.load() ? 1 : 0;
+        v[4] = g->lastScale.load();
     }
-    jlongArray arr = env->NewLongArray(3);
-    env->SetLongArrayRegion(arr, 0, 3, v);
+    jlongArray arr = env->NewLongArray(5);
+    env->SetLongArrayRegion(arr, 0, 5, v);
     return arr;
 }
 

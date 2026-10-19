@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Overlays: show FPS, speed, renderer and resolution.
 - Audio options: volume and fast-forward audio (Default, Speed up, Mute), in the Audio page and the in-game menu.
 - Redesigned option pages, controller diagram for button mapping, in-game menu as a left panel with submenus, game shelf in the library.
 
