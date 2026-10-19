@@ -14,7 +14,6 @@ endif ()
 
 include(cmake/CMakeRC.cmake)
 include(cmake/CompileShaders.cmake)
-include(cmake/CopyRuntimeDLLs.cmake)
 include(cmake/TargetConditionalSources.cmake)
 include(CMakeDependentOption)
 
@@ -28,13 +27,9 @@ string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" is_top_
 option(Ymir_DEV_BUILD "Mark as a development build" ON)
 option(Ymir_EXTRA_INLINING "Enable more aggressive inlining (slows down build!)" "${is_top_level}")
 option(Ymir_ENABLE_TESTS "Enable tests for Ymir" "${is_top_level}")
-option(Ymir_ENABLE_SANDBOX "Compile the sandbox app" "${is_top_level}")
-option(Ymir_ENABLE_YMDASM "Compile the disassembly tool" "${is_top_level}")
 option(Ymir_ENABLE_IPO "Enable IPO / LTO for Ymir" ON)
 option(Ymir_ENABLE_DEVLOG "Enable development logs" ${Ymir_DEV_BUILD})
 option(Ymir_ENABLE_DEV_ASSERTIONS "Enable development-time assertions" OFF)
-option(Ymir_ENABLE_IMGUI_DEMO "Enable ImGui demo window" ON)
-option(Ymir_ENABLE_UPDATE_CHECKS "Enable update checks" ON)
 cmake_dependent_option(Ymir_LIBRARY_ONLY "Compile ymir-core only" OFF is_top_level ON)
 
 ## Version and build info
@@ -159,18 +154,5 @@ ymir_configure_pgo()
 ## Include project libraries
 add_subdirectory(libs)
 
-if (NOT Ymir_LIBRARY_ONLY)
-    ## Include apps
-    add_subdirectory(apps)
-
-    ## Include the unit tests if the user wanted them (included by default when top-level)
-    if (Ymir_ENABLE_TESTS)
-        enable_testing()
-        add_subdirectory(tests)
-    endif ()
-
-    ## Configure Visual Studio solution
-    if (MSVC)
-        set_property(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}" PROPERTY VS_STARTUP_PROJECT ymir-sdl3)
-    endif ()
-endif ()
+# Only the emulator core is built here; the Android app (apps/android) and the Vulkan renderer test (apps/vk-test)
+# include this project as a library.

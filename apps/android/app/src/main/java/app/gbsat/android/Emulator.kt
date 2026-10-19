@@ -277,18 +277,6 @@ object Emulator {
         null
     }
 
-    // ---- Collections: favorites and recently played (by file path) ----
-    var favorites by mutableStateOf<Set<String>>(emptySet()); private set
-    var recent by mutableStateOf<List<String>>(emptyList()); private set
-    fun toggleFavorite(path: String) {
-        favorites = if (path in favorites) favorites - path else favorites + path
-        prefs.edit().putStringSet("favorites", favorites).apply()
-    }
-    private fun addRecent(path: String) {
-        recent = (listOf(path) + recent.filter { it != path }).take(12)
-        prefs.edit().putString("recent", recent.joinToString("\n")).apply()
-    }
-
     // ---- Play time per game (seconds, keyed by file name) ----
     private val playTimes = mutableStateMapOf<String, Long>()
     private var playStart = 0L
@@ -318,8 +306,6 @@ object Emulator {
         dataDir = prefs.getString("dataDir", null)?.let { File(it) }?.takeIf { (it.isDirectory || it.mkdirs()) && it.canWrite() }
             ?: appContext.filesDir
         loadPlayTimes()
-        favorites = prefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet()
-        recent = prefs.getString("recent", null)?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
@@ -414,7 +400,7 @@ object Emulator {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
-            currentGame = path; running = true; addRecent(path); loadCheats(); pause(false)
+            currentGame = path; running = true; loadCheats(); pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
         }
         err

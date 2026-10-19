@@ -178,11 +178,6 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                         "Higher values need a faster GPU.",
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                val probe = remember { runCatching { NativeBridge.nativeProbeVulkan() }.getOrDefault("error|probe failed") }
-                Text(
-                    if (probe.startsWith("ok|")) "Vulkan device: " + probe.split("|").drop(1).joinToString(", ") else "Vulkan unavailable: " + probe.removePrefix("error|"),
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
-                )
             }
             Choice("Display", listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, change<Int> { Emulator.aspect = it })
             Text(

@@ -431,13 +431,6 @@ RA_FN(jbyteArray, nativeRaPollEvents)(JNIEnv *env, jclass) {
     return Bytes(env, out);
 }
 
-// "loginState\tgameState\terror"
-RA_FN(jbyteArray, nativeRaState)(JNIEnv *env, jclass) {
-    std::lock_guard lk(g_statusMutex);
-    const std::string s = g_loginState + "\t" + g_gameState + "\t" + Clean((g_loginError + " " + g_gameError).c_str());
-    return Bytes(env, s);
-}
-
 namespace ra {
 // Builds the achievement list (emulation thread). Lines: id\ttitle\tdescription\tpoints\tunlocked\tbadge\tlockedBadge\tprogress\tbucket
 std::string AchievementList() {

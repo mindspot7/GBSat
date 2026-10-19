@@ -20,7 +20,6 @@ object NativeBridge {
     @JvmStatic external fun nativeSetAnalog(x: Int, y: Int, l: Int, r: Int)
     @JvmStatic external fun nativeSetPadType(analog: Boolean)
     @JvmStatic external fun nativeSetSH2Cache(on: Boolean)
-    @JvmStatic external fun nativeSetVideoStandard(pal: Boolean)
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetResolutionScale(scale: Int)
     @JvmStatic external fun nativeGetDiscHeader(): String?
@@ -30,8 +29,6 @@ object NativeBridge {
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
     @JvmStatic external fun nativeSetRenderer(mode: Int)
-    @JvmStatic external fun nativeProbeVulkan(): String
-    @JvmStatic external fun nativeGetVulkanError(): String?
     @JvmStatic external fun nativeGetGpuError(): String?
     @JvmStatic external fun nativeSetCrashFile(path: String)
 
@@ -41,7 +38,6 @@ object NativeBridge {
     @JvmStatic external fun nativeRaLogout()
     @JvmStatic external fun nativeRaSetHardcore(on: Boolean)
     @JvmStatic external fun nativeRaPollEvents(): ByteArray
-    @JvmStatic external fun nativeRaState(): ByteArray
     @JvmStatic external fun nativeRaAchievements(): ByteArray
     @JvmStatic external fun nativeRaHttpResponse(id: Int, status: Int, body: ByteArray?)
 

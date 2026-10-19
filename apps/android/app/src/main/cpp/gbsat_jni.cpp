@@ -20,7 +20,6 @@
 extern "C" {
 #include <md5.h>
 }
-#include "vk_context.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -69,13 +68,12 @@ struct AudioRing {
     uint32_t Fill() const {
         return head.load(std::memory_order_acquire) - tail.load(std::memory_order_acquire);
     }
-    void Push(int16_t l, int16_t r, bool dropIfFull) {
+    int16_t lastL = 0, lastR = 0; // last samples played (consumer side), used to fade out on underruns
+
+    void Push(int16_t l, int16_t r) {
         const uint32_t h = head.load(std::memory_order_relaxed);
         if (h - tail.load(std::memory_order_acquire) >= kRingFrames) {
-            if (dropIfFull) {
-                return;
-            }
-            return; // never block the emulator on audio
+            return; // full: drop (never block the emulator on audio)
         }
         data[(h & (kRingFrames - 1)) * 2] = l;
         data[(h & (kRingFrames - 1)) * 2 + 1] = r;
@@ -89,8 +87,21 @@ struct AudioRing {
             out[i * 2] = data[(t & (kRingFrames - 1)) * 2];
             out[i * 2 + 1] = data[(t & (kRingFrames - 1)) * 2 + 1];
         }
+        if (n > 0) {
+            lastL = out[(n - 1) * 2];
+            lastR = out[(n - 1) * 2 + 1];
+        }
         if (n < (uint32_t)frames) {
-            std::memset(out + n * 2, 0, (frames - n) * 2 * sizeof(int16_t));
+            // Underrun (emulation behind): ramp from the last sample down to silence instead of cutting to zero,
+            // which avoids audible clicks
+            const uint32_t missing = frames - n;
+            const uint32_t ramp = std::min<uint32_t>(missing, 64);
+            for (uint32_t i = 0; i < missing; ++i) {
+                const int32_t k = i < ramp ? (int32_t)(ramp - i) : 0;
+                out[(n + i) * 2] = (int16_t)(lastL * k / (int32_t)(ramp ? ramp : 1));
+                out[(n + i) * 2 + 1] = (int16_t)(lastR * k / (int32_t)(ramp ? ramp : 1));
+            }
+            lastL = lastR = 0;
         }
         tail.store(t, std::memory_order_release);
     }
@@ -137,18 +148,16 @@ struct Context {
 
     // Audio
     AudioRing ring;
+    std::atomic<uint32_t> targetFill{kTargetBufferedFrames};
     AAudioStream *stream = nullptr;
     std::mutex audioMutex;
     std::atomic<bool> audioOk{false};
 
     // Display
     std::atomic<bool> glMode{false};
-    std::atomic<int> rendererMode{0}; // 0 = CPU window, 1 = GLES, 2 = Vulkan, 3 = ANGLE, 4 = Vulkan GPU VDP
+    std::atomic<int> rendererMode{0}; // 0 = software (CPU window), 1 = OpenGL ES, 4 = Vulkan GPU (presented through OpenGL ES)
     std::string gpuError; // last Vulkan VDP renderer error (guarded by winMutex)
 
-    bool vkFailed = false;
-    bool vkLinear = false;
-    std::string vkError;
 
     // Cheats (emulation thread only): constant memory writes applied after every frame
     struct Cheat { uint32_t addr; uint32_t value; int size; };
@@ -338,16 +347,6 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     if (!g->window) {
         return;
     }
-    const int presentMode = g->rendererMode.load(std::memory_order_relaxed);
-    if ((presentMode == 2 || presentMode == 4) && !g->vkFailed) {
-        if (!vkctx::IsReady() && !vkctx::Init(g->window, g->vkError)) {
-            g->vkFailed = true; // fall back to CPU presentation
-        }
-        if (vkctx::IsReady()) {
-            vkctx::PresentRGBA(fb, width, height, g->vkLinear);
-            return;
-        }
-    }
     if ((int32_t)width != g->curW || (int32_t)height != g->curH) {
         ANativeWindow_setBuffersGeometry(g->window, width, height, WINDOW_FORMAT_RGBA_8888);
         g->curW = width;
@@ -420,7 +419,11 @@ bool OpenAudio() {
         return false;
     }
     // Rate conversion is handled by AAudio if the device native rate differs.
-    AAudioStream_setBufferSizeInFrames(s, AAudioStream_getFramesPerBurst(s) * 2);
+    const int32_t burst = AAudioStream_getFramesPerBurst(s);
+    AAudioStream_setBufferSizeInFrames(s, burst * 2);
+    // Keep enough audio queued to cover the device's callback size plus one emulated frame (~735 samples), so devices
+    // with large bursts don't underrun between frames
+    g->targetFill = std::max<uint32_t>(kTargetBufferedFrames, (uint32_t)burst * 2 + 1024);
     if (AAudioStream_requestStart(s) != AAUDIO_OK) {
         AAudioStream_close(s);
         return false;
@@ -557,7 +560,7 @@ void EmuLoop() {
 
         if (g->audioOk.load()) {
             // Audio-driven pacing: keep ~46 ms buffered.
-            while (g->running.load() && !g->paused.load() && g->ring.Fill() > kTargetBufferedFrames) {
+            while (g->running.load() && !g->paused.load() && g->ring.Fill() > g->targetFill.load()) {
                 std::this_thread::sleep_for(microseconds(500));
             }
         } else {
@@ -608,7 +611,7 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     g->saturn = std::make_unique<ymir::Saturn>();
 
     g->saturn->SCSP.SetSampleCallback({nullptr, [](int16_t l, int16_t r, void *) {
-                                           g->ring.Push(l, r, g->fastForward.load());
+                                           g->ring.Push(l, r);
                                        }});
     g->saturn->VDP.SetSoftwareRenderCallback({nullptr, [](uint32_t *fb, uint32_t w, uint32_t h, void *) {
                                                   OnFrameComplete(fb, w, h);
@@ -657,7 +660,6 @@ JNI_FN(void, nativeShutdown)(JNIEnv *, jclass) {
     glr::Shutdown();
     {
         std::lock_guard lk(g->winMutex);
-        vkctx::Shutdown();
         if (g->window) {
             ANativeWindow_release(g->window);
             g->window = nullptr;
@@ -682,8 +684,6 @@ JNI_FN(void, nativeSetSurface)(JNIEnv *env, jclass, jobject surface) {
         g->window = nullptr;
     }
     g->curW = g->curH = 0;
-    vkctx::Shutdown();
-    g->vkFailed = false;
     if (surface) {
         g->window = ANativeWindow_fromSurface(env, surface);
     }
@@ -832,14 +832,6 @@ JNI_FN(void, nativeSetPadType)(JNIEnv *, jclass, jboolean analog) {
 JNI_FN(void, nativeSetSH2Cache)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] { g->saturn->EnableSH2CacheEmulation(on); });
-    }
-}
-JNI_FN(void, nativeSetVideoStandard)(JNIEnv *, jclass, jboolean pal) {
-    if (g) {
-        Post([pal] {
-            g->saturn->SetVideoStandard(pal ? ymir::core::config::sys::VideoStandard::PAL
-                                            : ymir::core::config::sys::VideoStandard::NTSC);
-        });
     }
 }
 JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
@@ -1019,7 +1011,7 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         // Vulkan GPU (4) emulates the VDPs on the GPU and shows the frames through the OpenGL ES presenter, which
         // provides the filters and shaders
-        const bool newGl = (mode == 1 || mode == 3 || mode == 4);
+        const bool newGl = (mode == 1 || mode == 4);
         const bool oldGl = g->glMode.load();
         if (oldGl && !newGl) {
             glr::Shutdown(); // switching to CPU presentation in game: release the GL surface
@@ -1034,9 +1026,6 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
         g->glMode = newGl;
         g->rendererMode = mode;
         g_crashRenderer = mode;
-        if (g->glMode) {
-            glr::SetBackend(mode == 3); // 3 = OpenGL ES through ANGLE (Vulkan)
-        }
         const bool gpu = mode == 4;
         Post([gpu] { ApplyVdpRenderer(gpu); });
     }
@@ -1085,29 +1074,8 @@ JNI_FN(jstring, nativeGetGpuError)(JNIEnv *env, jclass) {
     return NewJStr(env, g->gpuError);
 }
 
-// Returns "ok|<device>|int64" if Vulkan is usable, otherwise an error text starting with "error|".
-JNI_FN(jstring, nativeProbeVulkan)(JNIEnv *env, jclass) {
-    const auto info = vkctx::Probe();
-    if (!info.available) {
-        return NewJStr(env, "error|" + info.error);
-    }
-    return NewJStr(env, "ok|" + info.name + "|" + (info.shaderInt64 ? "int64" : "noint64"));
-}
-
-// Last Vulkan init error (empty if none).
-JNI_FN(jstring, nativeGetVulkanError)(JNIEnv *env, jclass) {
-    if (!g) {
-        return NewJStr(env, "");
-    }
-    std::lock_guard lk(g->winMutex);
-    return NewJStr(env, g->vkFailed ? g->vkError : "");
-}
 JNI_FN(void, nativeSetDisplayOptions)(JNIEnv *, jclass, jint filter, jint shader) {
     glr::SetOptions(filter, shader);
-    if (g) {
-        std::lock_guard lk(g->winMutex);
-        g->vkLinear = filter != 0;
-    }
 }
 
 // Cheats: parallel arrays of address / value / size (1, 2 or 4 bytes).

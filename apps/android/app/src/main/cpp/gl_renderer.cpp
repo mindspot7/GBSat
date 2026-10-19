@@ -1,6 +1,7 @@
 #include "gl_renderer.hpp"
 
-#include "gl_dyn.hpp"
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
 #include <android/log.h>
 
 #include <atomic>
@@ -98,7 +99,6 @@ void main() {
 )";
 
 struct State {
-    bool useAngle = false;
     std::mutex m;
     std::condition_variable cv;
     std::thread th;
@@ -134,12 +134,7 @@ GLuint Compile(GLenum type, const char *src) {
 }
 
 void Loop() {
-    if (!gld::Load(S.useAngle)) {
-        LOGE("GL driver load failed");
-        return;
-    }
-    LOGE("GL backend: %s", gld::IsAngle() ? "ANGLE (Vulkan)" : "system");
-    EGLDisplay dpy = gld::GetDisplay();
+    EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(dpy, nullptr, nullptr);
     const EGLint cfgAttr[] = {EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
                               EGL_RED_SIZE,        8,                  EGL_GREEN_SIZE,   8,
@@ -307,14 +302,6 @@ void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale)
     S.fscale = scale ? scale : 1;
     S.frameReady = true;
     S.cv.notify_all();
-}
-
-void SetBackend(bool angle) {
-    if (S.useAngle == angle) {
-        return;
-    }
-    Shutdown();
-    S.useAngle = angle;
 }
 
 void SetOptions(int filter, int shader) {
