@@ -214,7 +214,7 @@ private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit
             MenuEntry(Icons.Default.EmojiEvents, "Extras", Gold) { onOpenSettings(SettingsPage.Extras) }
             MenuEntry(Icons.Default.Info, "About", Color(0xFF6FA8FF)) { onOpenSettings(SettingsPage.About) }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = .12f))
-            MenuEntry(Icons.Default.ExitToApp, "Quit", Color(0xFFFF8A65), onQuit)
+            MenuEntry(Icons.Default.ExitToApp, "Quit", Color(0xFFFF8A65), onClick = onQuit)
         }
     }
 }
