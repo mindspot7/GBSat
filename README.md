@@ -40,11 +40,11 @@ gamepad-friendly interface built in Jetpack Compose.
 
 ## Downloads and versions
 
-APKs are built by GitHub Actions on every push. Open the **Actions** tab, select the latest **Android APK** run and
-download the `GBSat-v<version>-build<N>` artifact.
+Download the latest APK (`GBSat-v<version>.apk`) from the **Releases** page. A release is published automatically when
+the version in `apps/android/VERSION` changes; its notes come from [CHANGELOG.md](CHANGELOG.md).
 
-The release version is kept in `apps/android/VERSION` and every build adds its build number. The version is shown at
-the bottom of the Settings screen. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Development builds of every push are available in the **Actions** tab (latest **Android APK** run, artifact
+`GBSat-v<version>-build<N>`). The installed version is shown in About.
 
 ## Building
 
