@@ -30,6 +30,7 @@ object Hotkeys {
     private val suppressed = HashSet<Int>()
 
     fun isSuppressed(code: Int) = code in suppressed
+    fun isMenuKey(code: Int) = code in Emulator.hotkeys[HotkeyAction.Menu].orEmpty()
     fun suppressedKeys(): Set<Int> = suppressed.toSet()
 
     /** Returns true if the key was consumed by a hotkey (single-button binding). */

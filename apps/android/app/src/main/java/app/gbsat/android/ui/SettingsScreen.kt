@@ -26,7 +26,7 @@ import app.gbsat.android.Storage
 import kotlinx.coroutines.launch
 
 /** Settings pages opened from the side menu (null shows everything). */
-enum class SettingsPage(val label: String) { System("System"), Video("Video"), Performance("Performance"), Controls("Controls"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsPage(val label: String) { System("System"), Video("Video"), Performance("Performance"), Controls("Controls"), Extras("Extras"), About("About") }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,7 +193,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             Toggle("Show FPS", "Overlay with the emulation speed during games", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
 
             }
-            if (page == null || page == SettingsPage.RetroAchievements) {
+            if (page == null || page == SettingsPage.Extras) {
             Section("RetroAchievements")
             Toggle("Enable RetroAchievements", "Earn achievements from retroachievements.org (needs an account and internet)",
                 app.gbsat.android.RetroAchievements.enabled) { app.gbsat.android.RetroAchievements.changeEnabled(it) }

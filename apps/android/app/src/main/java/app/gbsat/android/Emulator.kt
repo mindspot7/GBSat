@@ -202,7 +202,10 @@ object Emulator {
     suspend fun saveState(slot: Int): String? = withContext(Dispatchers.IO) {
         val f = stateFile(slot) ?: return@withContext "No game loaded"
         val err = NativeBridge.nativeSaveState(f.absolutePath)
-        if (err == null) runCatching { saveThumbnail(thumbFile(f)) }
+        if (err == null) {
+            runCatching { saveThumbnail(thumbFile(f)) }
+            currentGame?.let { g -> runCatching { File(f.parentFile, "game.txt").writeText(g) } }
+        }
         err
     }
 
@@ -215,6 +218,29 @@ object Emulator {
         val bmp = android.graphics.Bitmap.createBitmap(d, 2, w, w, h, android.graphics.Bitmap.Config.ARGB_8888)
         out.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         bmp.recycle()
+    }
+
+    /** A save state with its screenshot, for the "Recent" view of the library. */
+    data class RecentState(val gamePath: String, val slot: Int, val time: Long, val thumb: File?)
+
+    /** All save states of all games (whose game is known), newest first. */
+    fun recentStates(): List<RecentState> {
+        val out = mutableListOf<RecentState>()
+        statesDir.listFiles()?.forEach { dir ->
+            val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
+            dir.listFiles { f -> f.name.endsWith(".savestate") }?.forEach { f ->
+                val name = f.name.removeSuffix(".savestate")
+                val slot = if (name == "quick") QUICK_SLOT else name.toIntOrNull() ?: return@forEach
+                out += RecentState(game, slot, f.lastModified(), thumbFile(f).takeIf { it.exists() })
+            }
+        }
+        return out.sortedByDescending { it.time }
+    }
+
+    /** Starts a game and loads one of its save states. Returns an error message or null. */
+    suspend fun launchState(s: RecentState): String? {
+        launch(s.gamePath)?.let { return it }
+        return loadState(s.slot)
     }
 
     /** Screenshot taken when the slot was saved, or null. */

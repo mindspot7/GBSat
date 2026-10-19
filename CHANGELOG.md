@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.5.0
+- Home screen: controller navigation (D-pad selects, A opens, B goes back, Y opens game options; also in the in-game menu), blurred artwork of the selected game as background, header button to switch between all games and recent save states (with screenshots, newest first; opening one starts the game at that state).
+- Side menu: System, Video, Performance, Controls, Extras (RetroAchievements), About, Quit.
 - The app runs full screen (system bars hidden; swipe from the edge to show them).
 - Removed the "Video standard" setting: NTSC/PAL is selected automatically from the game disc.
 - Removed the ANGLE renderer (same CPU emulation as OpenGL ES with no measurable gain); its libraries are no longer bundled, making the APK smaller.

@@ -61,6 +61,9 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
                                         Emulator.launch(path)?.let { snackbar.showSnackbar(it) }
                                     }
                                 },
+                                launchState = { st ->
+                                    scope.launch { Emulator.launchState(st)?.let { snackbar.showSnackbar(it) } }
+                                },
                             )
                             Screen.Settings -> SettingsScreen(
                                 onBack = { screen = Screen.Library },

@@ -95,6 +95,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Some handhelds report face buttons with a keyboard source; accept any gamepad button keycode
+        // In-game menu open (emulation paused): the controller navigates the menu
+        if (Emulator.running && Emulator.paused && event.keyCode != KeyEvent.KEYCODE_BACK &&
+            (KeyEvent.isGamepadButton(event.keyCode) || event.keyCode in dpadKeys) && !Hotkeys.isMenuKey(event.keyCode)
+        ) {
+            return uiKey(event)
+        }
         val isPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0 ||
             KeyEvent.isGamepadButton(event.keyCode) || Emulator.keyMap.containsKey(event.keyCode)
         if (isPad && Emulator.running && event.repeatCount == 0 &&
@@ -117,7 +123,32 @@ class MainActivity : ComponentActivity() {
             Emulator.setPadMask(padMask)
             return true
         }
+        // Outside games the menus are driven by the controller like a console: A selects, B goes back
+        if (!Emulator.running) {
+            val mapped = when (event.keyCode) {
+                KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
+                KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK
+                else -> null
+            }
+            if (mapped != null) {
+                return super.dispatchKeyEvent(KeyEvent(event.downTime, event.eventTime, event.action, mapped, event.repeatCount,
+                    event.metaState, event.deviceId, event.scanCode, event.flags, event.source))
+            }
+        }
         return super.dispatchKeyEvent(event)
+    }
+
+    private val dpadKeys = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER)
+
+    private fun uiKey(event: KeyEvent): Boolean {
+        val mapped = when (event.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
+            KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK
+            else -> event.keyCode
+        }
+        return super.dispatchKeyEvent(KeyEvent(event.downTime, event.eventTime, event.action, mapped, event.repeatCount,
+            event.metaState, event.deviceId, event.scanCode, event.flags, event.source))
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {

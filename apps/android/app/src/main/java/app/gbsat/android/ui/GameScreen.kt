@@ -31,7 +31,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var fps by remember { mutableFloatStateOf(0f) }
 
-    BackHandler { menu = true; Emulator.pause(true) }
+    BackHandler(enabled = !menu) { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
         while (true) { fps = NativeBridge.nativeGetStats()[0] / 100f; delay(500) }
     }
@@ -121,10 +121,12 @@ private fun VideoSurfaceInner(modifier: Modifier) {
 @Composable
 private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var cheatsOpen by remember { mutableStateOf(false) }
-    if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
     var achievementsOpen by remember { mutableStateOf(false) }
-    if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
     var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
+    // Back (or B on the controller) leaves the current sub-screen, then closes the menu
+    BackHandler { when { cheatsOpen -> cheatsOpen = false; achievementsOpen -> achievementsOpen = false; stateMode != null -> stateMode = null; else -> onDismiss() } }
+    if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
+    if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     if (stateMode != null) {
