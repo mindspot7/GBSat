@@ -291,17 +291,48 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
 
             val first = remember { FocusRequester() }
             LaunchedEffect(games.firstOrNull()?.path) { runCatching { first.requestFocus() } }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(140.dp), contentPadding = PaddingValues(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(games, key = { it.path }) { g ->
-                    GameCard(
-                        g, coverVersion,
-                        modifier = if (g == games.first()) Modifier.focusRequester(first) else Modifier,
-                        onClick = { launch(g.path) }, onOptions = { gameMenu = g }, onSelected = onSelected,
+            var selected by remember { mutableStateOf(games.first()) }
+            // Game shelf: one horizontal row of box art, sized to the screen (smaller on portrait and square screens)
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val portrait = maxWidth < maxHeight * 1.2f
+                val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(140.dp, 250.dp) else (maxHeight * 0.62f).coerceIn(150.dp, 360.dp)
+                val cardW = cardH * 0.72f
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalAlignment = Alignment.Bottom,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        items(games.size, key = { games[it].path }) { i ->
+                            val g = games[i]
+                            GameCard(
+                                g, coverVersion, cardW, cardH,
+                                modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                                onClick = { launch(g.path) }, onOptions = { gameMenu = g },
+                                onSelected = { bmp -> selected = g; onSelected(bmp) },
+                            )
+                        }
+                    }
+                    // Shelf board
+                    Box(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(10.dp).clip(RoundedCornerShape(5.dp))
+                            .background(Brush.verticalGradient(listOf(Color(0xFF6E5BC4), Color(0xFF2A2150)))),
                     )
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(14.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .35f), Color.Transparent))))
+                    // Selected game
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val secs = Emulator.playTime(selected.path)
+                        Text(
+                            (if (secs >= 60) "Played ${formatPlayTime(secs)}" else "Not played yet") + " · ${games.size} games",
+                            style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .7f),
+                        )
+                        Text("A: Play   Y: Options   Long-press: options", style = MaterialTheme.typography.labelSmall,
+                            color = Gold.copy(alpha = .8f), modifier = Modifier.padding(top = 6.dp))
+                    }
                 }
             }
         }
@@ -311,35 +342,44 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GameCard(
-    g: Storage.Game, version: Int, modifier: Modifier,
+    g: Storage.Game, version: Int, cardW: androidx.compose.ui.unit.Dp, cardH: androidx.compose.ui.unit.Dp, modifier: Modifier,
     onClick: () -> Unit, onOptions: () -> Unit, onSelected: (ImageBitmap?) -> Unit,
 ) {
     var cover by remember(g.title, version) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(g.title, version) { cover = Covers.load(g.title) }
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "scale")
-    Column(modifier.scale(scale)) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF241F3D))
-                .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .16f), RoundedCornerShape(14.dp))
-                .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
-                .onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY || e.key == Key.ButtonX || e.key == Key.Menu)) { onOptions(); true } else false
-                }
-                .combinedClickable(onClick = onClick, onLongClick = onOptions),
-        ) {
-            cover?.let { Image(it, g.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-                ?: Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Icon(Icons.Default.Album, null, Modifier.size(48.dp), tint = Color(0xFFB9A6FF).copy(alpha = .7f))
-                    Spacer(Modifier.height(8.dp))
-                    Text(g.title, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                }
+    val scale by animateFloatAsState(if (focused) 1.08f else 1f, label = "scale")
+    Box(
+        modifier.size(cardW, cardH).scale(scale)
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && (e.key == Key.ButtonY || e.key == Key.ButtonX || e.key == Key.Menu)) { onOptions(); true } else false
+            }
+            .combinedClickable(onClick = onClick, onLongClick = onOptions),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        val bmp = cover
+        if (bmp != null) {
+            // Box art keeps its own proportions inside the slot and stands on the shelf
+            Image(
+                bmp, g.title,
+                Modifier.fillMaxWidth().aspectRatio(bmp.width.toFloat() / bmp.height, matchHeightConstraintsFirst = bmp.height > bmp.width * 1.39f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Column(
+                Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Color(0xFF241F3D))
+                    .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
+                    .padding(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Default.Album, null, Modifier.size(44.dp), tint = Color(0xFFB9A6FF).copy(alpha = .7f))
+                Spacer(Modifier.height(8.dp))
+                Text(g.title, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(g.title, color = if (focused) Gold else Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val secs = Emulator.playTime(g.path)
-        if (secs >= 60) Text(formatPlayTime(secs), color = Color.White.copy(alpha = .6f), style = MaterialTheme.typography.labelSmall)
     }
     // Keep the background in sync when the cover finishes loading while selected
     LaunchedEffect(cover) { if (focused) onSelected(cover) }
