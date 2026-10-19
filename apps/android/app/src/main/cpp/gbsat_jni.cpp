@@ -126,6 +126,9 @@ struct Context {
     std::atomic<bool> running{false};
     std::atomic<bool> paused{true};
     std::atomic<bool> fastForward{false};
+    std::atomic<float> volume{1.0f};   // output volume 0..1
+    std::atomic<int> ffAudio{0};       // fast-forward audio: 0 = default (normal pitch, skips), 1 = speed up, 2 = mute
+    float ffDecimAcc = 0.0f;           // sample decimation accumulator for "speed up" (SCSP thread)
     std::mutex cmdMutex;
     std::condition_variable cmdCv;
     std::deque<std::function<void()>> commands;
@@ -369,7 +372,13 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
 // Audio (AAudio)
 
 aaudio_data_callback_result_t AudioDataCb(AAudioStream *, void *, void *audioData, int32_t numFrames) {
-    g->ring.Pop(static_cast<int16_t *>(audioData), numFrames);
+    auto *out = static_cast<int16_t *>(audioData);
+    g->ring.Pop(out, numFrames);
+    const float vol = g->volume.load(std::memory_order_relaxed);
+    if (vol < 0.999f) {
+        const int32_t v = (int32_t)(vol * 256.0f);
+        for (int32_t i = 0; i < numFrames * 2; ++i) out[i] = (int16_t)((out[i] * v) >> 8);
+    }
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -553,7 +562,11 @@ void EmuLoop() {
         }
 
         if (g->fastForward.load()) {
-            g->ring.Clear();
+            // Default and mute: drop the excess so audio stays in sync when fast-forward ends.
+            // Speed up: the samples were already decimated; keep the buffer short so it follows the game.
+            if (g->ffAudio.load() != 1 || g->ring.Fill() > g->targetFill.load() * 2) {
+                g->ring.Clear();
+            }
             nextFrame = steady_clock::now();
             continue;
         }
@@ -611,7 +624,22 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     g->saturn = std::make_unique<ymir::Saturn>();
 
     g->saturn->SCSP.SetSampleCallback({nullptr, [](int16_t l, int16_t r, void *) {
-                                           g->ring.Push(l, r);
+                                           if (g->fastForward.load(std::memory_order_relaxed)) {
+                const int mode = g->ffAudio.load(std::memory_order_relaxed);
+                if (mode == 2) {
+                    return; // mute
+                }
+                if (mode == 1) {
+                    // Speed up: keep 1 of every <speed> samples, so the audio plays faster (and higher) like the game
+                    const float speed = std::max(1.0f, g->fps.load(std::memory_order_relaxed) / 60.0f);
+                    g->ffDecimAcc += 1.0f / speed;
+                    if (g->ffDecimAcc < 1.0f) {
+                        return;
+                    }
+                    g->ffDecimAcc -= 1.0f;
+                }
+            }
+            g->ring.Push(l, r);
                                        }});
     g->saturn->VDP.SetSoftwareRenderCallback({nullptr, [](uint32_t *fb, uint32_t w, uint32_t h, void *) {
                                                   OnFrameComplete(fb, w, h);
@@ -904,6 +932,14 @@ JNI_FN(void, nativeSetFrameSkip)(JNIEnv *, jclass, jboolean on) {
         if (!on) {
             Post([] { g->saturn->VDP.SetSkipFrameRender(false); g->skipPresent = false; });
         }
+    }
+}
+
+// Audio: volume 0..100 and fast-forward audio mode (0 default, 1 speed up, 2 mute).
+JNI_FN(void, nativeSetAudio)(JNIEnv *, jclass, jint volume, jint ffMode) {
+    if (g) {
+        g->volume = std::clamp<jint>(volume, 0, 100) / 100.0f;
+        g->ffAudio = std::clamp<jint>(ffMode, 0, 2);
     }
 }
 

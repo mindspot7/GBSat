@@ -41,6 +41,8 @@ object Emulator {
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
     var frameSkip by mutableStateOf(false) // render every other frame
+    var volume by mutableStateOf(100)      // audio volume, percent
+    var ffAudio by mutableStateOf(0)       // fast-forward audio: 0 default, 1 speed up, 2 mute
 
     // ---- Presets: groups of video/performance options ----
     enum class Preset(val label: String) { Low("Low"), Mid("Mid"), High("High") }
@@ -323,6 +325,8 @@ object Emulator {
         resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)
         cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
         frameSkip = prefs.getBoolean("frameSkip", false)
+        volume = prefs.getInt("volume", 100).coerceIn(0, 100)
+        ffAudio = prefs.getInt("ffAudio", 0).coerceIn(0, 2)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->
             runCatching {
@@ -372,6 +376,7 @@ object Emulator {
         NativeBridge.nativeSetResolutionScale(resScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
+        NativeBridge.nativeSetAudio(volume, ffAudio)
         NativeBridge.nativeSetRenderer(renderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (running) applyCheats()
@@ -382,7 +387,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */

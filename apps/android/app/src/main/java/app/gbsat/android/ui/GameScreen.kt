@@ -125,7 +125,7 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
-private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Game("Game"), Exit("Exit") }
+private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Game("Game"), Exit("Exit") }
 
 private val MenuGold = Color(0xFFE8C26A)
 private val MenuDim = Color.White.copy(alpha = .65f)
@@ -185,6 +185,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.Restore, "Load state", sub = true) { page = MenuPage.Load }
                                 MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
                                 MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
+                                MenuItem(Icons.Default.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
                                 MenuItem(Icons.Default.ExitToApp, "Exit", sub = true) { page = MenuPage.Exit }
                             }
@@ -221,6 +222,17 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     }
                                 }
                                 MenuItem(Icons.Default.Speed, "Show FPS", value = if (Emulator.showFps) "On" else "Off") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+                            }
+                            MenuPage.Audio -> {
+                                MenuItem(Icons.Default.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
+                                    Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0); Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.VolumeUp, "Volume up", value = "${Emulator.volume}%") {
+                                    Emulator.volume = (Emulator.volume + 10).coerceAtMost(100); Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.FastForward, "Fast-forward audio", value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio]) {
+                                    Emulator.ffAudio = (Emulator.ffAudio + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
                             }
                             MenuPage.Game -> {
                                 MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }

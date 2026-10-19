@@ -26,6 +26,7 @@ object NativeBridge {
     @JvmStatic external fun nativeGetLastFrame(): IntArray?
     @JvmStatic external fun nativeSetCdReadSpeed(factor: Int)
     @JvmStatic external fun nativeSetFrameSkip(on: Boolean)
+    @JvmStatic external fun nativeSetAudio(volume: Int, ffMode: Int)
     @JvmStatic external fun nativeSetCartridge(type: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
     @JvmStatic external fun nativeSetRenderer(mode: Int)

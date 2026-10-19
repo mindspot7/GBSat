@@ -202,6 +202,7 @@ private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit
             Text("OPTIONS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6)) { onOpenSettings(SettingsPage.System) }
             MenuEntry(Icons.Default.Tv, "Video", Color(0xFF7FD7C4)) { onOpenSettings(SettingsPage.Video) }
+            MenuEntry(Icons.Default.VolumeUp, "Audio", Color(0xFF9BE37B)) { onOpenSettings(SettingsPage.Audio) }
             MenuEntry(Icons.Default.Speed, "Performance", Color(0xFFFFB86B)) { onOpenSettings(SettingsPage.Performance) }
             MenuEntry(Icons.Default.SportsEsports, "Controls", Color(0xFFFF7A90)) { onOpenSettings(SettingsPage.Controls) }
             MenuEntry(Icons.Default.EmojiEvents, "Extras", Gold) { onOpenSettings(SettingsPage.Extras) }

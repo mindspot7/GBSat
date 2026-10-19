@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 enum class SettingsPage(val label: String, val icon: ImageVector) {
     System("System", Icons.Default.Tune),
     Video("Video", Icons.Default.Tv),
+    Audio("Audio", Icons.Default.VolumeUp),
     Performance("Performance", Icons.Default.Speed),
     Controls("Controls", Icons.Default.SportsEsports),
     Extras("Extras", Icons.Default.EmojiEvents),
@@ -116,6 +117,7 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                             onDataFolder = { if (Storage.hasAllFilesAccess()) dataPicker.launch(null) else onRequestAllFiles() },
                             onDataInternal = { scope.launch { dataMsg = Emulator.changeDataDir(Emulator.defaultDataDir) ?: "Data copied to internal storage. Restart GBSat to use it." } })
                         SettingsPage.Video -> VideoPage()
+                        SettingsPage.Audio -> AudioPage()
                         SettingsPage.Performance -> PerformancePage()
                         SettingsPage.Controls -> ControlsPage()
                         SettingsPage.Extras -> ExtrasPage()
@@ -208,6 +210,35 @@ private fun VideoPage() {
     }
     Group("Overlay", Icons.Default.Layers) {
         ToggleRow(Icons.Default.Speed, "Show FPS", "Emulation speed in the corner of the screen", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
+    }
+}
+
+@Composable
+private fun AudioPage() {
+    Group("Output", Icons.Default.VolumeUp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RowIcon(if (Emulator.volume == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp)
+                Spacer(Modifier.width(14.dp))
+                Text("Volume", style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
+                Text("${Emulator.volume}%", color = Gold, fontWeight = FontWeight.SemiBold)
+            }
+            Slider(
+                value = Emulator.volume.toFloat(), valueRange = 0f..100f, steps = 19,
+                onValueChange = { Emulator.volume = it.toInt(); NativeBridge.nativeSetAudio(Emulator.volume, Emulator.ffAudio) },
+                onValueChangeFinished = { Emulator.savePrefs() },
+                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold),
+            )
+        }
+    }
+    Group("Fast-forward", Icons.Default.FastForward) {
+        ChoiceRow("Fast-forward audio",
+            when (Emulator.ffAudio) {
+                1 -> "Plays all the audio faster (higher pitch), following the game speed"
+                2 -> "No sound while fast-forwarding"
+                else -> "Plays short pieces of audio at normal pitch"
+            },
+            listOf("Default", "Speed up", "Mute"), Emulator.ffAudio, ch { Emulator.ffAudio = it })
     }
 }
 

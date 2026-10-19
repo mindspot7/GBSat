@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Audio options: volume and fast-forward audio (Default, Speed up, Mute), in the Audio page and the in-game menu.
+- Redesigned option pages, controller diagram for button mapping, in-game menu as a left panel with submenus, game shelf in the library.
+
 ## 0.8.0 — first release
 
 First public release of GBSat, a Sega Saturn emulator for Android based on Ymir.
