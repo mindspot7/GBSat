@@ -90,7 +90,15 @@ fun LibraryScreen(
     var confirmQuit by remember { mutableStateOf(false) }
     var headerPx by remember { mutableIntStateOf(0) }
     // B / Back: close the menu, leave Recent, otherwise ask before quitting
-    androidx.activity.compose.BackHandler { when { confirmQuit -> confirmQuit = false; menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true } }
+    // Some controllers deliver B twice (as BUTTON_B mapped to Back and as a system Back): one press must act only once,
+    // otherwise the quit dialog opens and immediately closes again
+    var lastBack by remember { mutableLongStateOf(0L) }
+    androidx.activity.compose.BackHandler {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastBack < 300) return@BackHandler
+        lastBack = now
+        when { confirmQuit -> confirmQuit = false; menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true }
+    }
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
