@@ -4,6 +4,13 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -118,117 +125,184 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
+private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Game("Game"), Exit("Exit") }
+
+private val MenuGold = Color(0xFFE8C26A)
+private val MenuDim = Color.White.copy(alpha = .65f)
+
+/**
+ * In-game menu: a panel on the left side with submenus. Tapping outside the panel (or Back / B) closes it;
+ * inside a submenu, Back returns to the main list.
+ */
 @Composable
 private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var cheatsOpen by remember { mutableStateOf(false) }
     var achievementsOpen by remember { mutableStateOf(false) }
-    var stateMode by remember { mutableStateOf<String?>(null) } // "Save" / "Load"
-    // Back (or B on the controller) leaves the current sub-screen, then closes the menu
-    BackHandler { when { cheatsOpen -> cheatsOpen = false; achievementsOpen -> achievementsOpen = false; stateMode != null -> stateMode = null; else -> onDismiss() } }
+    var page by remember { mutableStateOf(MenuPage.Root) }
+    BackHandler { when { cheatsOpen -> cheatsOpen = false; achievementsOpen -> achievementsOpen = false; page != MenuPage.Root -> page = MenuPage.Root; else -> onDismiss() } }
     if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
     if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
-    var message by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    if (stateMode != null) {
-        val mode = stateMode!!
-        var times by remember { mutableStateOf<List<Long?>>(emptyList()) }
-        var thumbs by remember { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
-        LaunchedEffect(mode) {
-            times = withContext(Dispatchers.IO) { Emulator.slotTimes() }
-            thumbs = withContext(Dispatchers.IO) { (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() } }
+
+    val visible = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
+    Box(Modifier.fillMaxSize()) {
+        // Scrim: tapping anywhere outside the panel closes the menu
+        androidx.compose.animation.AnimatedVisibility(visible, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f))
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { onDismiss() })
         }
-        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
-            val maxStateHeight = maxHeight - 32.dp
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).padding(16.dp)) {
-                Column(Modifier.heightIn(max = maxStateHeight).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("$mode state", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
-                    for (slot in 0 until Emulator.STATE_SLOTS) {
-                        val t = times.getOrNull(slot)
-                        val label = "Slot ${slot + 1} — " + (t?.let { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)) } ?: "empty")
-                        TextButton(
-                            enabled = mode == "Save" || t != null, modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                scope.launch {
-                                    val err = if (mode == "Save") Emulator.saveState(slot) else Emulator.loadState(slot)
-                                    if (err == null) { stateMode = null; onDismiss() } else message = err
-                                }
-                            },
-                        ) {
-                            val thumb = thumbs.getOrNull(slot)
-                            Box(Modifier.size(width = 80.dp, height = 60.dp).background(Color.Black, RoundedCornerShape(6.dp))) {
-                                if (thumb != null) androidx.compose.foundation.Image(thumb.asImageBitmap(), contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+        androidx.compose.animation.AnimatedVisibility(
+            visible, enter = androidx.compose.animation.slideInHorizontally { -it }, exit = androidx.compose.animation.slideOutHorizontally { -it },
+        ) {
+            Surface(
+                color = Color(0xFF1B1830).copy(alpha = .97f),
+                shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
+                modifier = Modifier.fillMaxHeight().widthIn(max = 340.dp).fillMaxWidth(0.85f),
+            ) {
+                Column(Modifier.fillMaxSize().safeDrawingPadding().padding(vertical = 12.dp)) {
+                    // Header: title, or back arrow + submenu title
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (page != MenuPage.Root) {
+                            IconButton(onClick = { page = MenuPage.Root }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MenuGold) }
+                        } else {
+                            Icon(Icons.Default.Pause, null, tint = MenuGold, modifier = Modifier.padding(12.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(page.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                            if (page == MenuPage.Root) Emulator.currentGame?.let {
+                                Text(it.substringAfterLast('/').substringBeforeLast('.'), style = MaterialTheme.typography.bodySmall,
+                                    color = MenuDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Spacer(Modifier.width(12.dp))
-                            Text(label, Modifier.weight(1f))
+                        }
+                        IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = MenuDim) }
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .1f))
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
+                        when (page) {
+                            MenuPage.Root -> {
+                                MenuItem(Icons.Default.PlayArrow, "Resume", onClick = onDismiss)
+                                MenuItem(Icons.Default.Save, "Save state", sub = true) { page = MenuPage.Save }
+                                MenuItem(Icons.Default.Restore, "Load state", sub = true) { page = MenuPage.Load }
+                                MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
+                                MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
+                                MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
+                                MenuItem(Icons.Default.ExitToApp, "Exit", sub = true) { page = MenuPage.Exit }
+                            }
+                            MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
+                            MenuPage.Video -> {
+                                MenuItem(Icons.Default.AutoAwesome, "Preset", value = Emulator.currentPreset?.label ?: "Custom") {
+                                    val all = Emulator.Preset.entries
+                                    Emulator.applyPreset(all[((Emulator.currentPreset?.ordinal ?: -1) + 1) % all.size])
+                                }
+                                MenuItem(Icons.Default.AspectRatio, "Display", value = listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
+                                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
+                                    Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
+                                }
+                                val rendererIds = listOf(0, 1, 4)
+                                val rendererNames = listOf("Software", "OpenGL ES", "Vulkan GPU")
+                                MenuItem(Icons.Default.Memory, "Renderer", value = rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
+                                    Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
+                                    Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                if (Emulator.renderer == 4) {
+                                    MenuItem(Icons.Default.HighQuality, "Internal resolution", value = "${Emulator.resScale}x") {
+                                        Emulator.resScale = Emulator.resScale % 4 + 1; Emulator.savePrefs(); Emulator.applyOptions()
+                                    }
+                                }
+                                if (Emulator.renderer == 1 || Emulator.renderer == 4) {
+                                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
+                                    val shaderOrder = listOf(0, 2, 4, 3, 1) // cycles alphabetically
+                                    MenuItem(Icons.Default.Gradient, "Shader", value = shaders[Emulator.shader]) {
+                                        Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]
+                                        Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
+                                    }
+                                    MenuItem(Icons.Default.FilterAlt, "Filter", value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)]) {
+                                        Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
+                                    }
+                                }
+                                MenuItem(Icons.Default.Speed, "Show FPS", value = if (Emulator.showFps) "On" else "Off") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+                            }
+                            MenuPage.Game -> {
+                                MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
+                                MenuItem(Icons.Default.Eject, "Disc tray", value = if (Emulator.trayOpen) "Open" else "Closed") { Emulator.toggleTray() }
+                                MenuItem(Icons.Default.Tune, "Cheats", sub = true) { cheatsOpen = true }
+                                if (app.gbsat.android.RetroAchievements.enabled) {
+                                    MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
+                                }
+                                MenuItem(Icons.Default.TouchApp, "Touch controls", value = if (Emulator.showTouchControls) "Shown" else "Hidden") {
+                                    Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
+                                }
+                            }
+                            MenuPage.Exit -> {
+                                MenuItem(Icons.Default.Close, "Close game (back to library)") { Emulator.quitGame() }
+                                MenuItem(Icons.Default.PowerSettingsNew, "Quit GBSat") { onQuitApp() }
+                            }
                         }
                     }
-                    message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
-                    TextButton(onClick = { stateMode = null; message = null }, modifier = Modifier.fillMaxWidth()) { Text("Back") }
                 }
-            }
-        }
-        return
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
-        val maxMenuHeight = maxHeight
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 420.dp).heightIn(max = maxMenuHeight).padding(16.dp)) {
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Paused", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
-                MenuItem(Icons.Default.PlayArrow, "Resume", onDismiss)
-                MenuItem(Icons.Default.Save, "Save state") { stateMode = "Save" }
-                MenuItem(Icons.Default.Restore, "Load state") { stateMode = "Load" }
-                MenuItem(Icons.Default.FastForward, if (Emulator.fastForward) "Fast-forward: on" else "Fast-forward: off") { Emulator.toggleFastForward() }
-                MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
-                MenuItem(Icons.Default.Eject, if (Emulator.trayOpen) "Close disc tray" else "Open disc tray") { Emulator.toggleTray() }
-                MenuItem(Icons.Default.Speed, if (Emulator.showFps) "Hide FPS" else "Show FPS") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
-                MenuItem(Icons.Default.AspectRatio, "Display: " + listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
-                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
-                    Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
-                }
-                MenuItem(Icons.Default.Tune, "Preset: " + (Emulator.currentPreset?.label ?: "Custom")) {
-                    val all = Emulator.Preset.entries
-                    Emulator.applyPreset(all[((Emulator.currentPreset?.ordinal ?: -1) + 1) % all.size])
-                }
-                val rendererIds = listOf(0, 1, 4)
-                val rendererNames = listOf("Software", "OpenGL ES", "Vulkan GPU")
-                MenuItem(Icons.Default.Memory, "Renderer: " + rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
-                    Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
-                    Emulator.savePrefs(); Emulator.applyOptions()
-                }
-                if (Emulator.renderer == 4) {
-                    MenuItem(Icons.Default.HighQuality, "Internal resolution: ${Emulator.resScale}x") {
-                        Emulator.resScale = Emulator.resScale % 4 + 1; Emulator.savePrefs(); Emulator.applyOptions()
-                    }
-                }
-                MenuItem(Icons.Default.Gamepad, if (Emulator.showTouchControls) "Hide touch controls" else "Show touch controls") {
-                    Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
-                }
-                if (app.gbsat.android.RetroAchievements.enabled) {
-                    MenuItem(Icons.Default.EmojiEvents, "Achievements") { achievementsOpen = true }
-                }
-                MenuItem(Icons.Default.Tune, "Cheats") { cheatsOpen = true }
-                if (Emulator.renderer == 1 || Emulator.renderer == 4) {
-                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
-                    val shaderOrder = listOf(0, 2, 4, 3, 1) // menu cycles alphabetically: None, CRT, Dots, LCD3x, Scanlines
-                    val filters = listOf("Nearest", "Bilinear")
-                    MenuItem(Icons.Default.Tv, "Shader: ${shaders[Emulator.shader]}") {
-                        Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
-                    }
-                    MenuItem(Icons.Default.FilterAlt, "Filter: ${filters[Emulator.filter]}") {
-                        Emulator.filter = (Emulator.filter + 1) % filters.size; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
-                    }
-                }
-                MenuItem(Icons.Default.Close, "Close game (back to library)") { Emulator.quitGame() }
-                MenuItem(Icons.Default.ExitToApp, "Quit GBSat") { onQuitApp() }
             }
         }
     }
 }
 
+/** Save state slots with screenshots (save or load). */
 @Composable
-private fun MenuItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(12.dp)) {
-        Icon(icon, null); Spacer(Modifier.width(16.dp)); Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+private fun StateSlots(save: Boolean, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf<String?>(null) }
+    var times by remember { mutableStateOf<List<Long?>>(emptyList()) }
+    var thumbs by remember { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
+    LaunchedEffect(save) {
+        times = withContext(Dispatchers.IO) { Emulator.slotTimes() }
+        thumbs = withContext(Dispatchers.IO) { (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() } }
+    }
+    for (slot in 0 until Emulator.STATE_SLOTS) {
+        val t = times.getOrNull(slot)
+        val enabled = save || t != null
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp))
+                .clickable(enabled = enabled) {
+                    scope.launch {
+                        val err = if (save) Emulator.saveState(slot) else Emulator.loadState(slot)
+                        if (err == null) onDone() else message = err
+                    }
+                }.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val thumb = thumbs.getOrNull(slot)
+            Box(Modifier.size(width = 88.dp, height = 66.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
+                if (thumb != null) androidx.compose.foundation.Image(thumb.asImageBitmap(), contentDescription = null,
+                    modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+                else Icon(Icons.Default.Image, null, tint = Color.White.copy(alpha = .3f), modifier = Modifier.align(Alignment.Center))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Slot ${slot + 1}", color = if (enabled) Color.White else MenuDim, fontWeight = FontWeight.SemiBold)
+                Text(t?.let { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)) } ?: "Empty",
+                    style = MaterialTheme.typography.bodySmall, color = MenuDim)
+            }
+        }
+    }
+    message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+}
+
+@Composable
+private fun MenuItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
+    value: String? = null, sub: Boolean = false, onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))
+            .background(if (focused) Color.White.copy(alpha = .12f) else Color.Transparent)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = Color(0xFFB9A6FF))
+        Spacer(Modifier.width(16.dp))
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = Color.White)
+        if (value != null) Text(value, color = MenuGold, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        if (sub) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MenuDim)
     }
 }
