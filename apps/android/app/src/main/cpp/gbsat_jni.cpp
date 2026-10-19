@@ -349,6 +349,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         return;
     }
 
+    g->lastScale.store(1, std::memory_order_relaxed);
     std::lock_guard lk(g->winMutex);
     if (!g->window) {
         return;
