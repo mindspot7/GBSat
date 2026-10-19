@@ -41,6 +41,7 @@ object NativeBridge {
     @JvmStatic external fun nativeRaPollEvents(): ByteArray
     @JvmStatic external fun nativeRaAchievements(): ByteArray
     @JvmStatic external fun nativeRaHashFile(path: String): String?
+    @JvmStatic external fun nativeGetGpuName(): String
     @JvmStatic external fun nativeRaHttpResponse(id: Int, status: Int, body: ByteArray?)
 
     /** Called from native code (rcheevos) to perform an HTTP request; the response goes back via nativeRaHttpResponse. */

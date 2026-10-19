@@ -43,7 +43,8 @@ object RetroAchievements {
     var enabled by mutableStateOf(false); private set
     var hardcore by mutableStateOf(false); private set
     var user by mutableStateOf<String?>(null); private set
-    var score by mutableStateOf(0); private set
+    var score by mutableStateOf(0); private set          // hardcore points
+    var scoreSoftcore by mutableStateOf(0); private set  // softcore points
     var loginPending by mutableStateOf(false); private set
     var loginError by mutableStateOf<String?>(null); private set
     var gameTitle by mutableStateOf<String?>(null); private set
@@ -133,7 +134,7 @@ object RetroAchievements {
             val url = p.getOrElse(4) { "" }
             when (kind) {
                 "login" -> {
-                    user = a; score = n; loginPending = false; loginError = null
+                    user = a; score = n; scoreSoftcore = p.getOrElse(5) { "0" }.toIntOrNull() ?: 0; loginPending = false; loginError = null
                     avatarUrl = url.ifBlank { "https://media.retroachievements.org/UserPic/$a.png" }
                     prefs.edit().putString("token", b).putString("avatar", avatarUrl).apply()
                     add += Notification("info", "RetroAchievements", "Logged in as $a ($n points)", 0, url)
@@ -199,10 +200,15 @@ object RetroAchievements {
         if (gameId <= 0) return@withContext none
         val enc = { s: String -> java.net.URLEncoder.encode(s, "UTF-8") }
         val patch = request("r=patch&u=${enc(u)}&t=${enc(t)}&g=$gameId")?.optJSONObject("PatchData") ?: return@withContext none
+        // Unlocks (softcore and hardcore) come from the session endpoint used by current rcheevos clients
         val unlocked = HashSet<Long>()
-        for (h in listOf(0, 1)) {
-            request("r=unlocks&u=${enc(u)}&t=${enc(t)}&g=$gameId&h=$h")?.optJSONArray("UserUnlocks")?.let { arr ->
-                for (i in 0 until arr.length()) unlocked += arr.optLong(i)
+        request("r=startsession&u=${enc(u)}&t=${enc(t)}&g=$gameId&h=0&m=$hash&l=${enc(userAgent)}")?.let { r ->
+            for (key in listOf("Unlocks", "HardcoreUnlocks")) {
+                val arr = r.optJSONArray(key) ?: continue
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i)
+                    unlocked += o?.optLong("ID") ?: arr.optLong(i)
+                }
             }
         }
         val list = mutableListOf<Achievement>()

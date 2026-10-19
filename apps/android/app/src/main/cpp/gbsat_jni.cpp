@@ -175,6 +175,7 @@ struct Context {
     std::string smpcPath;
     std::string lastError;
     std::atomic<float> fps{0.0f};
+    std::atomic<int64_t> frameTimeUs{0}; // emulation time per frame (smoothed)
 };
 
 Context *g = nullptr;
@@ -569,7 +570,12 @@ void EmuLoop() {
         ++fpsFrames;
 
         const auto now = steady_clock::now();
-        cputune::ReportFrameWork(duration_cast<nanoseconds>(now - workStart).count());
+        {
+            const int64_t ns = duration_cast<nanoseconds>(now - workStart).count();
+            cputune::ReportFrameWork(ns);
+            const int64_t prev = g->frameTimeUs.load(std::memory_order_relaxed);
+            g->frameTimeUs.store(prev == 0 ? ns / 1000 : (prev * 7 + ns / 1000) / 8, std::memory_order_relaxed);
+        }
         if (now - lastPin >= seconds(3)) { // render threads are recreated when the renderer changes
             lastPin = now;
             cputune::PinEmulationThreads();
@@ -914,17 +920,18 @@ JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
 
 // Stats: [fps*100, videoW, videoH]
 JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
-    // [fps*100, output width, output height, PAL (0/1), internal resolution scale]
-    jlong v[5] = {0, 320, 224, 0, 1};
+    // [fps*100, output width, output height, PAL (0/1), internal resolution scale, emulation µs per frame]
+    jlong v[6] = {0, 320, 224, 0, 1, 0};
     if (g) {
         v[0] = (jlong)(g->fps.load() * 100.0f);
         v[1] = g->videoW.load();
         v[2] = g->videoH.load();
         v[3] = g->palMode.load() ? 1 : 0;
         v[4] = g->lastScale.load();
+        v[5] = g->frameTimeUs.load();
     }
-    jlongArray arr = env->NewLongArray(5);
-    env->SetLongArrayRegion(arr, 0, 5, v);
+    jlongArray arr = env->NewLongArray(6);
+    env->SetLongArrayRegion(arr, 0, 6, v);
     return arr;
 }
 
@@ -1119,6 +1126,10 @@ JNI_FN(void, nativeRaInit)(JNIEnv *env, jclass, jstring userAgent) {
 }
 
 // Returned as UTF-8 bytes: titles may contain characters that JNI's modified UTF-8 strings cannot carry.
+JNI_FN(jstring, nativeGetGpuName)(JNIEnv *env, jclass) {
+    return env->NewStringUTF(glr::GpuName().c_str());
+}
+
 // RetroAchievements hash of a disc image that is not running (same rule as nativeLoadDisc), for the game's achievement list.
 JNI_FN(jstring, nativeRaHashFile)(JNIEnv *env, jclass, jstring path) {
     auto disc = std::make_shared<ymir::media::Disc>();

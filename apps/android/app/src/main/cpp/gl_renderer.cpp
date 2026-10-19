@@ -133,6 +133,8 @@ struct State {
 };
 
 State S;
+std::mutex gpuNameMutex;
+std::string gpuName;
 
 GLuint Compile(GLenum type, const char *src) {
     GLuint s = glCreateShader(type);
@@ -223,6 +225,10 @@ void Loop() {
                             uOutSize = glGetUniformLocation(prog, "uOutSize");
                             uFilter = glGetUniformLocation(prog, "uFilter");
                             uShader = glGetUniformLocation(prog, "uShader");
+                            if (const char *r = (const char *)glGetString(GL_RENDERER)) {
+                                std::lock_guard nl(gpuNameMutex);
+                                gpuName = r;
+                            }
                             glGenVertexArrays(1, &vao);
                             glGenTextures(1, &tex);
                             glBindTexture(GL_TEXTURE_2D, tex);
@@ -432,6 +438,11 @@ void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale)
     S.fscale = scale ? scale : 1;
     S.frameReady = true;
     S.cv.notify_all();
+}
+
+std::string GpuName() {
+    std::lock_guard lk(gpuNameMutex);
+    return gpuName;
 }
 
 void SetOptions(int filter, int shader) {

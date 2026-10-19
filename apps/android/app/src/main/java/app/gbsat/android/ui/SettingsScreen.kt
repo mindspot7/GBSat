@@ -214,6 +214,9 @@ private fun VideoPage() {
         }
     }
     Group("Overlay", Icons.Default.Layers) {
+        ToggleRow(Icons.Default.Insights, "Show all monitoring", "FPS, speed, CPU, GPU, renderer, resolution and frame time at the top right",
+            Emulator.showAllStats) { Emulator.showAllStats = it; Emulator.savePrefs() }
+        Divider()
         ToggleRow(Icons.Default.Speed, "Show FPS", "Frames per second", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
         Divider()
         ToggleRow(Icons.Default.Percent, "Show speed", "Emulation speed in percent (100% = full speed)", Emulator.showSpeed) { Emulator.showSpeed = it; Emulator.savePrefs() }
@@ -222,6 +225,12 @@ private fun VideoPage() {
         Divider()
         ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Output resolution (including the internal resolution scale)",
             Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.DeveloperBoard, "Show CPU", "Chip name and GBSat's CPU usage", Emulator.showCpu) { Emulator.showCpu = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.Videocam, "Show GPU", "GPU name and load (when the device reports it)", Emulator.showGpu) { Emulator.showGpu = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.Timer, "Show frame time", "Time spent emulating each frame (16.7 ms or less = full speed)", Emulator.showFrameTime) { Emulator.showFrameTime = it; Emulator.savePrefs() }
         Divider()
         ToggleRow(Icons.Default.FastForward, "Show fast-forward button", "On-screen button to turn fast-forward on and off",
             Emulator.showFfButton) { Emulator.showFfButton = it; Emulator.savePrefs() }
@@ -354,7 +363,7 @@ private fun ExtrasPage() {
         if (ra.enabled) {
             Divider()
             if (ra.user != null) {
-                ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
+                ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} hardcore · ${ra.scoreSoftcore} softcore points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
                     "Log out", { ra.logout() })
             } else {
                 var raUser by remember { mutableStateOf("") }

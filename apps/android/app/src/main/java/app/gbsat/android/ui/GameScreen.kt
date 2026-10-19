@@ -85,22 +85,10 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 onClick = { menu = true; Emulator.pause(true) },
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
             ) { Icon(Icons.Default.Menu, "Menu") }
-            // Overlays: FPS, speed, renderer, resolution
-            val lines = buildList {
-                if (Emulator.showFps) add("%.1f fps".format(fps))
-                if (Emulator.showSpeed) {
-                    val target = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f
-                    add("%d%%".format((fps / target * 100f).toInt()))
-                }
-                if (Emulator.showRenderer) add(when (Emulator.renderer) { 0 -> "Software"; 1 -> "OpenGL ES"; else -> "Vulkan GPU" })
-                if (Emulator.showResolution) {
-                    val w = stats.getOrElse(1) { 320 }; val h = stats.getOrElse(2) { 224 }; val sc = stats.getOrElse(4) { 1 }.coerceAtLeast(1)
-                    add("${w}×${h}")
-                }
-            }
-            if (lines.isNotEmpty()) Text(lines.joinToString("  ·  "), color = Color.White, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(start = 8.dp).background(Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
         }
+
+        // Performance overlay, top right
+        PerfOverlay(fps, stats, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp))
 
         if (Emulator.showFfButton) {
             FilledTonalIconButton(
@@ -264,10 +252,14 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                             }
                             MenuPage.Overlays -> {
                                 fun onOff(b: Boolean) = if (b) "On" else "Off"
+                                MenuItem(Icons.Default.Insights, "Show all monitoring", value = onOff(Emulator.showAllStats)) { Emulator.showAllStats = !Emulator.showAllStats; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.Speed, "Show FPS", value = onOff(Emulator.showFps)) { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.Percent, "Show speed", value = onOff(Emulator.showSpeed)) { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.Memory, "Show renderer", value = onOff(Emulator.showRenderer)) { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.PhotoSizeSelectLarge, "Show resolution", value = onOff(Emulator.showResolution)) { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.DeveloperBoard, "Show CPU", value = onOff(Emulator.showCpu)) { Emulator.showCpu = !Emulator.showCpu; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Videocam, "Show GPU", value = onOff(Emulator.showGpu)) { Emulator.showGpu = !Emulator.showGpu; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Timer, "Show frame time", value = onOff(Emulator.showFrameTime)) { Emulator.showFrameTime = !Emulator.showFrameTime; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.FastForward, "Show fast-forward button", value = onOff(Emulator.showFfButton)) { Emulator.showFfButton = !Emulator.showFfButton; Emulator.savePrefs() }
                                 MenuItem(Icons.Default.TouchApp, "Touch controls", value = if (Emulator.showTouchControls) "Shown" else "Hidden") {
                                     Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()

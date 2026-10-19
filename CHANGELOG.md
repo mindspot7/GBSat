@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Performance overlay redesigned (top right, colored): app version, FPS/speed, CPU name and usage, GPU name and load, renderer, resolution, frame time; "Show all monitoring" option. Recent view shows the latest save state of each game. RetroAchievements: hardcore and softcore points; unlocks from the current session endpoint.
 - RetroAchievements: user picture, name and points at the top of the menu; Game options → Achievements shows any game's achievements and your unlocks. "Cover image" label. No highlight box around the selected cover. Select works right after start and after closing a game.
 
 ## 1.0.0 — Public release

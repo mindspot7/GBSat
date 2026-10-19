@@ -191,7 +191,7 @@ private fun RaUserHeader() {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${ra.score} pts" + if (ra.hardcoreActive) " · Hardcore" else "", style = MaterialTheme.typography.labelMedium,
+            Text(if (ra.hardcoreActive) "${ra.score} pts · Hardcore" else "${ra.score + ra.scoreSoftcore} pts", style = MaterialTheme.typography.labelMedium,
                 color = Gold, maxLines = 1)
         }
     }
@@ -657,7 +657,7 @@ private fun GameCard(
 @Composable
 private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected: (ImageBitmap?) -> Unit) {
     var states by remember { mutableStateOf<List<Emulator.RecentState>?>(null) }
-    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates() } }
+    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates().distinctBy { it.gamePath } } // latest state of each game }
     val list = states
     when {
         list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

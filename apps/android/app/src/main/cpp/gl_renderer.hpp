@@ -5,6 +5,8 @@
 
 // GPU presentation path: takes the software-rendered Saturn frame, uploads it as a texture and draws it with a
 // selectable scaling filter and post-process shader on a dedicated EGL/OpenGL ES 3 thread.
+#include <string>
+
 namespace glr {
 
 // Takes ownership of one reference to `window` (releases it when replaced). Pass nullptr to detach.
@@ -16,4 +18,6 @@ void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale 
 void SetOptions(int filter, int shader);
 void Shutdown();
 
+// GPU name reported by the GL driver (empty until the presenter started)
+std::string GpuName();
 } // namespace glr

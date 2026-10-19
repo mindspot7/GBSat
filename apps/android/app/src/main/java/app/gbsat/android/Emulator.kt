@@ -42,6 +42,13 @@ object Emulator {
     var showFfButton by mutableStateOf(false)
     var showRenderer by mutableStateOf(false)
     var showResolution by mutableStateOf(false)
+    var showCpu by mutableStateOf(false)
+    var showGpu by mutableStateOf(false)
+    var showFrameTime by mutableStateOf(false)
+    /** All performance monitoring overlays at once. */
+    var showAllStats: Boolean
+        get() = showFps && showSpeed && showRenderer && showResolution && showCpu && showGpu && showFrameTime
+        set(v) { showFps = v; showSpeed = v; showRenderer = v; showResolution = v; showCpu = v; showGpu = v; showFrameTime = v }
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
     var frameSkip by mutableStateOf(false) // render every other frame
@@ -367,6 +374,9 @@ object Emulator {
         showFfButton = prefs.getBoolean("showFfButton", false)
         showRenderer = prefs.getBoolean("showRenderer", false)
         showResolution = prefs.getBoolean("showResolution", false)
+        showCpu = prefs.getBoolean("showCpu", false)
+        showGpu = prefs.getBoolean("showGpu", false)
+        showFrameTime = prefs.getBoolean("showFrameTime", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         // "Vulkan" (present-only, id 2) was replaced by Vulkan GPU, which also presents through Vulkan
         renderer = prefs.getInt("renderer", 0).let { when (it) { 2 -> 4; 3 -> 1; else -> it } } // ANGLE (3) was removed
@@ -438,7 +448,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution)
+        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
 

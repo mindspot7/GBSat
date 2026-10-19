@@ -196,7 +196,8 @@ void RC_CCONV LoginCallback(int result, const char *error, rc_client_t *client, 
         }
         if (user) {
             PushEvent(std::string("login\t") + Clean(user->display_name) + "\t" + Clean(user->token) + "\t" +
-                      std::to_string(user->score) + "\t" + Clean(user->avatar_url));
+                      std::to_string(user->score) + "\t" + Clean(user->avatar_url) + "\t" +
+                      std::to_string(user->score_softcore));
         }
     } else {
         g_loginState = "failed";
