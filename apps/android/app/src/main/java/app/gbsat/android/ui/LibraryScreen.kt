@@ -122,7 +122,7 @@ fun LibraryScreen(
                     exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
                     modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp),
                 ) {
-                    Box(Modifier.width(280.dp).heightIn(max = 520.dp)) {
+                    Box(Modifier.width(220.dp).heightIn(max = 520.dp)) {
                         SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
                     }
                 }
@@ -222,24 +222,24 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 
 @Composable
 private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester) {
-    Panel(Modifier.fillMaxWidth()) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), border = PanelBorder, shadowElevation = 12.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-            MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6), Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
-            MenuEntry(Icons.Default.Tv, "Video", Color(0xFF7FD7C4)) { onOpenSettings(SettingsPage.Video) }
-            MenuEntry(Icons.Default.VolumeUp, "Audio", Color(0xFF9BE37B)) { onOpenSettings(SettingsPage.Audio) }
-            MenuEntry(Icons.Default.Speed, "Performance", Color(0xFFFFB86B)) { onOpenSettings(SettingsPage.Performance) }
-            MenuEntry(Icons.Default.SportsEsports, "Controls", Color(0xFFFF7A90)) { onOpenSettings(SettingsPage.Controls) }
-            MenuEntry(Icons.Default.EmojiEvents, "Extras", Gold) { onOpenSettings(SettingsPage.Extras) }
-            MenuEntry(Icons.Default.Info, "About", Color(0xFF6FA8FF)) { onOpenSettings(SettingsPage.About) }
+            MenuEntry(MenuIcon.System, "System", Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
+            MenuEntry(MenuIcon.Video, "Video") { onOpenSettings(SettingsPage.Video) }
+            MenuEntry(MenuIcon.Audio, "Audio") { onOpenSettings(SettingsPage.Audio) }
+            MenuEntry(MenuIcon.Performance, "Performance") { onOpenSettings(SettingsPage.Performance) }
+            MenuEntry(MenuIcon.Controls, "Controls") { onOpenSettings(SettingsPage.Controls) }
+            MenuEntry(MenuIcon.Extras, "Extras") { onOpenSettings(SettingsPage.Extras) }
+            MenuEntry(MenuIcon.About, "About") { onOpenSettings(SettingsPage.About) }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = .12f))
-            MenuEntry(Icons.Default.ExitToApp, "Quit", Color(0xFFFF8A65), onClick = onQuit)
+            MenuEntry(MenuIcon.Quit, "Quit", onClick = onQuit)
         }
     }
 }
 
 @Composable
-private fun MenuEntry(icon: ImageVector, label: String, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun MenuEntry(icon: MenuIcon, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
@@ -248,7 +248,7 @@ private fun MenuEntry(icon: ImageVector, label: String, tint: Color, modifier: M
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconTile(icon, tint)
+        MenuIconView(icon)
         Spacer(Modifier.width(14.dp))
         Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
