@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Quit dialog: centered, A confirms. Back from a settings page returns to the open menu on that entry. 20dp cover spacing; the shelf keeps the selected cover in the second slot so the last one is never cut off.
 - "Confirm Quit?" dialog with A/B buttons, half-width. No selection outline on covers, 16dp spacing, last cover no longer cut off.
 - Presets: Low uses the Software renderer, Mid has no shader. Shaders keep their size in hi-res/interlaced screens (menus and title screens of games such as Daytona USA).
 - Small screens (e.g. 720x720): the interface scales down to fit. Menu opens over the button bar. Wider spacing between covers, shelf bar replaced by a soft cover reflection. Select hint removed.

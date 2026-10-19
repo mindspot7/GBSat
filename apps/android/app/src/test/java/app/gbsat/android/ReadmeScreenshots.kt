@@ -77,13 +77,6 @@ class ReadmeScreenshots {
     @Test @Config(qualifiers = "w360dp-h360dp-xhdpi") fun squareQuit() = shot("square-quit", { LibraryScreen({}, {}, {}, {}, {}) }) {
         androidx.test.espresso.Espresso.pressBack()
     }
-    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
-    @Test fun libraryEnd() = shot("dbg-library-end", { LibraryScreen({}, {}, {}, {}, {}) }) {
-        repeat(9) { rule.onRoot().performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionRight) }; rule.mainClock.advanceTimeBy(400) }
-    }
-    @Test fun quit() = shot("dbg-quit", { LibraryScreen({}, {}, {}, {}, {}) }) {
-        androidx.test.espresso.Espresso.pressBack()
-    }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, {}, SettingsPage.Video) })
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, {}, SettingsPage.Controls) })
     @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, {}, SettingsPage.Performance) })

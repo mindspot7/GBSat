@@ -423,7 +423,14 @@ private fun Library(
                         }
                     }
                     Spacer(Modifier.weight(1f))
+                    // The selected cover is kept in the second slot; at the ends the list stops with its full padding, so the
+                    // first and last covers are never cut off (focus scrolling alone ignores the padding)
+                    val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    var focusIndex by remember { mutableIntStateOf(-1) }
+                    val slotPx = with(androidx.compose.ui.platform.LocalDensity.current) { (cardW + 20.dp).roundToPx() }
+                    LaunchedEffect(focusIndex) { if (focusIndex >= 0) rowState.animateScrollToItem(focusIndex, -slotPx) }
                     androidx.compose.foundation.lazy.LazyRow(
+                        state = rowState,
                         // Side padding leaves room for the enlarged (focused) first and last covers
                         contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.12f, bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -436,7 +443,7 @@ private fun Library(
                                 g, coverVersion, cardW, cardH,
                                 modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
                                 onClick = { launch(g.path) }, onOptions = { gameMenu = g },
-                                onSelected = { selected = g },
+                                onSelected = { selected = g; focusIndex = i },
                             )
                         }
                     }
