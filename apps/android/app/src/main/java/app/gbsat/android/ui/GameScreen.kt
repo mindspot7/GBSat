@@ -61,8 +61,10 @@ fun GameScreen(onQuitApp: () -> Unit) {
             if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxSize().safeDrawingPadding(), landscape = true)
         } else {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Box(Modifier.fillMaxWidth().weight(1f, fill = false), contentAlignment = Alignment.TopCenter) {
-                    VideoSurface(if (Emulator.aspect == 1) Modifier.fillMaxWidth().height(screenW * 0.75f) else Modifier.fillMaxWidth().aspectRatio(ratio))
+                // Fullscreen fills the whole area above the touch controls (or the whole screen when they are hidden)
+                val full = Emulator.aspect == 1
+                Box(Modifier.fillMaxWidth().weight(1f, fill = full), contentAlignment = Alignment.TopCenter) {
+                    VideoSurface(if (full) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(ratio))
                 }
                 if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxWidth().weight(1f), landscape = false)
             }

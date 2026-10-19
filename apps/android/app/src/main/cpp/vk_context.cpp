@@ -391,11 +391,9 @@ bool PresentRGBA(const uint32_t *pixels, uint32_t w, uint32_t h, bool linear) {
     VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCmdClearColorImage(g.cmd, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
 
-    float sx = float(g.extent.width) / float(w);
-    float sy = float(g.extent.height) / float(h);
-    float s = std::min(sx, sy);
-    int32_t dw = int32_t(float(w) * s), dh = int32_t(float(h) * s);
-    int32_t ox = (int32_t(g.extent.width) - dw) / 2, oy = (int32_t(g.extent.height) - dh) / 2;
+    // The view is already sized to the selected display mode (4:3, 16:9 or fullscreen): fill it entirely
+    int32_t dw = int32_t(g.extent.width), dh = int32_t(g.extent.height);
+    int32_t ox = 0, oy = 0;
     VkImageBlit blit{};
     blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     blit.srcOffsets[1] = {int32_t(w), int32_t(h), 1};
