@@ -101,6 +101,17 @@ fun LibraryScreen(
     }
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
+        // Quit dialog open: it owns the controller. A confirms, B/Back cancels; acting on key release and consuming the
+        // press too, so the same press can't also reach the library or the system Back
+        if (confirmQuit) {
+            val up = e.type == KeyEventType.KeyUp
+            when (e.key) {
+                Key.ButtonA, Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { if (up) { confirmQuit = false; onQuit() } }
+                Key.ButtonB, Key.Back, Key.Escape -> { if (up) confirmQuit = false }
+                else -> {}
+            }
+            return@onPreviewKeyEvent true
+        }
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (e.key) {
             Key.ButtonX -> { menuOpen = !menuOpen; true } // X: menu
@@ -440,7 +451,7 @@ private fun Library(
                     androidx.compose.foundation.lazy.LazyRow(
                         state = rowState,
                         // Side padding leaves room for the enlarged (focused) first and last covers
-                        contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.12f, bottom = 6.dp),
+                        contentPadding = PaddingValues(start = 20.dp + cardW * 0.1f, end = 20.dp + cardW * 0.1f, top = cardH * 0.06f, bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.Top,
                         modifier = Modifier.fillMaxWidth(),
@@ -497,11 +508,13 @@ private fun GameCard(
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "scale")
     // Cover and reflection scale together around the cover's bottom edge, so the reflection always starts below it
-    val reflH = cardH * 0.16f + 4.dp
-    Column(modifier.zIndex(if (focused) 1f else 0f).width(cardW)
-        .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, cardH / (cardH + reflH)) }) {
+    val reflH = cardH * 0.16f
+    // The cover area is tall enough for the tallest covers (ratio 0.66), so no cover is ever cut; covers sit on its bottom
+    val boxH = cardW / 0.66f
+    Column(modifier.zIndex(if (focused) 1f else 0f).width(cardW).padding(top = 0.dp)
+        .graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, boxH / (boxH + reflH)) }) {
     Box(
-        Modifier.size(cardW, cardH).clipToBounds()
+        Modifier.size(cardW, boxH)
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(cover) }
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyDown && e.key == Key.ButtonY) { onOptions(); true } else false
@@ -523,7 +536,7 @@ private fun GameCard(
             )
         } else {
             Column(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Color(0xFF241F3D))
+                Modifier.size(cardW, cardH).clip(RoundedCornerShape(10.dp)).background(Color(0xFF241F3D))
                     .border(1.dp, Color.White.copy(alpha = .16f), RoundedCornerShape(10.dp))
                     .padding(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
@@ -539,7 +552,7 @@ private fun GameCard(
     if (refl != null) {
         val ratio = (refl.width.toFloat() / refl.height).coerceIn(0.66f, 1.25f)
         Box(
-            Modifier.padding(top = 4.dp).fillMaxWidth().height(cardH * 0.16f).clipToBounds()
+            Modifier.fillMaxWidth().height(reflH).clipToBounds()
                 .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
