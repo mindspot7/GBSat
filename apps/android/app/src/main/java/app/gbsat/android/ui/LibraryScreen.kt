@@ -86,7 +86,14 @@ fun LibraryScreen(
     var recentMode by remember { mutableStateOf(false) }
     var menuOpen by MenuState.open
     val menuFocus = remember { FocusRequester() }
-    LaunchedEffect(menuOpen) { if (menuOpen) { kotlinx.coroutines.delay(50); runCatching { menuFocus.requestFocus() } } }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // Landscape: the menu is docked on the left, always visible, and the library works beside it ("open" = menu focused)
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val docked = cfg.screenWidthDp > cfg.screenHeightDp * 1.15f
+    val hasPad = rememberHasGamepad()
+    // Docked menu: coming back from a settings page focuses the entry that was opened
+    LaunchedEffect(Unit) { if (docked && MenuState.selected != null) { kotlinx.coroutines.delay(120); runCatching { menuFocus.requestFocus() } } }
+    LaunchedEffect(menuOpen, docked) { if (menuOpen) { kotlinx.coroutines.delay(80); runCatching { menuFocus.requestFocus() } } }
     var confirmQuit by remember { mutableStateOf(false) }
     var headerPx by remember { mutableIntStateOf(0) }
     // B / Back: close the menu, leave Recent, otherwise ask before quitting
@@ -97,7 +104,7 @@ fun LibraryScreen(
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastBack < 300) return@BackHandler
         lastBack = now
-        when { confirmQuit -> confirmQuit = false; menuOpen -> menuOpen = false; recentMode -> recentMode = false; else -> confirmQuit = true }
+        when { confirmQuit -> confirmQuit = false; menuOpen && !docked -> menuOpen = false; menuOpen && docked -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right); recentMode -> recentMode = false; else -> confirmQuit = true }
     }
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
@@ -114,27 +121,39 @@ fun LibraryScreen(
         }
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (e.key) {
-            Key.ButtonX -> { menuOpen = !menuOpen; true } // X: menu
+            Key.ButtonX -> { // X: menu (docked: switch between the menu and the library)
+                if (docked && menuOpen) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) else menuOpen = !menuOpen
+                true
+            }
             Key.ButtonSelect -> { recentMode = !recentMode; true } // Select: all games / recent save states
             else -> false
         }
     }) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The whole logo bar opens the menu, which drops down right below it
-            Header(recentMode, Modifier.onSizeChanged { headerPx = it.height }, onToggleRecent = { recentMode = !recentMode }, onMenu = { menuOpen = !menuOpen }, menuOpen = menuOpen)
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            Header(recentMode, Modifier.onSizeChanged { headerPx = it.height }, onToggleRecent = { recentMode = !recentMode },
+                onMenu = { if (docked) runCatching { menuFocus.requestFocus() } else menuOpen = !menuOpen }, menuOpen = menuOpen && !docked)
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (docked) {
+                Box(Modifier.width(220.dp).fillMaxHeight().onFocusChanged { menuOpen = it.hasFocus }) {
+                    SideMenu(onOpenSettings = { MenuState.selected = it; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus, fill = true)
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) {
                 if (recentMode) {
                     RecentStates(launchState = launchState, onSelected = {})
                 } else {
                     Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
-                        launch = launch, onSelected = {}, open = open, launchState = launchState)
+                        launch = { MenuState.selected = null; launch(it) }, onSelected = {}, open = { MenuState.selected = null; open(it) },
+                        launchState = { MenuState.selected = null; launchState(it) })
                 }
             }
-            HelpBar(recentMode)
+            }
+            if (hasPad) HelpBar(recentMode)
         }
         // Menu and scrim drop down below the logo bar, over the shelf and the button help bar
         val headerDp = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
-        Box(Modifier.fillMaxSize().safeDrawingPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp + headerDp + 8.dp)) {
+        if (!docked) Box(Modifier.fillMaxSize().safeDrawingPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp + headerDp + 8.dp)) {
             if (menuOpen) {
                 Box(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .35f))
                     .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { menuOpen = false })
@@ -153,6 +172,29 @@ fun LibraryScreen(
         }
         if (confirmQuit) QuitDialog(onConfirm = { confirmQuit = false; onQuit() }, onCancel = { confirmQuit = false })
     }
+}
+
+/** True while a physical controller (gamepad/joystick) is connected; updates when one is plugged in or removed. */
+@Composable
+fun rememberHasGamepad(): Boolean {
+    val ctx = LocalContext.current
+    val im = remember { ctx.getSystemService(android.content.Context.INPUT_SERVICE) as android.hardware.input.InputManager }
+    fun check() = im.inputDeviceIds.any { id ->
+        val d = im.getInputDevice(id) ?: return@any false
+        !d.isVirtual && (d.sources and android.view.InputDevice.SOURCE_GAMEPAD == android.view.InputDevice.SOURCE_GAMEPAD ||
+            d.sources and android.view.InputDevice.SOURCE_JOYSTICK == android.view.InputDevice.SOURCE_JOYSTICK)
+    }
+    var has by remember { mutableStateOf(check()) }
+    DisposableEffect(im) {
+        val l = object : android.hardware.input.InputManager.InputDeviceListener {
+            override fun onInputDeviceAdded(id: Int) { has = check() }
+            override fun onInputDeviceRemoved(id: Int) { has = check() }
+            override fun onInputDeviceChanged(id: Int) { has = check() }
+        }
+        im.registerInputDeviceListener(l, null)
+        onDispose { im.unregisterInputDeviceListener(l) }
+    }
+    return has
 }
 
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
@@ -283,8 +325,8 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 }
 
 @Composable
-private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), border = PanelBorder, shadowElevation = 12.dp) {
+private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester, fill: Boolean = false) {
+    Surface(if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), border = PanelBorder, shadowElevation = 12.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             listOf(
