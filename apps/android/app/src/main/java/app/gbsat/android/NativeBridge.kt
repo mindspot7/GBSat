@@ -4,7 +4,8 @@ import android.view.Surface
 
 /** JNI surface of libgbsat.so (see cpp/gbsat_jni.cpp). */
 object NativeBridge {
-    init { System.loadLibrary("gbsat") }
+    // Missing only in JVM tests (README screenshots); on devices the library is always packaged
+    init { runCatching { System.loadLibrary("gbsat") } }
 
     @JvmStatic external fun nativeInit(backupRamPath: String, smpcPath: String): String?
     @JvmStatic external fun nativeShutdown()

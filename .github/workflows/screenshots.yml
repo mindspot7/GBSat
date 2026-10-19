@@ -32,7 +32,7 @@ jobs:
           msg=$( (grep -E "^e: |FAILED|Exception|What went wrong" -A2 t.log | head -60) | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           [ -n "$msg" ] && echo "::warning title=Test log::$msg"
           tail -40 t.log; ls -la ../../docs/screenshots || true
-          sum=$( (tail -25 t.log; ls ../../docs/screenshots; find app/build -name "TEST-*.xml" -exec grep -h -A3 "<failure" {} + | head -40) 2>&1 | cut -c1-250 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+          sum=$( (tail -25 t.log; ls ../../docs/screenshots; find app/build -name "TEST-*.xml" -exec grep -h -A30 "<failure" {} + | grep -E "gbsat|failure" | head -20) 2>&1 | cut -c1-250 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           echo "::notice title=Summary::$sum"
           exit 0
       - uses: actions/upload-artifact@v4
