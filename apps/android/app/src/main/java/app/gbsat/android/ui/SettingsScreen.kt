@@ -41,6 +41,19 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
         }
     }
 
+    var dataMsg by remember { mutableStateOf<String?>(null) }
+    val dataPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        uri?.let {
+            val path = Storage.treeUriToPath(it)
+            if (path == null) toast("Unsupported folder") else scope.launch {
+                val err = Emulator.changeDataDir(java.io.File(path, "GBSat"))
+                dataMsg = err ?: "Data copied to $path/GBSat. Restart GBSat to use the new location."
+            }
+        }
+    }
+    dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data location") }, text = { Text(m) },
+        confirmButton = { TextButton(onClick = { dataMsg = null }) { Text("OK") } }) }
+
     fun <T> change(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.savePrefs(); Emulator.applyOptions() }
 
     Box(Modifier.fillMaxSize()) {
@@ -69,12 +82,26 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
                     trailingContent = { FilledTonalButton(onClick = onRequestAllFiles) { Text("Grant") } },
                 )
             }
+            ListItem(
+                headlineContent = { Text("Emulator data location") },
+                supportingContent = { Text((if (Emulator.dataDir == Emulator.defaultDataDir) "Internal app storage" else Emulator.dataDir.path) +
+                    "\nBIOS, saves, save states, cheats and covers") },
+                trailingContent = {
+                    Row {
+                        if (Emulator.dataDir != Emulator.defaultDataDir) TextButton(onClick = { scope.launch {
+                            dataMsg = Emulator.changeDataDir(Emulator.defaultDataDir) ?: "Data copied to internal storage. Restart GBSat to use it."
+                        } }) { Text("Internal") }
+                        FilledTonalButton(onClick = { if (Storage.hasAllFilesAccess()) dataPicker.launch(null) else onRequestAllFiles() }) { Text("Change") }
+                    }
+                },
+            )
             Toggle("Fast boot", "Skip the BIOS clock/language setup screens after the first run", Emulator.fastBoot, change<Boolean> { Emulator.fastBoot = it })
             Choice("Video standard", listOf("NTSC", "PAL"), if (Emulator.pal) 1 else 0, change<Int> { Emulator.pal = it == 1 })
 
             Section("Performance")
             Toggle("Threaded VDP", "Render VDP1/VDP2 on separate threads", Emulator.threadedVdp, change<Boolean> { Emulator.threadedVdp = it })
             Toggle("SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, change<Boolean> { Emulator.sh2Cache = it })
+            Toggle("Frame skip", "Renders every other frame to keep full speed on slower devices", Emulator.frameSkip, change<Boolean> { Emulator.frameSkip = it })
             val cdSpeeds = listOf(2, 4, 8, 16)
             Choice("CD read speed", listOf("Original (2x)", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0),
                 change<Int> { Emulator.cdSpeed = cdSpeeds[it] })

@@ -112,6 +112,7 @@ public:
     void VDP2BeginFrame() override;
     void VDP2RenderLine(uint32 y) override;
     void VDP2EndFrame() override;
+    void VDP2SetSkipFrame(bool skip) override;
 
 private:
     struct Impl;

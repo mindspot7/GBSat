@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.5.0
+- Frame skip option (renders every other frame).
+- Play time recorded per game and shown in the library.
+- Emulator data location can be changed (BIOS, saves, save states, cheats, covers are copied to the new folder).
+- First-run setup wizard (BIOS, file access, games folder, data location).
 - Save states show a screenshot of the moment they were saved.
 - CD read speed setting (Original 2x, 4x, 8x, 16x) to shorten loading times.
 - The 4 MiB RAM expansion cartridge is always inserted (works with 1 MiB games); the Cartridge setting was removed.

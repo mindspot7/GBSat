@@ -6,6 +6,6 @@ class GBSatApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Emulator.init(this)
-        Covers.init(this)
+        Covers.init(Emulator.dataDir)
     }
 }

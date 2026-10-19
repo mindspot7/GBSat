@@ -778,7 +778,9 @@ void VDP::BeginHPhaseActiveDisplay() {
             m_cbTriggerOptimizedINTBACKRead();
         }
 
-        m_renderer->VDP2RenderLine(m_state.regs2.VCNT);
+        if (!m_skipFrameRender) {
+            m_renderer->VDP2RenderLine(m_state.regs2.VCNT);
+        }
     }
 }
 

@@ -140,7 +140,11 @@ private fun GameCard(g: Storage.Game, version: Int, onClick: () -> Unit, onLongC
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f))))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
-                Text(g.title, color = Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Column {
+                    Text(g.title, color = Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val secs = Emulator.playTime(g.path)
+                    if (secs >= 60) Text(formatPlayTime(secs), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }
@@ -176,4 +180,11 @@ fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: Str
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .7f))
         if (action != null) { Spacer(Modifier.height(24.dp)); Button(onClick = onAction) { Text(action) } }
     }
+}
+
+/** Play time as "1h 05m" or "12m". */
+fun formatPlayTime(secs: Long): String {
+    val h = secs / 3600
+    val m = (secs % 3600) / 60
+    return if (h > 0) "${h}h ${"%02d".format(m)}m" else "${m}m"
 }

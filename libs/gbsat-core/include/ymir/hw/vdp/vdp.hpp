@@ -200,6 +200,15 @@ public:
 
     /// @brief Applies the graphics enhancements configuration to this VDP instance.
     /// @param[in] enhancements the enhancements configuration to apply
+    /// @brief Frame skipping: skips VDP2 rendering (not emulation) of the next frame(s) while set.
+    void SetSkipFrameRender(bool skip) {
+        m_skipFrameRender = skip;
+        m_renderer->VDP2SetSkipFrame(skip);
+    }
+    bool IsSkippingFrameRender() const {
+        return m_skipFrameRender;
+    }
+
     void SetEnhancements(const config::Enhancements &enhancements) {
         m_enhancements = enhancements;
         m_renderer->ConfigureEnhancements(enhancements);
@@ -294,6 +303,7 @@ private:
     uint32 m_virtuaGunLastJitterY = 0u;
 
     std::unique_ptr<IVDPRenderer> m_renderer;
+    bool m_skipFrameRender = false;
 
     /// @brief Attempts to replaces the renderer with an instance of the given renderer.
     ///

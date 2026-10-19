@@ -3512,6 +3512,9 @@ struct VulkanVDPRenderer::Impl {
         const uint32 baseNumLines = y - startY + 1;
         const uint32 numLines = baseNumLines << yShift;
         vdp2.nextLayerRenderLine = y + 1;
+        if (skipFrame) {
+            return;
+        }
 
         vdp2.cpuCommonRenderParams.startY = startY << yShift;
 
@@ -3552,6 +3555,9 @@ struct VulkanVDPRenderer::Impl {
         enh.spriteFbScale = vdp1.fbScale[vdpState.fbIndex.display & 1];
     }
 
+    /// @brief Frame skipping: skip VDP2 rendering, composition and readback of the current frame.
+    bool skipFrame = false;
+
     void VDP2ComposeLines(uint32 y) {
         // Bail out if there's nothing to render
         if (y < vdp2.nextComposeLine) {
@@ -3566,6 +3572,9 @@ struct VulkanVDPRenderer::Impl {
         // Determine how many lines to draw and update next scanline counter
         const uint32 numLines = y - vdp2.nextComposeLine + 1;
         vdp2.nextComposeLine = y + 1;
+        if (skipFrame) {
+            return;
+        }
 
         // Compose final image
         if (auto result = Dispatch(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
@@ -3616,7 +3625,8 @@ struct VulkanVDPRenderer::Impl {
 
         FrameContext &frameCtx = frames.GetCurrentFrame();
 
-        // Copy the display area of the composited output to this frame's readback buffer
+        // Copy the display area of the composited output to this frame's readback buffer (skipped frames: none)
+        if (!skipFrame) {
         FlushBarriers();
         VkBufferImageCopy region{};
         region.bufferOffset = 0;
@@ -3633,6 +3643,7 @@ struct VulkanVDPRenderer::Impl {
         frameCtx.readbackPending = true;
         frameCtx.readbackW = outW;
         frameCtx.readbackH = outH;
+        }
         vdp2.outScaleLocked = false; // the next frame may pick a different scale
 
         SubmitCommands(frameCtx);
@@ -3877,6 +3888,10 @@ void VulkanVDPRenderer::VDP2BeginFrame() {
 
 void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
     m_impl->VDP2RenderLine(y);
+}
+
+void VulkanVDPRenderer::VDP2SetSkipFrame(bool skip) {
+    m_impl->skipFrame = skip;
 }
 
 void VulkanVDPRenderer::VDP2EndFrame() {

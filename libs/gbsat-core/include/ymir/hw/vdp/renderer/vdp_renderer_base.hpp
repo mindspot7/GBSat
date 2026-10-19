@@ -211,6 +211,10 @@ public:
     /// @brief Signals the end of a VDP2 frame.
     virtual void VDP2EndFrame() = 0;
 
+    /// @brief Frame skipping: when set, the renderer may skip VDP2 rendering and frame delivery for the current frame.
+    /// Renderers that do not implement it render every frame.
+    virtual void VDP2SetSkipFrame(bool skip) {}
+
     // -------------------------------------------------------------------------
     // Debugger
 

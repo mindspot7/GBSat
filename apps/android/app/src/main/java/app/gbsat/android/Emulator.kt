@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +41,9 @@ object Emulator {
     var showFps by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
     var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 2 = Vulkan (present), 3 = ANGLE, 4 = Vulkan GPU (VDP on GPU)
+    var frameSkip by mutableStateOf(false) // render every other frame
+    var setupDone by mutableStateOf(true)
+    fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
     var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
     var resScale by mutableStateOf(1) // Vulkan GPU internal resolution scale (1x..4x)
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear, 2 sharp bilinear
@@ -80,7 +84,7 @@ object Emulator {
 
     // ---- Cheats (per game) ----
     var cheats by mutableStateOf<List<Cheat>>(emptyList()); private set
-    private fun cheatFile() = NativeBridge.nativeGetDiscHash()?.let { File(appContext.filesDir, "cheats/$it.txt") }
+    private fun cheatFile() = NativeBridge.nativeGetDiscHash()?.let { File(dataDir, "cheats/$it.txt") }
 
     fun loadCheats() {
         val saved = cheatFile()?.takeIf { it.exists() }?.readLines()?.mapNotNull { l ->
@@ -167,7 +171,7 @@ object Emulator {
     // ---- Save states ----
     const val STATE_SLOTS = 5
     const val QUICK_SLOT = 99
-    private val statesDir get() = File(appContext.filesDir, "states")
+    private val statesDir get() = File(dataDir, "states")
     private fun stateFile(slot: Int): File? =
         NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/${if (slot == QUICK_SLOT) "quick" else slot.toString()}.savestate") }
 
@@ -200,11 +204,62 @@ object Emulator {
         NativeBridge.nativeLoadState(f.absolutePath)
     }
 
-    val biosFile get() = File(appContext.filesDir, "bios/ipl.bin")
+    val biosFile get() = File(dataDir, "bios/ipl.bin")
+
+    // ---- Emulator data location (BIOS, saves, states, cheats, covers) ----
+    /** Folder holding the emulator data. Defaults to the app's private storage. */
+    lateinit var dataDir: File; private set
+    private val dataSubdirs = listOf("bios", "saves", "states", "cheats", "covers")
+    val defaultDataDir: File get() = appContext.filesDir
+
+    /**
+     * Moves the emulator data to [target] (copying the existing files) and uses it from the next launch.
+     * Returns an error message or null.
+     */
+    suspend fun changeDataDir(target: File): String? = withContext(Dispatchers.IO) {
+        if (target.absolutePath == dataDir.absolutePath) return@withContext null
+        if (!target.exists() && !target.mkdirs()) return@withContext "Cannot create ${target.path}"
+        if (!target.canWrite()) return@withContext "Cannot write to ${target.path}"
+        runCatching {
+            dataSubdirs.forEach { name ->
+                val src = File(dataDir, name)
+                if (src.exists()) src.copyRecursively(File(target, name), overwrite = true)
+            }
+        }.exceptionOrNull()?.let { return@withContext "Copy failed: ${it.message}" }
+        prefs.edit().putString("dataDir", if (target.absolutePath == defaultDataDir.absolutePath) null else target.absolutePath).commit()
+        null
+    }
+
+    // ---- Play time per game (seconds, keyed by file name) ----
+    private val playTimes = mutableStateMapOf<String, Long>()
+    private var playStart = 0L
+    private fun playKey(path: String) = path.substringAfterLast('/')
+    fun playTime(path: String): Long = playTimes[playKey(path)] ?: 0L
+    private fun loadPlayTimes() {
+        prefs.getString("playTimes", null)?.split("\n")?.forEach { l ->
+            val i = l.lastIndexOf('\t')
+            if (i > 0) l.substring(i + 1).toLongOrNull()?.let { playTimes[l.substring(0, i)] = it }
+        }
+    }
+    /** Adds the time played since the last call (while a game runs unpaused). */
+    private fun accountPlayTime() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val game = currentGame
+        if (playStart != 0L && game != null) {
+            val k = playKey(game)
+            playTimes[k] = (playTimes[k] ?: 0L) + (now - playStart) / 1000
+            prefs.edit().putString("playTimes", playTimes.entries.joinToString("\n") { "${it.key}\t${it.value}" }).apply()
+        }
+        playStart = if (game != null && running && !paused) now else 0L
+    }
 
     fun init(context: Context) {
         appContext = context.applicationContext
         prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
+        dataDir = prefs.getString("dataDir", null)?.let { File(it) }?.takeIf { (it.isDirectory || it.mkdirs()) && it.canWrite() }
+            ?: appContext.filesDir
+        loadPlayTimes()
+        setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
@@ -221,6 +276,7 @@ object Emulator {
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(1, 4)
         cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
+        frameSkip = prefs.getBoolean("frameSkip", false)
         ffToggle = prefs.getBoolean("ffToggle", false)
         prefs.getString("hotkeys", null)?.let { str ->
             runCatching {
@@ -252,8 +308,8 @@ object Emulator {
             previous?.uncaughtException(t, e)
         }
 
-        val bup = File(appContext.filesDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
-        NativeBridge.nativeInit(bup.absolutePath, File(appContext.filesDir, "saves/smpc.bin").absolutePath)
+        val bup = File(dataDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
+        NativeBridge.nativeInit(bup.absolutePath, File(dataDir, "saves/smpc.bin").absolutePath)
         applyOptions()
         RetroAchievements.init(appContext, appVersion().substringBefore(" "))
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
@@ -270,6 +326,7 @@ object Emulator {
         NativeBridge.nativeSetCartridge(cartridge)
         NativeBridge.nativeSetResolutionScale(resScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
+        NativeBridge.nativeSetFrameSkip(frameSkip)
         NativeBridge.nativeSetRenderer(renderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (running) applyCheats()
@@ -280,7 +337,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("pal", pal).putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip)
         .putBoolean("ffToggle", ffToggle).apply()
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */
@@ -304,12 +361,12 @@ object Emulator {
         err
     }
 
-    fun pause(p: Boolean) { paused = p; NativeBridge.nativeSetPaused(p) }
+    fun pause(p: Boolean) { accountPlayTime(); paused = p; NativeBridge.nativeSetPaused(p); accountPlayTime() }
     fun toggleFastForward() { fastForward = !fastForward; NativeBridge.nativeSetFastForward(fastForward) }
     fun reset(hard: Boolean) = NativeBridge.nativeReset(hard)
     fun toggleTray() { trayOpen = !trayOpen; NativeBridge.nativeSetTrayOpen(trayOpen) }
     fun quitGame() {
-        pause(true); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
+        pause(true); accountPlayTime(); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
         RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }
         NativeBridge.nativeEjectDisc()

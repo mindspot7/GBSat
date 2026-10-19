@@ -44,6 +44,8 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (inGame) {
                 GameScreen(onQuitApp)
+            } else if (!Emulator.setupDone) {
+                SetupWizard(onRequestAllFiles = onRequestAllFiles, onFinish = { Emulator.finishSetup() })
             } else {
                 BackHandler(screen == Screen.Settings) { screen = Screen.Library }
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->

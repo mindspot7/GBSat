@@ -129,6 +129,9 @@ struct Context {
     ANativeWindow *window = nullptr;
     int32_t curW = 0, curH = 0;
     std::atomic<uint32_t> videoW{320}, videoH{224};
+    std::atomic<bool> frameSkip{false}; // skip rendering every other frame
+    bool frameParity = false;
+    std::atomic<bool> skipPresent{false};
     uint32_t resScale = 1; // Vulkan GPU renderer internal resolution scale (1..4)
     std::atomic<uint64_t> frameCounter{0};
 
@@ -302,6 +305,9 @@ void DrainCommands() {
 // Video
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
+    if (g->skipPresent.load(std::memory_order_relaxed)) {
+        return; // frame skipping: this frame was not rendered
+    }
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
         const uint32_t tw = width / step, th = height / step;
@@ -504,6 +510,11 @@ void EmuLoop() {
             continue;
         }
 
+        {
+            const bool skip = g->frameSkip.load() && (g->frameParity = !g->frameParity);
+            g->saturn->VDP.SetSkipFrameRender(skip);
+            g->skipPresent = skip;
+        }
         g->saturn->RunFrame();
         bool skipNext = false;
         const bool cheatsAllowed = !ra::IsHardcore();
@@ -888,6 +899,16 @@ JNI_FN(jintArray, nativeGetLastFrame)(JNIEnv *env, jclass) {
     jintArray arr = env->NewIntArray((jsize)out.size());
     env->SetIntArrayRegion(arr, 0, (jsize)out.size(), out.data());
     return arr;
+}
+
+// Frame skipping (renders every other frame).
+JNI_FN(void, nativeSetFrameSkip)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        g->frameSkip = on;
+        if (!on) {
+            Post([] { g->saturn->VDP.SetSkipFrameRender(false); g->skipPresent = false; });
+        }
+    }
 }
 
 // CD read speed factor (2 = original drive speed, up to 200).

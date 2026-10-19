@@ -20,8 +20,8 @@ object Covers {
     private lateinit var dir: File
     private val memory = LruCache<String, ImageBitmap>(64)
 
-    fun init(context: Context) {
-        dir = File(context.filesDir, "covers").apply { mkdirs(); File(this, "custom").mkdirs() }
+    fun init(dataDir: File) {
+        dir = File(dataDir, "covers").apply { mkdirs(); File(this, "custom").mkdirs() }
     }
 
     private fun safe(title: String) = title.replace(Regex("[&*/:`<>?\\\\|\"]"), "_")
