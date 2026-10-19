@@ -156,7 +156,7 @@ fun LibraryScreen(
 }
 
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
-private object MenuState {
+internal object MenuState {
     val open = mutableStateOf(false)
     var selected by mutableStateOf<SettingsPage?>(null)
 }

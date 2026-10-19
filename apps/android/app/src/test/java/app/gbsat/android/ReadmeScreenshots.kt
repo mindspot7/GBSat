@@ -57,6 +57,7 @@ class ReadmeScreenshots {
         Emulator.gamesDir = games.path
         setState("iplLoaded", true)
         Emulator.setupDone = true
+        MenuState.open.value = false; MenuState.selected = null
         Emulator.renderer = 4; Emulator.resScale = 4; Emulator.shader = 1; Emulator.filter = 1; Emulator.sh2Cache = true
     }
 
