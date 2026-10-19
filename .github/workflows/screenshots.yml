@@ -1,0 +1,38 @@
+name: README screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ android-port ]
+    paths: [ 'apps/android/app/src/test/**', '.github/workflows/screenshots.yml' ]
+
+jobs:
+  shots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Platform
+        run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: 8.10.2 }
+      - name: Render screens
+        working-directory: apps/android
+        run: |
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --tests '*ReadmeScreenshots*' > t.log 2>&1; rc=$?
+          msg=$( (grep -E "^e: |FAILED|Exception|What went wrong" -A2 t.log | head -60) | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+          [ -n "$msg" ] && echo "::warning title=Test log::$msg"
+          tail -40 t.log; ls -la ../../docs/screenshots || true
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            docs/screenshots/*.png
+            apps/android/app/build/reports/tests/
