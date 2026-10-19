@@ -202,14 +202,38 @@ object Emulator {
     const val QUICK_SLOT = 99
     const val AUTO_SLOT = 98
     private val statesDir get() = File(dataDir, "states")
-    private fun stateFile(slot: Int): File? =
-        NativeBridge.nativeGetDiscHash()?.let { File(statesDir, "$it/${when (slot) { QUICK_SLOT -> "quick"; AUTO_SLOT -> "auto"; else -> slot.toString() }}.savestate") }
+    /** Folder name for a game's save states: the disc image file name, without characters that folders can't hold. */
+    private fun stateDirName(gamePath: String) =
+        File(gamePath).nameWithoutExtension.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifEmpty { "game" }
+
+    /** Older versions named the folders after the disc hash; they are renamed to the game name (once, when found). */
+    private var statesMigrated = false
+    private fun migrateStateDirs() {
+        if (statesMigrated) return
+        statesMigrated = true
+        statesDir.listFiles()?.forEach { dir ->
+            if (!dir.isDirectory || !dir.name.matches(Regex("[0-9a-fA-F]{16,}"))) return@forEach
+            val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
+            val target = File(statesDir, stateDirName(game))
+            if (!target.exists()) dir.renameTo(target)
+        }
+    }
+
+    private fun stateFile(slot: Int): File? {
+        val game = currentGame ?: return null
+        migrateStateDirs()
+        val dir = File(statesDir, stateDirName(game))
+        // States of this disc saved before the game was known by name (no game.txt yet)
+        NativeBridge.nativeGetDiscHash()?.let { h -> File(statesDir, h).takeIf { it.isDirectory && !dir.exists() }?.renameTo(dir) }
+        return File(dir, "${when (slot) { QUICK_SLOT -> "quick"; AUTO_SLOT -> "auto"; else -> slot.toString() }}.savestate")
+    }
 
     /** Last-modified time per slot, or null if empty. */
     fun slotTimes(): List<Long?> = (0 until STATE_SLOTS).map { stateFile(it)?.takeIf { f -> f.exists() }?.lastModified() }
 
     suspend fun saveState(slot: Int): String? = withContext(Dispatchers.IO) {
         val f = stateFile(slot) ?: return@withContext "No game loaded"
+        f.parentFile?.mkdirs()
         val err = NativeBridge.nativeSaveState(f.absolutePath)
         if (err == null) {
             runCatching { saveThumbnail(thumbFile(f)) }
@@ -235,6 +259,7 @@ object Emulator {
     /** All save states of all games (whose game is known), newest first. */
     fun recentStates(): List<RecentState> {
         val out = mutableListOf<RecentState>()
+        migrateStateDirs()
         statesDir.listFiles()?.forEach { dir ->
             val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
             dir.listFiles { f -> f.name.endsWith(".savestate") }?.forEach { f ->
