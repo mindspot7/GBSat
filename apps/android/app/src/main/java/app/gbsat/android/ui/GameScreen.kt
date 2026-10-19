@@ -95,11 +95,21 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 if (Emulator.showRenderer) add(when (Emulator.renderer) { 0 -> "Software"; 1 -> "OpenGL ES"; else -> "Vulkan GPU" })
                 if (Emulator.showResolution) {
                     val w = stats.getOrElse(1) { 320 }; val h = stats.getOrElse(2) { 224 }; val sc = stats.getOrElse(4) { 1 }.coerceAtLeast(1)
-                    add(if (sc > 1) "${w / sc}×${h / sc} → ${w}×${h} (${sc}x)" else "${w}×${h}")
+                    add("${w}×${h}")
                 }
             }
             if (lines.isNotEmpty()) Text(lines.joinToString("  ·  "), color = Color.White, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(start = 8.dp).background(Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
+        }
+
+        if (Emulator.showFfButton) {
+            FilledTonalIconButton(
+                onClick = { Emulator.toggleFastForward() },
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = if (Emulator.fastForward) Color(0xFFE8C26A).copy(alpha = .85f) else Color.Black.copy(alpha = .45f),
+                    contentColor = if (Emulator.fastForward) Color.Black else Color.White),
+                modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
+            ) { Icon(Icons.Default.FastForward, "Fast-forward") }
         }
 
         RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
@@ -140,7 +150,7 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
-private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Game("Game"), Exit("Exit") }
+private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Overlays("Overlays"), Game("Game"), Exit("Exit") }
 
 private val MenuGold = Color(0xFFE8C26A)
 private val MenuDim = Color.White.copy(alpha = .65f)
@@ -201,6 +211,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
                                 MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
                                 MenuItem(Icons.Default.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
+                                MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
                                 MenuItem(Icons.Default.ExitToApp, "Exit", sub = true) { page = MenuPage.Exit }
                             }
@@ -236,10 +247,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                         Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                                     }
                                 }
-                                MenuItem(Icons.Default.Speed, "Show FPS", value = if (Emulator.showFps) "On" else "Off") { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Percent, "Show speed", value = if (Emulator.showSpeed) "On" else "Off") { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Memory, "Show renderer", value = if (Emulator.showRenderer) "On" else "Off") { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.PhotoSizeSelectLarge, "Show resolution", value = if (Emulator.showResolution) "On" else "Off") { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
                             }
                             MenuPage.Audio -> {
                                 MenuItem(Icons.Default.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
@@ -252,6 +259,17 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     Emulator.ffAudio = (Emulator.ffAudio + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                             }
+                            MenuPage.Overlays -> {
+                                fun onOff(b: Boolean) = if (b) "On" else "Off"
+                                MenuItem(Icons.Default.Speed, "Show FPS", value = onOff(Emulator.showFps)) { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Percent, "Show speed", value = onOff(Emulator.showSpeed)) { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.Memory, "Show renderer", value = onOff(Emulator.showRenderer)) { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.PhotoSizeSelectLarge, "Show resolution", value = onOff(Emulator.showResolution)) { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.FastForward, "Show fast-forward button", value = onOff(Emulator.showFfButton)) { Emulator.showFfButton = !Emulator.showFfButton; Emulator.savePrefs() }
+                                MenuItem(Icons.Default.TouchApp, "Touch controls", value = if (Emulator.showTouchControls) "Shown" else "Hidden") {
+                                    Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
+                                }
+                            }
                             MenuPage.Game -> {
                                 MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
                                 MenuItem(Icons.Default.Eject, "Disc tray", value = if (Emulator.trayOpen) "Open" else "Closed") { Emulator.toggleTray() }
@@ -259,12 +277,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 if (app.gbsat.android.RetroAchievements.enabled) {
                                     MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
                                 }
-                                MenuItem(Icons.Default.TouchApp, "Touch controls", value = if (Emulator.showTouchControls) "Shown" else "Hidden") {
-                                    Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
-                                }
                             }
                             MenuPage.Exit -> {
-                                MenuItem(Icons.Default.Close, "Close game (back to library)") { Emulator.quitGame() }
+                                MenuItem(Icons.Default.Close, "Close game") { Emulator.quitGame() }
                                 MenuItem(Icons.Default.PowerSettingsNew, "Quit GBSat") { onQuitApp() }
                             }
                         }

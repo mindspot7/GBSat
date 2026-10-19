@@ -2,6 +2,9 @@
 
 ## Unreleased
 - Library: cleaner shelf (selected game details above the box art, save state and achievement badges, bigger selected cover), fixed button help bar with Nintendo-style colored buttons; blurred background removed.
+- Setup wizard: preset is the last step, gradient background, colorful icons. High preset uses the Scanlines shader.
+- Library: menu drops down from the GBSat logo bar (tap anywhere on the bar); closer box art.
+- In-game menu: new Overlays submenu (FPS, speed, renderer, resolution, fast-forward button, touch controls); on-screen fast-forward button.
 - Controller: X opens the menu, Select switches between all games and recent save states.
 - Auto save / auto load: the game state is saved when closing a game and restored when starting it (System → Save states).
 - Overlays: show FPS, speed, renderer and resolution.

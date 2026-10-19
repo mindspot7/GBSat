@@ -39,6 +39,7 @@ object Emulator {
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)
     var showSpeed by mutableStateOf(false)
+    var showFfButton by mutableStateOf(false)
     var showRenderer by mutableStateOf(false)
     var showResolution by mutableStateOf(false)
     var fastBoot by mutableStateOf(true)
@@ -54,8 +55,8 @@ object Emulator {
     private data class PresetValues(val renderer: Int, val resScale: Int, val shader: Int, val filter: Int,
                                     val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
     private fun presetValues(p: Preset) = when (p) {
-        // Powerful devices: GPU rendering at 4x with the LCD grid, accurate SH-2 cache
-        Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 3, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
+        // Powerful devices: GPU rendering at 4x with scanlines, accurate SH-2 cache
+        Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 1, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
         // Mid-range: CPU rendering through OpenGL ES with the dot shader
         Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 4, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
         // Modest devices: CPU rendering through OpenGL ES, no shader, frame skip
@@ -338,6 +339,7 @@ object Emulator {
         aspect = prefs.getInt("aspect", 0)
         showFps = prefs.getBoolean("showFps", false)
         showSpeed = prefs.getBoolean("showSpeed", false)
+        showFfButton = prefs.getBoolean("showFfButton", false)
         showRenderer = prefs.getBoolean("showRenderer", false)
         showResolution = prefs.getBoolean("showResolution", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
@@ -411,7 +413,7 @@ object Emulator {
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
-        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution)
+        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
 

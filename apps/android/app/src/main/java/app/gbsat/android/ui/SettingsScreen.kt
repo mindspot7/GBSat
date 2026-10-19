@@ -177,7 +177,7 @@ private fun VideoPage() {
     val preset = Emulator.currentPreset
     Group("Preset", Icons.Default.AutoAwesome) {
         ChoiceRow("Quality preset",
-            "High: Vulkan GPU 4x + LCD3x · Mid: OpenGL ES + Dots · Low: OpenGL ES + frame skip. Changing an option below sets Custom.",
+            "High: Vulkan GPU 4x + Scanlines · Mid: OpenGL ES + Dots · Low: OpenGL ES + frame skip. Changing an option below sets Custom.",
             Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
             preset?.ordinal ?: Emulator.Preset.entries.size,
         ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
@@ -220,8 +220,11 @@ private fun VideoPage() {
         Divider()
         ToggleRow(Icons.Default.Memory, "Show renderer", "Software, OpenGL ES or Vulkan GPU", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
         Divider()
-        ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Saturn resolution and, with Vulkan GPU scaling, the internal resolution",
+        ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Output resolution (including the internal resolution scale)",
             Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
+        Divider()
+        ToggleRow(Icons.Default.FastForward, "Show fast-forward button", "On-screen button to turn fast-forward on and off",
+            Emulator.showFfButton) { Emulator.showFfButton = it; Emulator.savePrefs() }
     }
 }
 

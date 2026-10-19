@@ -75,51 +75,48 @@ fun LibraryScreen(
     launchState: (Emulator.RecentState) -> Unit,
     onQuit: () -> Unit,
 ) {
-    val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var recentMode by remember { mutableStateOf(false) }
-    var background by remember { mutableStateOf<ImageBitmap?>(null) }
-
+    var menuOpen by remember { mutableStateOf(false) }
     val menuFocus = remember { FocusRequester() }
-    var wideLayout by remember { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
+    LaunchedEffect(menuOpen) { if (menuOpen) { kotlinx.coroutines.delay(50); runCatching { menuFocus.requestFocus() } } }
+    androidx.activity.compose.BackHandler(menuOpen) { menuOpen = false }
+
+    Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (e.key) {
-            Key.ButtonX -> { // X: menu
-                if (wideLayout) runCatching { menuFocus.requestFocus() } else scope.launch { if (drawer.isOpen) drawer.close() else { drawer.open(); runCatching { menuFocus.requestFocus() } } }
-                true
-            }
+            Key.ButtonX -> { menuOpen = !menuOpen; true } // X: menu
             Key.ButtonSelect -> { recentMode = !recentMode; true } // Select: all games / recent save states
             else -> false
         }
     }) {
-        wideLayout = maxWidth >= 720.dp
-        val wide = maxWidth >= 720.dp
-        val menu: @Composable () -> Unit = {
-            SideMenu(onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
-        }
-        val content: @Composable () -> Unit = {
-            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Header(recentMode, onToggleRecent = { recentMode = !recentMode }, onMenu = { if (!wide) scope.launch { drawer.open() } })
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (wide) Box(Modifier.width(250.dp).fillMaxHeight()) { menu() }
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        if (recentMode) {
-                            RecentStates(launchState = launchState, onSelected = { background = it })
-                        } else {
-                            Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
-                                launch = launch, onSelected = { background = it })
-                        }
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The whole logo bar opens the menu, which drops down right below it
+            Header(recentMode, onToggleRecent = { recentMode = !recentMode }, onMenu = { menuOpen = !menuOpen }, menuOpen = menuOpen)
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                if (recentMode) {
+                    RecentStates(launchState = launchState, onSelected = {})
+                } else {
+                    Library(onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
+                        launch = launch, onSelected = {})
+                }
+                if (menuOpen) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f))
+                        .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { menuOpen = false })
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    menuOpen,
+                    enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp),
+                ) {
+                    Box(Modifier.width(280.dp).heightIn(max = 520.dp)) {
+                        SideMenu(onOpenSettings = { menuOpen = false; onOpenSettings(it) }, onQuit = onQuit, focus = menuFocus)
                     }
                 }
-                HelpBar(recentMode)
             }
+            HelpBar(recentMode)
         }
-        if (wide) content() else ModalNavigationDrawer(
-            drawerState = drawer,
-            drawerContent = { Box(Modifier.width(280.dp).fillMaxHeight().safeDrawingPadding().padding(12.dp)) { menu() } },
-            content = content,
-        )
     }
 }
 
@@ -133,7 +130,7 @@ private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = Rou
     Surface(modifier, shape = shape, color = PanelColor, border = PanelBorder, content = content)
 
 @Composable
-private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -> Unit) {
+private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -> Unit, menuOpen: Boolean) {
     val ctx = LocalContext.current
     var time by remember { mutableStateOf("") }
     var battery by remember { mutableIntStateOf(-1) }
@@ -152,14 +149,24 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
             delay(20_000)
         }
     }
-    Panel(Modifier.fillMaxWidth(), RoundedCornerShape(32.dp)) {
+    var headerFocused by remember { mutableStateOf(false) }
+    Panel(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
+            .border(if (headerFocused || menuOpen) 2.dp else 0.dp, if (headerFocused || menuOpen) Gold.copy(alpha = .7f) else Color.Transparent, RoundedCornerShape(32.dp))
+            .onFocusChanged { headerFocused = it.isFocused }
+            .clickable(onClick = onMenu),
+        RoundedCornerShape(32.dp),
+    ) {
       BoxWithConstraints {
         val compact = maxWidth < 420.dp // narrow portrait screens: drop the subtitle, battery text and clock
         Row(Modifier.padding(horizontal = if (compact) 10.dp else 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("GBSat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("GBSat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    Icon(if (menuOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Menu", tint = Gold)
+                }
                 Text(if (recentMode) "Recent · save states" else "Sega Saturn Emulation", style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = .7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -181,8 +188,6 @@ private fun Header(recentMode: Boolean, onToggleRecent: () -> Unit, onMenu: () -
                 )
                 if (!compact) Text("$battery%", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = .9f))
             }
-            Spacer(Modifier.width(4.dp))
-            FocusableIcon(Icons.Default.MoreVert, "Menu", Gold, onMenu)
         }
       }
     }
@@ -203,7 +208,7 @@ private fun FocusableIcon(icon: ImageVector, description: String, tint: Color, o
 
 @Composable
 private fun SideMenu(onOpenSettings: (SettingsPage?) -> Unit, onQuit: () -> Unit, focus: FocusRequester) {
-    Panel(Modifier.fillMaxSize()) {
+    Panel(Modifier.fillMaxWidth()) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("OPTIONS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
             MenuEntry(Icons.Default.Tune, "System", Color(0xFFCFD3E6), Modifier.focusRequester(focus)) { onOpenSettings(SettingsPage.System) }
@@ -333,7 +338,7 @@ private fun Library(onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, l
                     }
                     androidx.compose.foundation.lazy.LazyRow(
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = cardH * 0.12f, bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.Bottom,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
