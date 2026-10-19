@@ -93,8 +93,8 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
                         "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.")
                     val descriptions = mapOf(
                         Emulator.Preset.High to "Vulkan GPU at 4x resolution, Scanlines shader. For powerful devices.",
-                        Emulator.Preset.Mid to "OpenGL ES renderer, Dots shader. For mid-range devices.",
-                        Emulator.Preset.Low to "OpenGL ES with frame skip, no shader. For modest devices.",
+                        Emulator.Preset.Mid to "OpenGL ES renderer, no shader. For mid-range devices.",
+                        Emulator.Preset.Low to "Software renderer with frame skip. For modest devices.",
                     )
                     listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low).forEach { p ->
                         val selected = Emulator.currentPreset == p

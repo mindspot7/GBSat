@@ -251,7 +251,14 @@ void Loop() {
         glBindTexture(GL_TEXTURE_2D, tex);
         glUniform1i(glGetUniformLocation(prog, "uTex"), 0);
         glUniform2f(uTexSize, (float)texW, (float)texH);
-        glUniform2f(uSrcSize, (float)texW / texScale, (float)texH / texScale);
+        {
+            // Hi-res (640/704 wide) and interlaced (448+ lines) modes, used by many games in menus and title screens,
+            // are mapped back to the low-res grid so the scanline/dot patterns keep the same size instead of doubling up
+            float nw = (float)texW / texScale, nh = (float)texH / texScale;
+            if (nw >= 560.0f) nw *= 0.5f;
+            if (nh >= 400.0f) nh *= 0.5f;
+            glUniform2f(uSrcSize, nw, nh);
+        }
         glUniform2f(uOutSize, (float)sw, (float)sh);
         glUniform1i(uFilter, S.filter.load());
         glUniform1i(uShader, S.shader.load());

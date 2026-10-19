@@ -57,10 +57,10 @@ object Emulator {
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at 4x with scanlines, accurate SH-2 cache
         Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 1, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
-        // Mid-range: CPU rendering through OpenGL ES with the dot shader
-        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 4, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
-        // Modest devices: CPU rendering through OpenGL ES, no shader, frame skip
-        Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
+        // Mid-range: CPU rendering through OpenGL ES, no shader
+        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        // Modest devices: Software renderer, frame skip
+        Preset.Low -> PresetValues(renderer = 0, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
     }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
     val currentPreset: Preset?
