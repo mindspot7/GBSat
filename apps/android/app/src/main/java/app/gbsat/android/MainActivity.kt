@@ -176,7 +176,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.source and InputDevice.SOURCE_JOYSTICK != 0 && event.action == MotionEvent.ACTION_MOVE && Emulator.running) {
+        // While the in-game menu is open (paused) the D-pad/stick motion is left to Android, which turns it into D-pad
+        // key events for the menu; consuming it here made the menu unusable on pads whose D-pad is a hat axis
+        if (event.source and InputDevice.SOURCE_JOYSTICK != 0 && event.action == MotionEvent.ACTION_MOVE && Emulator.running && !Emulator.paused) {
             val x = event.getAxisValue(MotionEvent.AXIS_X)
             val y = event.getAxisValue(MotionEvent.AXIS_Y)
             val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
