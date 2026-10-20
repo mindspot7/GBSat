@@ -568,51 +568,20 @@ private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected
         list.isEmpty() -> Panel(Modifier.fillMaxSize()) {
             EmptyState(Icons.Default.History, "No save states yet", "Save states you create in games show up here, newest first.", null, {})
         }
-        else -> {
-            val first = remember { FocusRequester() }
-            LaunchedEffect(list.first()) { runCatching { first.requestFocus() } }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(220.dp), contentPadding = PaddingValues(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(list, key = { it.gamePath + "#" + it.slot }) { s ->
-                    StateCard(s, if (s == list.first()) Modifier.focusRequester(first) else Modifier, onClick = { launchState(s) }, onSelected = onSelected)
-                }
-            }
+        else -> ResumeGrid(
+            list.map { s ->
+                ResumeEntry(s.gamePath + "#" + s.slot, s.gamePath.substringAfterLast('/').substringBeforeLast('.'),
+                    when (s.slot) { Emulator.QUICK_SLOT -> "Quick save"; Emulator.AUTO_SLOT -> "Auto save"; else -> "Slot ${s.slot + 1}" },
+                    s.time, s.thumb)
+            },
+            onResume = { e -> list.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let(launchState) },
+        )
         }
     }
 }
 
 @Composable
-private fun StateCard(s: Emulator.RecentState, modifier: Modifier, onClick: () -> Unit, onSelected: (ImageBitmap?) -> Unit) {
-    var shot by remember(s) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(s) {
-        shot = withContext(Dispatchers.IO) { s.thumb?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it.path)?.asImageBitmap() }.getOrNull() } }
-    }
-    var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "scale")
-    val title = s.gamePath.substringAfterLast('/').substringBeforeLast('.')
-    val slot = when (s.slot) { Emulator.QUICK_SLOT -> "Quick save"; Emulator.AUTO_SLOT -> "Auto save"; else -> "Slot ${s.slot + 1}" }
-    val date = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(s.time))
-    Column(modifier.scale(scale)) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(RoundedCornerShape(14.dp)).background(Color.Black)
-                .border(if (focused) 3.dp else 1.dp, if (focused) Gold else Color.White.copy(alpha = .16f), RoundedCornerShape(14.dp))
-                .onFocusChanged { focused = it.isFocused; if (it.isFocused) onSelected(shot) }
-                .clickable(onClick = onClick),
-        ) {
-            shot?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
-                ?: Icon(Icons.Default.Image, null, Modifier.align(Alignment.Center).size(40.dp), tint = Color.White.copy(alpha = .4f))
-            Text(slot, Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = .6f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 2.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(title, color = if (focused) Gold else Color.White, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(date, color = Color.White.copy(alpha = .6f), style = MaterialTheme.typography.labelSmall)
-    }
-    LaunchedEffect(shot) { if (focused) onSelected(shot) }
-}
+
 
 @Composable
 fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, onAction: () -> Unit) {
@@ -627,8 +596,4 @@ fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, 
 }
 
 /** Play time as "1h 05m" or "12m". */
-fun formatPlayTime(secs: Long): String {
-    val h = secs / 3600
-    val m = (secs % 3600) / 60
-    return if (h > 0) "${h}h ${"%02d".format(m)}m" else "${m}m"
-}
+

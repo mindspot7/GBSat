@@ -220,7 +220,7 @@ object Emulator {
     private val statesDir get() = File(dataDir, "states")
     /** Folder name for a game's save states: the disc image file name, without characters that folders can't hold. */
     private fun stateDirName(gamePath: String) =
-        File(gamePath).nameWithoutExtension.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifEmpty { "game" }
+        gb.ui.SaveData.gameFolderName(gamePath)
 
     /** Older versions named the folders after the disc hash; they are renamed to the game name (once, when found). */
     private var statesMigrated = false
@@ -312,24 +312,7 @@ object Emulator {
 
     /** Copies saves and save states to a "GBSat backup" folder. */
     suspend fun exportData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, tree) ?: error("Folder not available")
-            val out = root.findFile("GBSat backup") ?: root.createDirectory("GBSat backup") ?: error("Can't create the backup folder")
-            fun copy(src: File, dst: androidx.documentfile.provider.DocumentFile) {
-                src.listFiles()?.forEach { f ->
-                    if (f.isDirectory) copy(f, dst.findFile(f.name) ?: dst.createDirectory(f.name) ?: return@forEach)
-                    else {
-                        dst.findFile(f.name)?.delete()
-                        val doc = dst.createFile("application/octet-stream", f.name) ?: return@forEach
-                        appContext.contentResolver.openOutputStream(doc.uri)?.use { o -> f.inputStream().use { it.copyTo(o) } }
-                    }
-                }
-            }
-            listOf("saves", "states").forEach { n ->
-                val src = File(dataDir, n)
-                if (src.exists()) copy(src, out.findFile(n) ?: out.createDirectory(n) ?: return@forEach)
-            }
-        }.exceptionOrNull()?.let { "Export failed: ${it.message}" }
+        gb.ui.SaveData.export(appContext, dataDir, tree, "GBSat backup")
     }
 
     /**
@@ -337,24 +320,7 @@ object Emulator {
      * inside, or one level down). Existing files are replaced. Restart GBSat afterwards.
      */
     suspend fun importData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            var root = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, tree) ?: error("Folder not available")
-            val names = dataSubdirs + "carts"
-            if (root.listFiles().none { it.isDirectory && it.name in names }) {
-                root = root.listFiles().firstOrNull { d -> d.isDirectory && d.listFiles().any { it.isDirectory && it.name in names } }
-                    ?: error("No GBSat data found in this folder")
-            }
-            fun copy(src: androidx.documentfile.provider.DocumentFile, dst: File) {
-                dst.mkdirs()
-                src.listFiles().forEach { f ->
-                    val name = f.name ?: return@forEach
-                    if (f.isDirectory) copy(f, File(dst, name))
-                    else appContext.contentResolver.openInputStream(f.uri)?.use { i -> File(dst, name).outputStream().use { i.copyTo(it) } }
-                }
-            }
-            root.listFiles().filter { it.isDirectory && it.name in names }.forEach { copy(it, File(dataDir, it.name!!)) }
-            legacyDataDir = null
-        }.exceptionOrNull()?.let { "Import failed: ${it.message}" }
+        gb.ui.SaveData.import(appContext, dataDir, tree, dataSubdirs + "carts").also { if (it == null) legacyDataDir = null }
     }
 
     /** Stores a ROM cartridge dump picked by the user (KOF95 or Ultraman), used automatically by the games that need it. */
@@ -380,27 +346,9 @@ object Emulator {
     fun gamesWithStates(): Set<String> = recentStates().map { it.gamePath }.toSet()
 
     // ---- Play time per game (seconds, keyed by file name) ----
-    private val playTimes = mutableStateMapOf<String, Long>()
-    private var playStart = 0L
-    private fun playKey(path: String) = path.substringAfterLast('/')
-    fun playTime(path: String): Long = playTimes[playKey(path)] ?: 0L
-    private fun loadPlayTimes() {
-        prefs.getString("playTimes", null)?.split("\n")?.forEach { l ->
-            val i = l.lastIndexOf('\t')
-            if (i > 0) l.substring(i + 1).toLongOrNull()?.let { playTimes[l.substring(0, i)] = it }
-        }
-    }
-    /** Adds the time played since the last call (while a game runs unpaused). */
-    private fun accountPlayTime() {
-        val now = android.os.SystemClock.elapsedRealtime()
-        val game = currentGame
-        if (playStart != 0L && game != null) {
-            val k = playKey(game)
-            playTimes[k] = (playTimes[k] ?: 0L) + (now - playStart) / 1000
-            prefs.edit().putString("playTimes", playTimes.entries.joinToString("\n") { "${it.key}\t${it.value}" }).apply()
-        }
-        playStart = if (game != null && running && !paused) now else 0L
-    }
+    /** Seconds played (shared play time tracker of the UI kit). */
+    fun playTime(path: String): Long = gb.ui.PlayTime.of(path)
+    private fun accountPlayTime() = gb.ui.PlayTime.update(currentGame, running && !paused)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -418,7 +366,7 @@ object Emulator {
         }
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
-        loadPlayTimes()
+        gb.ui.PlayTime.init(prefs)
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""

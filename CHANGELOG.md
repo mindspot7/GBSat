@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Play time, save data export/import, the Resume view and the controller diagram also come from the shared UI kit.
 - Setup wizard, box art and RetroAchievements now come from the shared UI kit.
 - The interface building blocks (theme, settings rows, dialogs, menu icons, monitoring overlay) now come from the shared UI kit (github.com/mindspot7/UI_GB, git submodule libs/ui_gb).
 - Edge-to-edge: removed the deprecated status/navigation bar color and cutout settings (Android 15+).

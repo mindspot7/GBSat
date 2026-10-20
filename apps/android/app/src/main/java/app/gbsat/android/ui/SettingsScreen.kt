@@ -471,66 +471,25 @@ private fun faceColor(b: SaturnButton) = when (b) {
  * Tapping a button selects it for remapping; the selected button is highlighted.
  */
 @Composable
-private fun SaturnPadDiagram(highlight: SaturnButton?, onSelect: (SaturnButton) -> Unit, modifier: Modifier) {
-    BoxWithConstraints(modifier) {
-        val w = maxWidth
-        val h = maxHeight
-        Canvas(Modifier.fillMaxSize()) {
-            val body = Path().apply {
-                val cw = size.width; val ch = size.height
-                moveTo(cw * .20f, ch * .18f)
-                lineTo(cw * .80f, ch * .18f)
-                cubicTo(cw * .98f, ch * .18f, cw * 1.0f, ch * .70f, cw * .90f, ch * .90f)
-                cubicTo(cw * .84f, ch * 1.0f, cw * .70f, ch * .96f, cw * .64f, ch * .80f)
-                lineTo(cw * .36f, ch * .80f)
-                cubicTo(cw * .30f, ch * .96f, cw * .16f, ch * 1.0f, cw * .10f, ch * .90f)
-                cubicTo(cw * 0f, ch * .70f, cw * .02f, ch * .18f, cw * .20f, ch * .18f)
-                close()
-            }
-            // Shoulders
-            drawRoundRect(Color(0xFF3A3652), Offset(size.width * .12f, size.height * .06f), Size(size.width * .22f, size.height * .16f), CornerRadius(18f))
-            drawRoundRect(Color(0xFF3A3652), Offset(size.width * .66f, size.height * .06f), Size(size.width * .22f, size.height * .16f), CornerRadius(18f))
-            drawPath(body, Color(0xFF26223D))
-            drawPath(body, Color.White.copy(alpha = .18f), style = Stroke(width = 3f))
-            // D-pad well
-            drawCircle(Color(0xFF1C1930), radius = size.height * .26f, center = Offset(size.width * .23f, size.height * .50f))
-        }
-        @Composable
-        fun Btn(b: SaturnButton, x: Float, y: Float, bw: Dp, bh: Dp, label: String?, icon: ImageVector? = null, shape: RoundedCornerShape = CircleShape) {
-            val sel = highlight == b
-            Box(
-                Modifier.offset(w * x - bw / 2, h * y - bh / 2).size(bw, bh).clip(shape)
-                    .background(if (sel) Gold else faceColor(b))
-                    .border(if (sel) 2.dp else 1.dp, if (sel) Color.White else Color.White.copy(alpha = .25f), shape)
-                    .clickable { onSelect(b) },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (icon != null) Icon(icon, b.name, tint = if (sel) Color.Black else Color.White, modifier = Modifier.size(bh * .8f))
-                else if (label != null) Text(label, color = if (sel) Color.Black else Color.White, fontWeight = FontWeight.Bold,
-                    fontSize = (bh.value * .42f).sp, textAlign = TextAlign.Center)
-            }
-        }
-        val unit = h * 0.17f
-        // Shoulders
-        Btn(SaturnButton.L, .23f, .14f, w * .20f, h * .13f, "L", shape = RoundedCornerShape(10.dp))
-        Btn(SaturnButton.R, .77f, .14f, w * .20f, h * .13f, "R", shape = RoundedCornerShape(10.dp))
-        // D-pad
-        Btn(SaturnButton.Up, .23f, .33f, unit, unit, null, Icons.Default.KeyboardArrowUp, RoundedCornerShape(6.dp))
-        Btn(SaturnButton.Down, .23f, .67f, unit, unit, null, Icons.Default.KeyboardArrowDown, RoundedCornerShape(6.dp))
-        Btn(SaturnButton.Left, .23f - (unit / w), .50f, unit, unit, null, Icons.Default.KeyboardArrowLeft, RoundedCornerShape(6.dp))
-        Btn(SaturnButton.Right, .23f + (unit / w), .50f, unit, unit, null, Icons.Default.KeyboardArrowRight, RoundedCornerShape(6.dp))
-        // Start
-        Btn(SaturnButton.Start, .50f, .62f, w * .11f, h * .10f, "START", shape = RoundedCornerShape(50))
-        // Face buttons: X Y Z (top row), A B C (bottom row)
-        val face = h * 0.18f
-        Btn(SaturnButton.X, .66f, .38f, face, face, "X")
-        Btn(SaturnButton.Y, .75f, .33f, face, face, "Y")
-        Btn(SaturnButton.Z, .84f, .38f, face, face, "Z")
-        Btn(SaturnButton.A, .64f, .62f, face, face, "A")
-        Btn(SaturnButton.B, .74f, .58f, face, face, "B")
-        Btn(SaturnButton.C, .84f, .62f, face, face, "C")
-    }
-}
+private fun SaturnPadDiagram(highlight: SaturnButton?, onSelect: (SaturnButton) -> Unit, modifier: Modifier) =
+    PadDiagram(SaturnPad, highlight?.name, { id -> onSelect(SaturnButton.valueOf(id)) }, modifier)
+
+/** Saturn control pad for the shared controller diagram: D-pad, Start, L/R and the A B C / X Y Z face buttons. */
+private val SaturnPad = PadLayout(listOf(
+    PadButton("L", "L", x = .23f, y = .14f, w = .20f, h = .13f, wOfWidth = true, shape = padRect(10), color = faceColor(SaturnButton.L)),
+    PadButton("R", "R", x = .77f, y = .14f, w = .20f, h = .13f, wOfWidth = true, shape = padRect(10), color = faceColor(SaturnButton.R)),
+    PadButton("Up", icon = Icons.Default.KeyboardArrowUp, x = .23f, y = .33f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Up)),
+    PadButton("Down", icon = Icons.Default.KeyboardArrowDown, x = .23f, y = .67f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Down)),
+    PadButton("Left", icon = Icons.Default.KeyboardArrowLeft, x = .15f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Left)),
+    PadButton("Right", icon = Icons.Default.KeyboardArrowRight, x = .31f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Right)),
+    PadButton("Start", "START", x = .50f, y = .62f, w = .11f, h = .10f, wOfWidth = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = faceColor(SaturnButton.Start)),
+    PadButton("X", "X", x = .66f, y = .38f, w = .18f, h = .18f, color = faceColor(SaturnButton.X)),
+    PadButton("Y", "Y", x = .75f, y = .33f, w = .18f, h = .18f, color = faceColor(SaturnButton.Y)),
+    PadButton("Z", "Z", x = .84f, y = .38f, w = .18f, h = .18f, color = faceColor(SaturnButton.Z)),
+    PadButton("A", "A", x = .64f, y = .62f, w = .18f, h = .18f, color = faceColor(SaturnButton.A)),
+    PadButton("B", "B", x = .74f, y = .58f, w = .18f, h = .18f, color = faceColor(SaturnButton.B)),
+    PadButton("C", "C", x = .84f, y = .62f, w = .18f, h = .18f, color = faceColor(SaturnButton.C)),
+))
 
 /** Remap / hotkey capture prompts (drawn in this window, not a Dialog, so controller events reach MainActivity). */
 @Composable
