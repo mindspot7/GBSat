@@ -443,9 +443,7 @@ object Emulator {
     fun applyOptions() {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
-        // Switching the render threads in the middle of a game slows it down a lot until it is restarted, so the
-        // setting takes effect when a game starts
-        if (!running) NativeBridge.nativeSetThreadedVdp(threadedVdp)
+        NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetThreadedScsp(threadedScsp)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)

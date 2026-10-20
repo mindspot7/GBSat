@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Threaded VDP can be switched again during a game (applies immediately).
 - Fixed lasting slowdown after changing video/performance options in game: threads created by the emulation thread (GPU driver, recreated render threads) no longer stay on its CPU core.
 
 ## 1.1.0

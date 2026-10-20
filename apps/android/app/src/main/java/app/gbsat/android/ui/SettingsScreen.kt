@@ -278,7 +278,7 @@ private fun PerformancePage() {
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
     }
     Group("Emulation", Icons.Default.Memory) {
-        ToggleRow(Icons.Default.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads (applies when a game starts)",
+        ToggleRow(Icons.Default.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
             Emulator.threadedVdp, ch { Emulator.threadedVdp = it })
         Divider()
         ToggleRow(Icons.Default.GraphicEq, "Threaded audio", "Run the sound chip and its 68000 CPU on a separate thread, leaving more time for the SH-2s",
