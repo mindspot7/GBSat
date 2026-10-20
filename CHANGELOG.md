@@ -1,7 +1,6 @@
 # Changelog
 
 ## Unreleased
-- New original app icon.
 - Google Play readiness: targets Android 16 (API 36), 16 KB memory page support, App Bundle (.aab) built alongside the APK. Header subtitle "Saturn emulator".
 
 ## 1.2.0
