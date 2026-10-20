@@ -22,7 +22,7 @@ std::mutex m;
 bool maskReady = false;
 bool havePinning = false;
 cpu_set_t mainMask;  // emulation thread (SH-2s, SCU, SCSP...): the single fastest core, alone
-cpu_set_t vdp1Mask;  // VDP1 render thread: the next fast core
+cpu_set_t vdp1Mask;  // sound (SCSP) thread: the next fast core(s)
 cpu_set_t otherMask; // VDP2/deinterlace threads: every core except the emulation thread's
 
 long ReadLong(const char *fmt, long cpu) {
@@ -60,7 +60,7 @@ void BuildMask() {
     CPU_ZERO(&otherMask);
     for (long i = 0; i < n; i++) if (i != top) CPU_SET(i, &otherMask);
     havePinning = true;
-    LOGI("CPU tuning: emulation on cpu%ld, VDP1 on cpu%ld+", top, second);
+    LOGI("CPU tuning: emulation on cpu%ld, sound on cpu%ld+", top, second);
 }
 
 // ---- Performance hint session (APerformanceHint, Android 13+), loaded at runtime since minSdk is 28 ----
@@ -119,7 +119,9 @@ void PinEmulationThreads() {
             if (strncmp(name, "VDP", 3) == 0 || strncmp(name, "SCSP", 4) == 0) {
                 const pid_t tid = (pid_t)atoi(e->d_name);
                 if (havePinning) {
-                    const cpu_set_t *mask = strncmp(name, "VDP1", 4) == 0 ? &vdp1Mask : &otherMask;
+                    // The sound thread is synchronized with the emulation thread many times per frame, so it gets the
+                    // next big core(s); the render threads may use every other core and are balanced by Android
+                    const cpu_set_t *mask = strncmp(name, "SCSP", 4) == 0 ? &vdp1Mask : &otherMask;
                     sched_setaffinity(tid, sizeof(cpu_set_t), mask);
                 }
                 tids.push_back(tid);
