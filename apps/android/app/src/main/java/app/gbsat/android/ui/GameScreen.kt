@@ -85,14 +85,9 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 onClick = { menu = true; Emulator.pause(true) },
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
             ) { Icon(Icons.Default.Menu, "Menu") }
-        }
-
-        // Performance overlay, top right
-        // Performance overlay and fast-forward button, bottom right
-        Column(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(10.dp), horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PerfOverlay(fps, stats)
+            // Fast-forward button next to the menu button
             if (Emulator.showFfButton) {
+                Spacer(Modifier.width(8.dp))
                 FilledTonalIconButton(
                     onClick = { Emulator.toggleFastForward() },
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
@@ -101,6 +96,10 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 ) { Icon(Icons.Default.FastForward, "Fast-forward") }
             }
         }
+
+        // Performance overlay, top right
+        // Performance overlay, top right
+        PerfOverlay(fps, stats, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp))
 
         RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
 

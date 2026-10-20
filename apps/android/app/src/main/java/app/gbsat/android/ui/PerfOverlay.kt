@@ -115,7 +115,7 @@ fun PerfOverlay(fps: Float, stats: LongArray, modifier: Modifier = Modifier) {
 
     val target = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f
     Column(modifier, horizontalAlignment = Alignment.End) {
-        line("GBSat-$version" to LabelBlue, "|" to ValueWhite, "${Build.VERSION.SDK_INT}" to ValueWhite)
+        line("GBSat-$version" to LabelBlue, "|" to ValueWhite, "Android ${Build.VERSION.RELEASE}" to ValueWhite)
         if (e.showFps || e.showSpeed) {
             val parts = mutableListOf<Pair<String, Color>>()
             if (e.showFps) { parts += "FPS:" to LabelBlue; parts += "%.1f".format(fps) to ValueGreen }
