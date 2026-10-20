@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Profiling support: GBSat can be sampled by the on-device profiler (profileable); "Profiling build" workflow and tools/profile.bat.
 - Play time, save data export/import, the Resume view and the controller diagram also come from the shared UI kit.
 - Setup wizard, box art and RetroAchievements now come from the shared UI kit.
 - The interface building blocks (theme, settings rows, dialogs, menu icons, monitoring overlay) now come from the shared UI kit (github.com/mindspot7/UI_GB, git submodule libs/ui_gb).
