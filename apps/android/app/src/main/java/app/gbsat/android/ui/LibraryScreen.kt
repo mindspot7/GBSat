@@ -561,7 +561,7 @@ private fun GameCard(
 private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected: (ImageBitmap?) -> Unit) {
     var states by remember { mutableStateOf<List<Emulator.RecentState>?>(null) }
     // Latest save state of each game
-    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates().distinctBy { it.gamePath } } }
+    LaunchedEffect(Unit) { states = withContext(Dispatchers.IO) { Emulator.recentStates() } }
     val list = states
     when {
         list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -572,7 +572,7 @@ private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected
             list.map { s ->
                 ResumeEntry(s.gamePath + "#" + s.slot, s.gamePath.substringAfterLast('/').substringBeforeLast('.'),
                     when (s.slot) { Emulator.QUICK_SLOT -> "Quick save"; Emulator.AUTO_SLOT -> "Auto save"; else -> "Slot ${s.slot + 1}" },
-                    s.time, s.thumb)
+                    s.time, s.thumb, game = s.gamePath)
             },
             onResume = { e -> list.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let(launchState) },
         )
