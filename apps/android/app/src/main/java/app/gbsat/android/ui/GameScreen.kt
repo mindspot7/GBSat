@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -197,6 +198,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .1f))
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
+                        CompositionLocalProvider(LocalMenuFirstItem provides remember(page) { FirstItem() }) {
                         when (page) {
                             MenuPage.Root -> {
                                 MenuItem(Icons.Default.PlayArrow, "Resume", onClick = onDismiss)
@@ -295,6 +297,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.PowerSettingsNew, "Quit GBSat") { onQuitApp() }
                             }
                         }
+                        }
                     }
                 }
             }
@@ -343,14 +346,23 @@ private fun StateSlots(save: Boolean, onDone: () -> Unit) {
     message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
 }
 
+private class FirstItem { var claimed = false }
+private val LocalMenuFirstItem = androidx.compose.runtime.compositionLocalOf<FirstItem?> { null }
+
 @Composable
 private fun MenuItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
     value: String? = null, sub: Boolean = false, onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    // The first item of each menu page takes the focus, so the controller works as soon as the menu opens
+    val first = LocalMenuFirstItem.current
+    val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+    val isFirst = remember(first) { first != null && !first.claimed.also { first.claimed = true } }
+    if (isFirst) LaunchedEffect(first) { kotlinx.coroutines.delay(60); runCatching { fr.requestFocus() } }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))
+            .then(if (isFirst) Modifier.focusRequester(fr) else Modifier)
             .background(if (focused) Color.White.copy(alpha = .12f) else Color.Transparent)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),

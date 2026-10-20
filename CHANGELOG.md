@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Controller: A confirms the Quit dialog right after start or after closing a game; the in-game menu takes the focus on its first item, so the controller works as soon as it opens.
+
 ## 1.3.0
 - No more "All files access" permission (required for Google Play): the games folder is chosen with the system folder picker and games are read from it directly (CHD, ISO, CUE/BIN, CCD, MDS). After updating, pick the games folder again once.
 - Data is kept in the app's storage, with Export data (saves and save states) / Import data (Settings → System) for backups and for bringing back data from a custom folder used by older versions.

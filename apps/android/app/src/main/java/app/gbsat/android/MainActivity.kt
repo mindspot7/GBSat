@@ -130,6 +130,15 @@ class MainActivity : ComponentActivity() {
         // Outside games the menus are driven by the controller like a console: A selects, B goes back
         if (!Emulator.running) {
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
+            // Quit dialog: A confirms (right after start nothing may have focus, so the button can't take the press)
+            if (app.gbsat.android.ui.MenuState.quitOpen.value &&
+                (event.keyCode == KeyEvent.KEYCODE_BUTTON_A || event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    app.gbsat.android.ui.MenuState.quitOpen.value = false
+                    app.gbsat.android.ui.MenuState.onQuit?.invoke()
+                }
+                return true
+            }
             val mapped = when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
                 KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK

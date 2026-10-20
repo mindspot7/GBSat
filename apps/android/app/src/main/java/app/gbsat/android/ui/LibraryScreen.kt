@@ -95,7 +95,8 @@ fun LibraryScreen(
     // Docked menu: coming back from a settings page focuses the entry that was opened
     LaunchedEffect(Unit) { if (docked && MenuState.selected != null) { kotlinx.coroutines.delay(120); runCatching { menuFocus.requestFocus() } } }
     LaunchedEffect(menuOpen, docked) { if (menuOpen) { kotlinx.coroutines.delay(80); runCatching { menuFocus.requestFocus() } } }
-    var confirmQuit by remember { mutableStateOf(false) }
+    var confirmQuit by MenuState.quitOpen
+    MenuState.onQuit = onQuit
     var headerPx by remember { mutableIntStateOf(0) }
     // B / Back: close the menu, leave Recent, otherwise ask before quitting
     // Some controllers deliver B twice (as BUTTON_B mapped to Back and as a system Back): one press must act only once,
@@ -224,6 +225,9 @@ fun rememberHasGamepad(): Boolean {
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
 internal object MenuState {
     val open = mutableStateOf(false)
+    /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
+    val quitOpen = mutableStateOf(false)
+    var onQuit: (() -> Unit)? = null
     /** Library shows recent save states instead of all games (Select; toggled in MainActivity so it works without focus). */
     val recent = mutableStateOf(false)
     var selected by mutableStateOf<SettingsPage?>(null)
