@@ -11,6 +11,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="GBSat"
         android:theme="@style/Theme.GBSat">
+        <!-- Lets the on-device profiler (simpleperf, adb shell) sample GBSat; no effect for users -->
+        <profileable android:shell="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -78,7 +78,13 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    packaging { jniLibs { useLegacyPackaging = false } }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+            // Profiling build (-PgbsatProfile): keep the native symbols so simpleperf reports function names
+            if (project.hasProperty("gbsatProfile")) keepDebugSymbols += "**/*.so"
+        }
+    }
     // README screenshots (Robolectric + Roborazzi), see ReadmeScreenshots.kt
     testOptions.unitTests {
         isIncludeAndroidResources = true
