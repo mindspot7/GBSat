@@ -576,12 +576,8 @@ private fun RecentStates(launchState: (Emulator.RecentState) -> Unit, onSelected
             },
             onResume = { e -> list.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let(launchState) },
         )
-        }
     }
 }
-
-@Composable
-
 
 @Composable
 fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, onAction: () -> Unit) {
@@ -595,5 +591,4 @@ fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, 
     }
 }
 
-/** Play time as "1h 05m" or "12m". */
 
