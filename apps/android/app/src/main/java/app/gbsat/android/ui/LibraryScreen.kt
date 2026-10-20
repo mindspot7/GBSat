@@ -1,5 +1,6 @@
 package app.gbsat.android.ui
 
+import gb.ui.*
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
@@ -199,28 +200,6 @@ private fun RaUserHeader() {
     HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .12f))
 }
 
-/** True while a physical controller (gamepad/joystick) is connected; updates when one is plugged in or removed. */
-@Composable
-fun rememberHasGamepad(): Boolean {
-    val ctx = LocalContext.current
-    val im = remember { ctx.getSystemService(android.content.Context.INPUT_SERVICE) as android.hardware.input.InputManager }
-    fun check() = im.inputDeviceIds.any { id ->
-        val d = im.getInputDevice(id) ?: return@any false
-        !d.isVirtual && (d.sources and android.view.InputDevice.SOURCE_GAMEPAD == android.view.InputDevice.SOURCE_GAMEPAD ||
-            d.sources and android.view.InputDevice.SOURCE_JOYSTICK == android.view.InputDevice.SOURCE_JOYSTICK)
-    }
-    var has by remember { mutableStateOf(check()) }
-    DisposableEffect(im) {
-        val l = object : android.hardware.input.InputManager.InputDeviceListener {
-            override fun onInputDeviceAdded(id: Int) { has = check() }
-            override fun onInputDeviceRemoved(id: Int) { has = check() }
-            override fun onInputDeviceChanged(id: Int) { has = check() }
-        }
-        im.registerInputDeviceListener(l, null)
-        onDispose { im.unregisterInputDeviceListener(l) }
-    }
-    return has
-}
 
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
 internal object MenuState {
@@ -235,45 +214,8 @@ internal object MenuState {
 
 /** "Confirm Quit?" drawn in the app window (not a separate dialog window), so the A/B controller mapping applies. */
 @Composable
-private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
-    val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { kotlinx.coroutines.delay(50); runCatching { fr.requestFocus() } }
-    Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f))
-            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = onCancel)
-            .onPreviewKeyEvent { e ->
-                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (e.key) {
-                    Key.ButtonA, Key.DirectionCenter, Key.Enter -> { onConfirm(); true }
-                    Key.ButtonB -> { onCancel(); true }
-                    else -> false
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            Modifier.fillMaxWidth(0.55f).widthIn(min = 240.dp, max = 360.dp)
-                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {},
-            shape = RoundedCornerShape(28.dp), color = Color(0xFF231C42), border = PanelBorder, shadowElevation = 16.dp,
-        ) {
-            // Same look as the system dialogs: title, message, text button + filled pill button on the right
-            Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 18.dp)) {
-                Text("Exit", style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Spacer(Modifier.height(14.dp))
-                Text("Are you sure you want to exit?", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .8f))
-                Spacer(Modifier.height(22.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onCancel) { Text("Cancel", color = Color(0xFFB9A6FF)) }
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = onConfirm, modifier = Modifier.focusRequester(fr), shape = RoundedCornerShape(50),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB9A6FF), contentColor = Color(0xFF1A1433))) {
-                        Text("Exit")
-                    }
-                }
-            }
-        }
-    }
-}
+private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) =
+    ConfirmDialog(title = "Exit", message = "Are you sure you want to exit?", confirm = "Exit", onConfirm = onConfirm, onCancel = onCancel)
 
 private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF1D1636), Color(0xFF2B2152), Color(0xFF161126)))
 private val PanelColor = Color(0xFF1B1830).copy(alpha = 0.88f)
@@ -565,16 +507,6 @@ private fun HelpBar(recentMode: Boolean) {
     }
 }
 
-@Composable
-private fun ButtonHint(button: String, color: Color, label: String, modifier: Modifier = Modifier.padding(start = 16.dp)) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(22.dp).clip(androidx.compose.foundation.shape.CircleShape).background(color), contentAlignment = Alignment.Center) {
-            Text(button, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-        }
-        Spacer(Modifier.width(6.dp))
-        Text(label, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.labelLarge)
-    }
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

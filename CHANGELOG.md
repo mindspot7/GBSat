@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The interface building blocks (theme, settings rows, dialogs, menu icons, monitoring overlay) now come from the shared UI kit (github.com/mindspot7/UI_GB, git submodule libs/ui_gb).
 - Edge-to-edge: removed the deprecated status/navigation bar color and cutout settings (Android 15+).
 
 ## 1.3.1

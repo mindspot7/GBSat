@@ -1,5 +1,6 @@
 package app.gbsat.android.ui
 
+import gb.ui.*
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -105,7 +106,15 @@ fun GameScreen(onQuitApp: () -> Unit) {
 
         // Performance overlay, top right
         // Performance overlay, top right
-        PerfOverlay(fps, stats, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp))
+        PerfOverlay(
+            PerfOptions(Emulator.showFps, Emulator.showSpeed, Emulator.showCpu, Emulator.showGpu, Emulator.showRenderer,
+                Emulator.showResolution, Emulator.showFrameTime),
+            appName = "GBSat", fps = fps, targetFps = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f,
+            renderer = when (Emulator.renderer) { 0 -> "Software"; 1 -> "OpenGL ES"; else -> "Vulkan HW" },
+            width = stats.getOrElse(1) { 320 }.toInt(), height = stats.getOrElse(2) { 224 }.toInt(),
+            frameMs = stats.getOrElse(5) { 0 } / 1000f, gpuName = { NativeBridge.nativeGetGpuName() },
+            modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp),
+        )
 
         RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
 

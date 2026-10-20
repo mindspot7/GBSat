@@ -1,5 +1,6 @@
 package app.gbsat.android.ui
 
+import gb.ui.*
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -139,36 +140,36 @@ private fun <T> ch(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.save
 private fun SystemPage(
     onBios: () -> Unit, onGamesFolder: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onCart: (String) -> Unit,
 ) {
-    Group("Getting started", Icons.Default.PlayCircle) {
+    SettingsGroup("Getting started", Icons.Default.PlayCircle) {
         ActionRow(Icons.Default.Memory, "Saturn BIOS", if (Emulator.iplLoaded) "Loaded" else "Required: choose your IPL ROM (512 KiB)",
             if (Emulator.iplLoaded) "Replace" else "Choose", onBios, warn = !Emulator.iplLoaded)
-        Divider()
+        SettingsDivider()
         ActionRow(Icons.Default.Folder, "Games folder", if (Emulator.gamesDir.isBlank()) "Not set" else Storage.folderLabel(Emulator.gamesDir),
             "Choose", onGamesFolder, warn = Emulator.gamesDir.isBlank())
     }
-    Group("Data", Icons.Default.Storage) {
+    SettingsGroup("Data", Icons.Default.Storage) {
         Emulator.legacyDataDir?.let { old ->
             ActionRow(Icons.Default.Warning, "Data from the previous version",
                 "Your saves were in $old. Import that folder to bring them back.", "Import", onImport, warn = true)
-            Divider()
+            SettingsDivider()
         }
         ActionRow(Icons.Default.Upload, "Export data", "Copy saves and save states to a folder (backup)", "Export", onExport)
-        Divider()
+        SettingsDivider()
         ActionRow(Icons.Default.Download, "Import data", "Restore a GBSat backup or an older GBSat data folder", "Import", onImport)
     }
-    Group("Cartridge ROMs", Icons.Default.SdCard) {
+    SettingsGroup("Cartridge ROMs", Icons.Default.SdCard) {
         ActionRow(Icons.Default.SdCard, "King of Fighters '95", if (Emulator.hasCartRom("kof95.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
             "Choose", { onCart("kof95.bin") })
-        Divider()
+        SettingsDivider()
         ActionRow(Icons.Default.SdCard, "Ultraman", if (Emulator.hasCartRom("ultraman.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
             "Choose", { onCart("ultraman.bin") })
     }
-    Group("Save states", Icons.Default.Save) {
+    SettingsGroup("Save states", Icons.Default.Save) {
         ToggleRow(Icons.Default.Save, "Auto save", "Save the game's state when you close it", Emulator.autoSave, ch { Emulator.autoSave = it })
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Restore, "Auto load", "Continue from the auto save when you start the game", Emulator.autoLoad, ch { Emulator.autoLoad = it })
     }
-    Group("Startup", Icons.Default.RocketLaunch) {
+    SettingsGroup("Startup", Icons.Default.RocketLaunch) {
         ToggleRow(Icons.Default.FastForward, "Fast boot", "Skip the BIOS clock and language screens", Emulator.fastBoot, ch { Emulator.fastBoot = it })
     }
 }
@@ -176,14 +177,14 @@ private fun SystemPage(
 @Composable
 private fun VideoPage() {
     val preset = Emulator.currentPreset
-    Group("Preset", Icons.Default.AutoAwesome) {
+    SettingsGroup("Preset", Icons.Default.AutoAwesome) {
         ChoiceRow("Quality preset",
             "High: Vulkan GPU Native + Scanlines · Mid: OpenGL ES · Low: Software + frame skip. Changing an option below sets Custom.",
             Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
             preset?.ordinal ?: Emulator.Preset.entries.size,
         ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
     }
-    Group("Renderer", Icons.Default.Memory) {
+    SettingsGroup("Renderer", Icons.Default.Memory) {
         val rendererIds = listOf(0, 1, 4)
         ChoiceRow("Renderer",
             when (Emulator.renderer) {
@@ -194,7 +195,7 @@ private fun VideoPage() {
             listOf("Software", "OpenGL ES", "Vulkan GPU"), rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0),
             ch { Emulator.renderer = rendererIds[it] })
         if (Emulator.renderer == 4) {
-            Divider()
+            SettingsDivider()
             ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
                 listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
                 ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
@@ -203,37 +204,37 @@ private fun VideoPage() {
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         }
     }
-    Group("Picture", Icons.Default.AspectRatio) {
+    SettingsGroup("Picture", Icons.Default.AspectRatio) {
         ChoiceRow("Display mode", "16:9 turns on built-in widescreen hacks for about 20 games; others are stretched",
             listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, ch { Emulator.aspect = it })
         if (Emulator.renderer != 0) {
-            Divider()
+            SettingsDivider()
             ChoiceRow("Texture filtering", null, listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), ch { Emulator.filter = it })
-            Divider()
+            SettingsDivider()
             val shaderIds = listOf(0, 2, 4, 3, 1) // internal ids: 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dots
             ChoiceRow("Shader", null, listOf("None", "CRT", "Dots", "LCD3x", "Scanlines"),
                 shaderIds.indexOf(Emulator.shader).coerceAtLeast(0), ch { Emulator.shader = shaderIds[it] })
         }
     }
-    Group("Overlay", Icons.Default.Layers) {
+    SettingsGroup("Overlay", Icons.Default.Layers) {
         ToggleRow(Icons.Default.Insights, "Show all monitoring", "FPS, speed, CPU, GPU, renderer, resolution and frame time at the top right",
             Emulator.showAllStats) { Emulator.showAllStats = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Speed, "Show FPS", "Frames per second", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Percent, "Show speed", "Emulation speed in percent (100% = full speed)", Emulator.showSpeed) { Emulator.showSpeed = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Memory, "Show renderer", "Software, OpenGL ES or Vulkan GPU", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Output resolution (including the internal resolution scale)",
             Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.DeveloperBoard, "Show CPU", "Chip name and GBSat's CPU usage", Emulator.showCpu) { Emulator.showCpu = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Videocam, "Show GPU", "GPU name and load (when the device reports it)", Emulator.showGpu) { Emulator.showGpu = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Timer, "Show frame time", "Time spent emulating each frame (16.7 ms or less = full speed)", Emulator.showFrameTime) { Emulator.showFrameTime = it; Emulator.savePrefs() }
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.FastForward, "Show fast-forward button", "On-screen button to turn fast-forward on and off",
             Emulator.showFfButton) { Emulator.showFfButton = it; Emulator.savePrefs() }
     }
@@ -241,7 +242,7 @@ private fun VideoPage() {
 
 @Composable
 private fun AudioPage() {
-    Group("Output", Icons.Default.VolumeUp) {
+    SettingsGroup("Output", Icons.Default.VolumeUp) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RowIcon(if (Emulator.volume == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp)
@@ -257,7 +258,7 @@ private fun AudioPage() {
             )
         }
     }
-    Group("Fast-forward", Icons.Default.FastForward) {
+    SettingsGroup("Fast-forward", Icons.Default.FastForward) {
         ChoiceRow("Fast-forward audio",
             when (Emulator.ffAudio) {
                 1 -> "Plays all the audio faster (higher pitch), following the game speed"
@@ -270,24 +271,24 @@ private fun AudioPage() {
 
 @Composable
 private fun PerformancePage() {
-    Group("Speed", Icons.Default.Speed) {
+    SettingsGroup("Speed", Icons.Default.Speed) {
         ToggleRow(Icons.Default.SkipNext, "Frame skip (auto)", "Skips rendering frames only while the game runs below full speed",
             Emulator.frameSkip, ch { Emulator.frameSkip = it })
-        Divider()
+        SettingsDivider()
         val cdSpeeds = listOf(2, 4, 8, 16)
         ChoiceRow("CD read speed", "Shorter loading screens; use Original if a game's videos or music go out of sync",
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
     }
-    Group("Emulation", Icons.Default.Memory) {
+    SettingsGroup("Emulation", Icons.Default.Memory) {
         ToggleRow(Icons.Default.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
             Emulator.threadedVdp, ch { Emulator.threadedVdp = it })
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.GraphicEq, "Threaded audio", "Run the sound chip and its 68000 CPU on a separate thread, leaving more time for the SH-2s",
             Emulator.threadedScsp, ch { Emulator.threadedScsp = it })
-        Divider()
+        SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
     }
-    Group("Loading", Icons.Default.Album) {
+    SettingsGroup("Loading", Icons.Default.Album) {
         ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })
     }
 }
@@ -312,11 +313,11 @@ private fun ControlsPage() {
     }
     when (tab) {
         0 -> {
-            Group("Saturn controller", Icons.Default.SportsEsports) {
+            SettingsGroup("Saturn controller", Icons.Default.SportsEsports) {
                 ChoiceRow("Controller type", "The 3D Control Pad adds the analog stick and analog L/R used by some games",
                     listOf("Control Pad", "3D Control Pad"), if (Emulator.analogPad) 1 else 0, ch<Int> { Emulator.analogPad = it == 1 })
             }
-            Group("Button mapping", Icons.Default.Gamepad) {
+            SettingsGroup("Button mapping", Icons.Default.Gamepad) {
                 Text("Tap a button on the pad or in the list, then press the button on your controller.",
                     style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 SaturnPadDiagram(highlight = Emulator.remapTarget, onSelect = { Emulator.remapTarget = it },
@@ -325,33 +326,33 @@ private fun ControlsPage() {
                 val order = listOf(SaturnButton.Up, SaturnButton.Down, SaturnButton.Left, SaturnButton.Right, SaturnButton.A, SaturnButton.B,
                     SaturnButton.C, SaturnButton.X, SaturnButton.Y, SaturnButton.Z, SaturnButton.L, SaturnButton.R, SaturnButton.Start)
                 order.forEachIndexed { i, b ->
-                    if (i > 0) Divider()
+                    if (i > 0) SettingsDivider()
                     val keys = Emulator.keysFor(b).joinToString(", ") { keyName(it) }
                     MappingRow(b, keys.ifEmpty { "Unassigned" }, selected = Emulator.remapTarget == b) { Emulator.remapTarget = b }
                 }
-                Divider()
+                SettingsDivider()
                 Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { Emulator.resetKeyMap() }) { Icon(Icons.Default.RestartAlt, null); Spacer(Modifier.width(6.dp)); Text("Reset to defaults") }
                 }
             }
         }
         1 -> {
-            Group("Hotkeys", Icons.Default.Keyboard) {
+            SettingsGroup("Hotkeys", Icons.Default.Keyboard) {
                 Text("Bind one button, or hold several together (a combination) and release. Buttons in a combination are not sent to the game.",
                     style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 HotkeyAction.entries.forEachIndexed { i, a ->
-                    if (i > 0) Divider()
+                    if (i > 0) SettingsDivider()
                     val keys = Emulator.hotkeys[a].orEmpty()
                     HotkeyRow(a, keys)
                 }
             }
-            Group("Fast-forward", Icons.Default.FastForward) {
+            SettingsGroup("Fast-forward", Icons.Default.FastForward) {
                 ChoiceRow("Fast-forward hotkey", "Hold: fast while held · Toggle: press once to switch on or off",
                     listOf("Hold", "Toggle"), if (Emulator.ffToggle) 1 else 0, ch<Int> { Emulator.ffToggle = it == 1 })
             }
         }
         else -> {
-            Group("On-screen controls", Icons.Default.TouchApp) {
+            SettingsGroup("On-screen controls", Icons.Default.TouchApp) {
                 ToggleRow(Icons.Default.TouchApp, "Show touch controls", "Hide them when playing with a controller or a handheld",
                     Emulator.showTouchControls, ch { Emulator.showTouchControls = it })
             }
@@ -362,11 +363,11 @@ private fun ControlsPage() {
 @Composable
 private fun ExtrasPage() {
     val ra = RetroAchievements
-    Group("RetroAchievements", Icons.Default.EmojiEvents) {
+    SettingsGroup("RetroAchievements", Icons.Default.EmojiEvents) {
         ToggleRow(Icons.Default.EmojiEvents, "Enable RetroAchievements", "Earn achievements from retroachievements.org (account and internet needed)",
             ra.enabled) { ra.changeEnabled(it) }
         if (ra.enabled) {
-            Divider()
+            SettingsDivider()
             if (ra.user != null) {
                 ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
                     "Log out", { ra.logout() })
@@ -388,7 +389,7 @@ private fun ExtrasPage() {
                         style = MaterialTheme.typography.bodySmall, color = Dim)
                 }
             }
-            Divider()
+            SettingsDivider()
             ToggleRow(Icons.Default.LocalFireDepartment, "Hardcore mode",
                 "More points; save state loading and cheats are disabled. Turning it on during a game resets the game.",
                 ra.hardcore) { ra.changeHardcore(it) }
@@ -400,7 +401,7 @@ private fun ExtrasPage() {
 private fun AboutPage() {
     val ctx = LocalContext.current
     val versionName = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?" }
-    Group(null, null) {
+    SettingsGroup(null, null) {
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)))
             Spacer(Modifier.height(12.dp))
@@ -410,16 +411,16 @@ private fun AboutPage() {
             Text("Version $versionName", color = Gold, style = MaterialTheme.typography.labelLarge)
         }
     }
-    Group("Credits", Icons.Default.Favorite) {
+    SettingsGroup("Credits", Icons.Default.Favorite) {
         InfoRow("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)")
-        Divider()
+        SettingsDivider()
         InfoRow("rcheevos", "RetroAchievements client library")
-        Divider()
+        SettingsDivider()
         InfoRow("libretro-database", "Cheat database (CC BY-SA 4.0) and cover art (libretro-thumbnails)")
-        Divider()
+        SettingsDivider()
         InfoRow("SegaXtreme community", "Saturn widescreen codes")
     }
-    Group("License", Icons.Default.Gavel) {
+    SettingsGroup("License", Icons.Default.Gavel) {
         Text("GBSat is a derivative work of Ymir and is released under the GNU General Public License v3. " +
             "Sega Saturn is a trademark of Sega; GBSat is not affiliated with Sega.",
             style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(16.dp))
@@ -428,83 +429,6 @@ private fun AboutPage() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Building blocks
-
-@Composable
-private fun Group(title: String?, icon: ImageVector?, content: @Composable ColumnScope.() -> Unit) {
-    Column {
-        if (title != null) Row(Modifier.padding(start = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (icon != null) { Icon(icon, null, tint = Gold, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
-            Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = Gold, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        }
-        Surface(shape = RoundedCornerShape(20.dp), color = CardColor, border = CardBorder, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(vertical = 4.dp), content = content)
-        }
-    }
-}
-
-@Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = .08f))
-
-@Composable
-private fun RowIcon(icon: ImageVector, warn: Boolean = false) =
-    Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background((if (warn) Color(0xFFFF8A65) else Color(0xFFB9A6FF)).copy(alpha = .16f)),
-        contentAlignment = Alignment.Center) { Icon(icon, null, tint = if (warn) Color(0xFFFF8A65) else Color(0xFFB9A6FF), modifier = Modifier.size(22.dp)) }
-
-@Composable
-private fun ToggleRow(icon: ImageVector, title: String, sub: String?, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        RowIcon(icon)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = Color.White)
-            if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = Dim)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = value, onCheckedChange = onChange)
-    }
-}
-
-@Composable
-private fun ActionRow(icon: ImageVector, title: String, sub: String?, action: String, onAction: () -> Unit, warn: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        RowIcon(icon, warn)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = Color.White)
-            if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = if (warn) Color(0xFFFFB199) else Dim,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        Spacer(Modifier.width(12.dp))
-        FilledTonalButton(onClick = onAction) { Text(action) }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ChoiceRow(title: String, sub: String?, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = Color.White)
-        if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = Dim)
-        Spacer(Modifier.height(10.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { i, label ->
-                SegmentedButton(selected = i == selected, onClick = { onSelect(i) }, shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                    colors = SegmentedButtonDefaults.colors(activeContainerColor = Gold.copy(alpha = .25f), activeContentColor = Color.White,
-                        inactiveContainerColor = Color.Transparent, inactiveContentColor = Dim, activeBorderColor = Gold.copy(alpha = .6f),
-                        inactiveBorderColor = Color.White.copy(alpha = .2f)),
-                ) { Text(label, maxLines = 1) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoRow(title: String, sub: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = Color.White)
-        Text(sub, style = MaterialTheme.typography.bodySmall, color = Dim)
-    }
-}
 
 @Composable
 private fun MappingRow(b: SaturnButton, keys: String, selected: Boolean, onRemap: () -> Unit) {

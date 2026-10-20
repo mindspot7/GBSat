@@ -92,6 +92,7 @@ notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push a
 | `apps/android` | Android app: Kotlin/Compose UI and the JNI bridge |
 | `libs/gbsat-core` | Emulator core, including the Vulkan compute renderer |
 | `vendor/` | Third-party libraries (git submodules) |
+| `libs/ui_gb` | Shared UI kit ([UI_GB](https://github.com/mindspot7/UI_GB), git submodule) |
 | `apps/vk-test` | Host test comparing the software and Vulkan renderers |
 | `.github/workflows` | APK build, Vulkan shader/renderer checks |
 

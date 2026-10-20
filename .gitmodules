@@ -22,3 +22,6 @@
 [submodule "vendor/rcheevos"]
 	path = vendor/rcheevos
 	url = https://github.com/RetroAchievements/rcheevos.git
+[submodule "libs/ui_gb"]
+	path = libs/ui_gb
+	url = https://github.com/mindspot7/UI_GB
