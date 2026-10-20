@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 - Threaded VDP changes take effect when a game starts (switching mid-game slowed the game down).
 - In-game menu: Performance page with Frame skip, Threaded VDP and Threaded audio.
 - Threaded audio (on by default): the SCSP sound chip and its 68000 run on their own thread, so the emulation thread only runs the SH-2s; that thread is also placed on a fast core.
