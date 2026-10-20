@@ -98,6 +98,10 @@ notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push a
 Local build: Android Studio with SDK 35, NDK 27.2.12479018 and CMake 3.31.6, plus the DirectX Shader Compiler
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.
 
+## Privacy
+
+GBSat collects no personal data; see the [privacy policy](PRIVACY.md).
+
 ## License
 
 GBSat is based on [Ymir](https://github.com/StrikerX3/Ymir) by StrikerX3.

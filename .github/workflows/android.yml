@@ -94,6 +94,18 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "::notice title=APK::${NAME}.apk"
 
+      - name: Check 16 KB page alignment
+        run: |
+          cd apps/android/app/build/outputs/apk/release
+          ZA="$ANDROID_HOME/build-tools/36.0.0/zipalign"
+          if "$ZA" -c -P 16 -v 4 *.apk > /tmp/za.log 2>&1; then echo "::notice title=16 KB::APK is 16 KB aligned"
+          else echo "::warning title=16 KB::$(grep -v ' (OK' /tmp/za.log | tail -5 | tr '\n' ' ')"; fi
+          unzip -o -q *.apk 'lib/arm64-v8a/*.so' -d /tmp/so
+          OD=$(ls $ANDROID_HOME/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump | head -1)
+          for so in /tmp/so/lib/arm64-v8a/*.so; do
+            al=$("$OD" -p "$so" | awk '/LOAD/ {print $NF}' | sort -u | tr '\n' ' ')
+            case "$al" in *"2**12"*) echo "::warning title=16 KB::$(basename $so) LOAD align $al";; esac
+          done
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.ver.outputs.name }}
