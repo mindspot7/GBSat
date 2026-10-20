@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 - No more "All files access" permission (required for Google Play): the games folder is chosen with the system folder picker and games are read from it directly (CHD, ISO, CUE/BIN, CCD, MDS). After updating, pick the games folder again once.
-- Data is kept in the app's storage, with Export data / Import data (Settings → System) for backups and for bringing back data from a custom folder used by older versions.
+- Data is kept in the app's storage, with Export data (saves and save states) / Import data (Settings → System) for backups and for bringing back data from a custom folder used by older versions.
 - KOF95 / Ultraman ROM cartridges are added in Settings → System → Cartridge ROMs.
 - Google Play readiness: targets Android 16 (API 36), 16 KB memory page support, App Bundle (.aab) built alongside the APK. Header subtitle "Saturn emulator".
 
