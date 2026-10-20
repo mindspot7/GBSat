@@ -116,8 +116,18 @@ void PinEmulationThreads() {
                 if (!fgets(name, sizeof(name), f)) name[0] = 0;
                 fclose(f);
             }
+            const pid_t tid = (pid_t)atoi(e->d_name);
+            // Threads created by the emulation thread inherit its single-core affinity: GPU driver threads (Vulkan
+            // device), recreated render/sound threads, etc. Left there, they share the emulation core forever, even
+            // after going back to another renderer or game, so any such thread is moved off it.
+            if (havePinning && tid != self && strncmp(name, "VDP", 3) != 0 && strncmp(name, "SCSP", 4) != 0) {
+                cpu_set_t cur;
+                CPU_ZERO(&cur);
+                if (sched_getaffinity(tid, sizeof(cur), &cur) == 0 && CPU_EQUAL(&cur, &mainMask)) {
+                    sched_setaffinity(tid, sizeof(otherMask), &otherMask);
+                }
+            }
             if (strncmp(name, "VDP", 3) == 0 || strncmp(name, "SCSP", 4) == 0) {
-                const pid_t tid = (pid_t)atoi(e->d_name);
                 if (havePinning) {
                     // The sound thread is synchronized with the emulation thread many times per frame, so it gets the
                     // next big core(s); the render threads may use every other core and are balanced by Android

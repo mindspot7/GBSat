@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Fixed lasting slowdown after changing video/performance options in game: threads created by the emulation thread (GPU driver, recreated render threads) no longer stay on its CPU core.
+
 ## 1.1.0
 - Threaded VDP changes take effect when a game starts (switching mid-game slowed the game down).
 - In-game menu: Performance page with Frame skip, Threaded VDP and Threaded audio.
