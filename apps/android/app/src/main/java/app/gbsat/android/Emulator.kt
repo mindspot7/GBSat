@@ -443,7 +443,9 @@ object Emulator {
     fun applyOptions() {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
-        NativeBridge.nativeSetThreadedVdp(threadedVdp)
+        // Switching the render threads in the middle of a game slows it down a lot until it is restarted, so the
+        // setting takes effect when a game starts
+        if (!running) NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetThreadedScsp(threadedScsp)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
@@ -478,6 +480,7 @@ object Emulator {
 
     suspend fun launch(path: String, useAutoLoad: Boolean = true): String? = withContext(Dispatchers.IO) {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
+        NativeBridge.nativeSetThreadedVdp(threadedVdp)
         val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
         if (err == null) {
             currentGame = path; running = true; loadCheats()

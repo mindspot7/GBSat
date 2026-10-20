@@ -262,7 +262,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
-                                    Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
+                                    Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs()
+                                    Emulator.showToast("Threaded VDP: applies the next time a game starts")
                                 }
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = if (Emulator.threadedScsp) "On" else "Off") {
                                     Emulator.threadedScsp = !Emulator.threadedScsp; Emulator.savePrefs(); Emulator.applyOptions()
