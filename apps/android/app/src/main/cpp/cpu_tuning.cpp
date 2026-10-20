@@ -10,6 +10,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "GBSat", __VA_ARGS__)
@@ -19,40 +20,47 @@ namespace {
 
 std::mutex m;
 bool maskReady = false;
-cpu_set_t bigMask;
-bool haveBigMask = false;
+bool havePinning = false;
+cpu_set_t mainMask;  // emulation thread (SH-2s, SCU, SCSP...): the single fastest core, alone
+cpu_set_t vdp1Mask;  // VDP1 render thread: the next fast core
+cpu_set_t otherMask; // VDP2/deinterlace threads: every core except the emulation thread's
 
-// Fast cores: those whose max frequency is at least 80% of the fastest core. On big.LITTLE chips that leaves out the
-// small cores; on chips where all cores are equal no pinning is done.
+long ReadLong(const char *fmt, long cpu) {
+    char path[96];
+    snprintf(path, sizeof(path), fmt, cpu);
+    long v = 0;
+    if (FILE *f = fopen(path, "r")) {
+        if (fscanf(f, "%ld", &v) != 1) v = 0;
+        fclose(f);
+    }
+    return v;
+}
+
+// Cores are ranked by cpu_capacity (the scheduler's own performance rating, which tells big from LITTLE cores even
+// when their clocks are close, e.g. Cortex-A75 2.0 GHz vs A55 1.8 GHz on the Unisoc T618), falling back to max clock.
 void BuildMask() {
     maskReady = true;
     const long n = sysconf(_SC_NPROCESSORS_CONF);
-    std::vector<long> freq(n > 0 ? n : 0, 0);
-    long maxF = 0, minF = 0;
+    if (n < 2) return;
+    std::vector<std::pair<long, long>> rank; // (score, cpu)
     for (long i = 0; i < n; i++) {
-        char path[96];
-        snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%ld/cpufreq/cpuinfo_max_freq", i);
-        if (FILE *f = fopen(path, "r")) {
-            if (fscanf(f, "%ld", &freq[i]) != 1) freq[i] = 0;
-            fclose(f);
-        }
-        if (freq[i] > maxF) maxF = freq[i];
-        if (freq[i] > 0 && (minF == 0 || freq[i] < minF)) minF = freq[i];
+        long cap = ReadLong("/sys/devices/system/cpu/cpu%ld/cpu_capacity", i);
+        long freq = ReadLong("/sys/devices/system/cpu/cpu%ld/cpufreq/cpuinfo_max_freq", i);
+        rank.emplace_back(cap > 0 ? cap * 10'000'000L + freq / 1000 : freq, i);
     }
-    if (maxF == 0 || minF == maxF) return;
-    CPU_ZERO(&bigMask);
-    int count = 0;
-    for (long i = 0; i < n; i++) {
-        if (freq[i] >= maxF * 8 / 10) { CPU_SET(i, &bigMask); count++; }
-    }
-    // A single prime core cannot host the emulation and the render threads: widen to the next tier
-    if (count < 2) {
-        for (long i = 0; i < n; i++) {
-            if (freq[i] >= maxF * 6 / 10) { CPU_SET(i, &bigMask); }
-        }
-    }
-    haveBigMask = true;
-    LOGI("CPU tuning: emulation pinned to fast cores (max %ld kHz)", maxF);
+    std::sort(rank.begin(), rank.end(), [](auto &a, auto &b) { return a.first > b.first || (a.first == b.first && a.second > b.second); });
+    if (rank[0].first == rank.back().first) return; // all cores equal: leave scheduling to Android
+    const long top = rank[0].second, second = rank[1].second;
+    CPU_ZERO(&mainMask);
+    CPU_SET(top, &mainMask);
+    CPU_ZERO(&vdp1Mask);
+    CPU_SET(second, &vdp1Mask);
+    // Other big cores (same score tier as the second) also take VDP1 work
+    for (size_t i = 2; i < rank.size() && rank[i].first == rank[1].first; i++) CPU_SET(rank[i].second, &vdp1Mask);
+    CPU_ZERO(&otherMask);
+    for (long i = 0; i < n; i++) if (i != top) CPU_SET(i, &otherMask);
+    havePinning = true;
+    LOGI("CPU tuning: emulation on cpu%ld, VDP1 on cpu%ld+", top, second);
 }
 
 // ---- Performance hint session (APerformanceHint, Android 13+), loaded at runtime since minSdk is 28 ----
@@ -97,7 +105,7 @@ void PinEmulationThreads() {
     if (!maskReady) BuildMask();
     const pid_t self = (pid_t)syscall(SYS_gettid);
     std::vector<int32_t> tids{self};
-    if (haveBigMask) sched_setaffinity(self, sizeof(bigMask), &bigMask);
+    if (havePinning) sched_setaffinity(self, sizeof(mainMask), &mainMask);
     // VDP render threads ("VDP1 render th", "VDP2 render th", "VDP deinterlac")
     if (DIR *d = opendir("/proc/self/task")) {
         while (dirent *e = readdir(d)) {
@@ -110,7 +118,10 @@ void PinEmulationThreads() {
             }
             if (strncmp(name, "VDP", 3) == 0) {
                 const pid_t tid = (pid_t)atoi(e->d_name);
-                if (haveBigMask) sched_setaffinity(tid, sizeof(bigMask), &bigMask);
+                if (havePinning) {
+                    const cpu_set_t *mask = strncmp(name, "VDP1", 4) == 0 ? &vdp1Mask : &otherMask;
+                    sched_setaffinity(tid, sizeof(cpu_set_t), mask);
+                }
                 tids.push_back(tid);
             }
         }
