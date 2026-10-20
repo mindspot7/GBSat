@@ -27,7 +27,7 @@ GBSat connects to the internet only for these optional features:
 | **Cover art** (thumbnails.libretro.com) | When the library shows a game without a cover | The game's title, as part of the image address |
 
 These services have their own privacy policies:
-[RetroAchievements](https://retroachievements.org/privacy) and [libretro](https://www.libretro.com/index.php/privacy-policy/).
+[RetroAchievements](https://retroachievements.org) (see its site footer) and [libretro](https://www.libretro.com/index.php/privacy-policy/).
 Like any internet request, they can see your IP address.
 
 ## Permissions
