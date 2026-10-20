@@ -299,7 +299,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
                                 MenuItem(Icons.Default.Eject, "Disc tray", value = if (Emulator.trayOpen) "Open" else "Closed") { Emulator.toggleTray() }
                                 MenuItem(Icons.Default.Tune, "Cheats", sub = true) { cheatsOpen = true }
-                                if (app.gbsat.android.RetroAchievements.enabled) {
+                                if (gb.ui.RetroAchievements.enabled) {
                                     MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
                                 }
                             }

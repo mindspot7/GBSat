@@ -44,7 +44,6 @@ import app.gbsat.android.Emulator
 import app.gbsat.android.HotkeyAction
 import app.gbsat.android.NativeBridge
 import app.gbsat.android.R
-import app.gbsat.android.RetroAchievements
 import app.gbsat.android.SaturnButton
 import app.gbsat.android.Storage
 import app.gbsat.android.keyName
@@ -361,41 +360,7 @@ private fun ControlsPage() {
 }
 
 @Composable
-private fun ExtrasPage() {
-    val ra = RetroAchievements
-    SettingsGroup("RetroAchievements", Icons.Default.EmojiEvents) {
-        ToggleRow(Icons.Default.EmojiEvents, "Enable RetroAchievements", "Earn achievements from retroachievements.org (account and internet needed)",
-            ra.enabled) { ra.changeEnabled(it) }
-        if (ra.enabled) {
-            SettingsDivider()
-            if (ra.user != null) {
-                ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
-                    "Log out", { ra.logout() })
-            } else {
-                var raUser by remember { mutableStateOf("") }
-                var raPass by remember { mutableStateOf("") }
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(raUser, { raUser = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(raPass, { raPass = it }, label = { Text("Password") }, singleLine = true,
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = { ra.login(raUser, raPass); raPass = "" }, enabled = !ra.loginPending && raUser.isNotBlank() && raPass.isNotBlank()) {
-                            Text(if (ra.loginPending) "Logging in…" else "Log in")
-                        }
-                        ra.loginError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(start = 12.dp)) }
-                    }
-                    Text("Your password is only sent to retroachievements.org; GBSat keeps the login token, not the password.",
-                        style = MaterialTheme.typography.bodySmall, color = Dim)
-                }
-            }
-            SettingsDivider()
-            ToggleRow(Icons.Default.LocalFireDepartment, "Hardcore mode",
-                "More points; save state loading and cheats are disabled. Turning it on during a game resets the game.",
-                ra.hardcore) { ra.changeHardcore(it) }
-        }
-    }
-}
+private fun ExtrasPage() = RetroAchievementsSettings("GBSat")
 
 @Composable
 private fun AboutPage() {

@@ -60,10 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import app.gbsat.android.Covers
 import app.gbsat.android.Emulator
 import app.gbsat.android.R
-import app.gbsat.android.RetroAchievements
 import app.gbsat.android.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -176,29 +174,6 @@ fun LibraryScreen(
     }
 }
 
-/** Logged-in RetroAchievements user (picture, name, points) at the top of the menu. */
-@Composable
-private fun RaUserHeader() {
-    val ra = RetroAchievements
-    val name = ra.user ?: return
-    if (!ra.enabled) return
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        var pic by remember(ra.avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
-        LaunchedEffect(ra.avatarUrl) { pic = ra.avatarUrl?.let { ra.image(it) } }
-        Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF3A2D73)), contentAlignment = Alignment.Center) {
-            val p = pic
-            if (p != null) Image(p, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            else Icon(Icons.Default.AccountCircle, null, tint = Color.White.copy(alpha = .8f))
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${ra.score} pts", style = MaterialTheme.typography.labelMedium,
-                color = Gold, maxLines = 1)
-        }
-    }
-    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .12f))
-}
 
 
 /** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */

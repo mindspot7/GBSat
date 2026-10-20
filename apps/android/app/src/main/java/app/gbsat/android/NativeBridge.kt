@@ -47,7 +47,7 @@ object NativeBridge {
 
     /** Called from native code (rcheevos) to perform an HTTP request; the response goes back via nativeRaHttpResponse. */
     @JvmStatic fun raHttp(id: Int, url: String, post: String?, contentType: String?, userAgent: String) =
-        RetroAchievements.httpRequest(id, url, post, contentType, userAgent)
+        gb.ui.RetroAchievements.httpRequest(id, url, post, contentType, userAgent)
     @JvmStatic external fun nativeSetDisplayOptions(filter: Int, shader: Int)
     @JvmStatic external fun nativeSetCheats(addrs: LongArray, values: LongArray, sizes: IntArray)
     @JvmStatic external fun nativeSetFastBoot(on: Boolean)

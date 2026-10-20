@@ -1,5 +1,6 @@
 package app.gbsat.android
 
+import gb.ui.RetroAchievements
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
@@ -482,7 +483,7 @@ object Emulator {
         val bup = File(dataDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
         NativeBridge.nativeInit(bup.absolutePath, File(dataDir, "saves/smpc.bin").absolutePath)
         applyOptions()
-        RetroAchievements.init(appContext, appVersion().substringBefore(" "))
+        RetroAchievements.init(appContext, "GBSat", appVersion().substringBefore(" "), GBSatRa)
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
     }
 
