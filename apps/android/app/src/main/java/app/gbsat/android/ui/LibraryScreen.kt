@@ -496,7 +496,9 @@ private fun Library(
             LaunchedEffect(games) { withStates = withContext(Dispatchers.IO) { Emulator.gamesWithStates() } }
             // Game shelf: details of the selected game on top, one horizontal row of box art below
             BoxWithConstraints(Modifier.fillMaxSize()) {
-                val portrait = maxWidth < maxHeight * 1.2f
+                // Screen orientation, not the shelf area: the docked menu makes the shelf narrower in landscape
+                val scr = androidx.compose.ui.platform.LocalConfiguration.current
+                val portrait = scr.screenWidthDp < scr.screenHeightDp * 1.2f
                 val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(130.dp, 240.dp) else (maxHeight * 0.58f).coerceIn(140.dp, 340.dp)
                 val cardW = cardH * 0.72f
                 Column(Modifier.fillMaxSize()) {
