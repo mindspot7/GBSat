@@ -135,6 +135,8 @@ private fun VideoSurfaceInner(modifier: Modifier) {
         modifier = modifier,
         factory = { ctx ->
             SurfaceView(ctx).apply {
+                // Never take the key focus: it would swallow the controller's keys meant for the in-game menu
+                isFocusable = false; isFocusableInTouchMode = false
                 holder.addCallback(object : SurfaceHolder.Callback {
                     override fun surfaceCreated(h: SurfaceHolder) = NativeBridge.nativeSetSurface(h.surface)
                     override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, hh: Int) {}
@@ -145,7 +147,7 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
-private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Performance("Performance"), Overlays("Overlays"), Game("Game"), Exit("Exit") }
+private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Performance("Performance"), Overlays("Overlays"), Game("Game") }
 
 private val MenuGold = Color(0xFFE8C26A)
 private val MenuDim = Color.White.copy(alpha = .65f)
@@ -211,7 +213,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
                                 MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
-                                MenuItem(Icons.Default.ExitToApp, "Exit", sub = true) { page = MenuPage.Exit }
+                                MenuItem(Icons.Default.ExitToApp, "Exit") { Emulator.quitGame() } // back to the library
                             }
                             MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
                             MenuPage.Video -> {
@@ -291,10 +293,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 if (app.gbsat.android.RetroAchievements.enabled) {
                                     MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
                                 }
-                            }
-                            MenuPage.Exit -> {
-                                MenuItem(Icons.Default.Close, "Close game") { Emulator.quitGame() }
-                                MenuItem(Icons.Default.PowerSettingsNew, "Quit GBSat") { onQuitApp() }
                             }
                         }
                         }
