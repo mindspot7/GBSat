@@ -139,7 +139,10 @@ void PinEmulationThreads() {
         }
         closedir(d);
     }
-    UpdateSession(std::move(tids));
+    // The hint session covers only the emulation thread, which lives as long as the app: render/sound threads are
+    // recreated when options change, and replacing the session each time left the CPU boost in a worse state until the
+    // app was restarted.
+    UpdateSession({self});
 }
 
 void ReportFrameWork(int64_t ns) {
