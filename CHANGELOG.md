@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The screen no longer turns off while a game is open.
 - CPU placement ranks cores by scheduler capacity: the emulation thread gets the fastest core to itself, VDP1 the next big core(s), so chips with close big/LITTLE clocks (Unisoc T618) are handled.
 - Game database (adapted from Mednafen): the right cartridge per game (1 MiB RAM where 4 MiB breaks the game; KOF95/Ultraman ROM carts from GBSat/carts/kof95.bin and ultraman.bin; 4 MiB otherwise). SH-2 cache is forced only for the games that need it, so the High preset no longer turns it on for every game. Long game names stay on one line. RetroAchievements shows total points.
 - High preset uses the Native resolution. Fast-forward button next to the menu button; overlay shows the Android version.

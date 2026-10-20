@@ -35,6 +35,12 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun GameScreen(onQuitApp: () -> Unit) {
+    // Keep the screen on while a game is open: controller input doesn't reset the screen timeout
+    val view = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
     var menu by remember { mutableStateOf(false) }
     var fps by remember { mutableFloatStateOf(0f) }
     var stats by remember { mutableStateOf(longArrayOf(0, 320, 224, 0, 1)) }
