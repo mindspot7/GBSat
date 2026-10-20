@@ -203,7 +203,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.PlayArrow, "Resume", onClick = onDismiss)
                                 MenuItem(Icons.Default.Save, "Save state", sub = true) { page = MenuPage.Save }
                                 MenuItem(Icons.Default.Restore, "Load state", sub = true) { page = MenuPage.Load }
-                                MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
+                                // Hidden while the on-screen fast-forward button is shown
+                                if (!Emulator.showFfButton) MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
                                 MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
                                 MenuItem(Icons.Default.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
                                 MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
