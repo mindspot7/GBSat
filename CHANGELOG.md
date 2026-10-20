@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- High preset uses the Native resolution. Performance overlay and fast-forward button moved to the bottom right.
 - Vulkan GPU: "Native" internal resolution, matching the screen (up to 6x; lowered automatically if the GPU can't handle it). Merged upstream Ymir 0.4.2 dependency updates. CI actions updated to Node 24.
 - Performance overlay redesigned (top right, colored): app version, FPS/speed, CPU name and usage, GPU name and load, renderer, resolution, frame time; "Show all monitoring" option. Recent view shows the latest save state of each game. RetroAchievements: hardcore and softcore points; unlocks from the current session endpoint.
 - RetroAchievements: user picture, name and points at the top of the menu; Game options → Achievements shows any game's achievements and your unlocks. "Cover image" label. No highlight box around the selected cover. Select works right after start and after closing a game.

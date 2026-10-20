@@ -62,8 +62,8 @@ object Emulator {
     private data class PresetValues(val renderer: Int, val resScale: Int, val shader: Int, val filter: Int,
                                     val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
     private fun presetValues(p: Preset) = when (p) {
-        // Powerful devices: GPU rendering at 4x with scanlines, accurate SH-2 cache
-        Preset.High -> PresetValues(renderer = 4, resScale = 4, shader = 1, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
+        // Powerful devices: GPU rendering at the screen's native resolution with scanlines, accurate SH-2 cache
+        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
         // Mid-range: CPU rendering through OpenGL ES, no shader
         Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
         // Modest devices: Software renderer, frame skip

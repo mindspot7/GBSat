@@ -177,7 +177,7 @@ private fun VideoPage() {
     val preset = Emulator.currentPreset
     Group("Preset", Icons.Default.AutoAwesome) {
         ChoiceRow("Quality preset",
-            "High: Vulkan GPU 4x + Scanlines · Mid: OpenGL ES · Low: Software + frame skip. Changing an option below sets Custom.",
+            "High: Vulkan GPU Native + Scanlines · Mid: OpenGL ES · Low: Software + frame skip. Changing an option below sets Custom.",
             Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
             preset?.ordinal ?: Emulator.Preset.entries.size,
         ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }

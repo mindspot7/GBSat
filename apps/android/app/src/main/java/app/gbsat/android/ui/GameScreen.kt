@@ -88,16 +88,18 @@ fun GameScreen(onQuitApp: () -> Unit) {
         }
 
         // Performance overlay, top right
-        PerfOverlay(fps, stats, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp))
-
-        if (Emulator.showFfButton) {
-            FilledTonalIconButton(
-                onClick = { Emulator.toggleFastForward() },
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = if (Emulator.fastForward) Color(0xFFE8C26A).copy(alpha = .85f) else Color.Black.copy(alpha = .45f),
-                    contentColor = if (Emulator.fastForward) Color.Black else Color.White),
-                modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
-            ) { Icon(Icons.Default.FastForward, "Fast-forward") }
+        // Performance overlay and fast-forward button, bottom right
+        Column(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(10.dp), horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PerfOverlay(fps, stats)
+            if (Emulator.showFfButton) {
+                FilledTonalIconButton(
+                    onClick = { Emulator.toggleFastForward() },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (Emulator.fastForward) Color(0xFFE8C26A).copy(alpha = .85f) else Color.Black.copy(alpha = .45f),
+                        contentColor = if (Emulator.fastForward) Color.Black else Color.White),
+                ) { Icon(Icons.Default.FastForward, "Fast-forward") }
+            }
         }
 
         RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))

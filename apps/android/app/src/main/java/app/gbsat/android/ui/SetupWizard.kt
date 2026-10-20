@@ -92,7 +92,7 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
                     Page(Icons.Default.AutoAwesome, "Preset", listOf(Color(0xFFFFD25A), Color(0xFFE8A13A)),
                         "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.")
                     val descriptions = mapOf(
-                        Emulator.Preset.High to "Vulkan GPU at 4x resolution, Scanlines shader. For powerful devices.",
+                        Emulator.Preset.High to "Vulkan GPU at the screen's native resolution, Scanlines shader. For powerful devices.",
                         Emulator.Preset.Mid to "OpenGL ES renderer, no shader. For mid-range devices.",
                         Emulator.Preset.Low to "Software renderer with frame skip. For modest devices.",
                     )
