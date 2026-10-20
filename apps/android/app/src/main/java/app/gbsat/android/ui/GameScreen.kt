@@ -145,7 +145,7 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
-private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Overlays("Overlays"), Game("Game"), Exit("Exit") }
+private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Performance("Performance"), Overlays("Overlays"), Game("Game"), Exit("Exit") }
 
 private val MenuGold = Color(0xFFE8C26A)
 private val MenuDim = Color.White.copy(alpha = .65f)
@@ -206,6 +206,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
                                 MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
                                 MenuItem(Icons.Default.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
+                                MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
                                 MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
                                 MenuItem(Icons.Default.ExitToApp, "Exit", sub = true) { page = MenuPage.Exit }
@@ -225,9 +226,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.Memory, "Renderer", value = rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
                                     Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
                                     Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
-                                    Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 if (Emulator.renderer == 4) {
                                     MenuItem(Icons.Default.HighQuality, "Internal resolution", value = Emulator.resScaleLabel) {
@@ -256,6 +254,17 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 }
                                 MenuItem(Icons.Default.FastForward, "Fast-forward audio", value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio]) {
                                     Emulator.ffAudio = (Emulator.ffAudio + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                            }
+                            MenuPage.Performance -> {
+                                MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
+                                    Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
+                                    Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = if (Emulator.threadedScsp) "On" else "Off") {
+                                    Emulator.threadedScsp = !Emulator.threadedScsp; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                             }
                             MenuPage.Overlays -> {
