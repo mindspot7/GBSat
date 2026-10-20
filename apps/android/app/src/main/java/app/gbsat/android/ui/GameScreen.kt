@@ -261,9 +261,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
                                     Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = when (Emulator.vdpMode) {
-                                    0 -> "Auto (" + (if (Emulator.threadedVdp) "on" else "off") + ")"; 1 -> "On"; else -> "Off" }) {
-                                    Emulator.vdpMode = (Emulator.vdpMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
+                                MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
+                                    Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = if (Emulator.threadedScsp) "On" else "Off") {
                                     Emulator.threadedScsp = !Emulator.threadedScsp; Emulator.savePrefs(); Emulator.applyOptions()
