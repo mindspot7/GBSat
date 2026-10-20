@@ -76,22 +76,20 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
         uri?.let { scope.launch { toast(Emulator.importBios(ctx, it) ?: "BIOS loaded") } }
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let {
-            val path = Storage.treeUriToPath(it)
-            if (path == null) toast("Unsupported folder") else { Emulator.gamesDir = path; Emulator.savePrefs() }
-        }
+        uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs() }
     }
     var dataMsg by remember { mutableStateOf<String?>(null) }
-    val dataPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let {
-            val path = Storage.treeUriToPath(it)
-            if (path == null) toast("Unsupported folder") else scope.launch {
-                val err = Emulator.changeDataDir(java.io.File(path, "GBSat"))
-                dataMsg = err ?: "Data copied to $path/GBSat. Restart GBSat to use the new location."
-            }
-        }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        uri?.let { scope.launch { dataMsg = Emulator.exportData(it) ?: "Data copied to the \"GBSat backup\" folder." } }
     }
-    dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data location") }, text = { Text(m) },
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        uri?.let { scope.launch { dataMsg = Emulator.importData(it) ?: "Data imported. Restart GBSat to load it." } }
+    }
+    var cartFile by remember { mutableStateOf("") }
+    val cartPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let { scope.launch { toast(Emulator.importCartRom(it, cartFile) ?: "Cartridge ROM saved") } }
+    }
+    dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data") }, text = { Text(m) },
         confirmButton = { TextButton(onClick = { dataMsg = null }) { Text("OK") } }) }
 
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1D1636), Color(0xFF2B2152), Color(0xFF161126))))) {
@@ -113,9 +111,9 @@ fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (St
             ) {
                 Column(Modifier.widthIn(max = 760.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     when (current) {
-                        SettingsPage.System -> SystemPage(onRequestAllFiles, { biosPicker.launch(arrayOf("*/*")) }, { folderPicker.launch(null) },
-                            onDataFolder = { if (Storage.hasAllFilesAccess()) dataPicker.launch(null) else onRequestAllFiles() },
-                            onDataInternal = { scope.launch { dataMsg = Emulator.changeDataDir(Emulator.defaultDataDir) ?: "Data copied to internal storage. Restart GBSat to use it." } })
+                        SettingsPage.System -> SystemPage({ biosPicker.launch(arrayOf("*/*")) }, { folderPicker.launch(null) },
+                            onExport = { exportPicker.launch(null) }, onImport = { importPicker.launch(null) },
+                            onCart = { cartFile = it; cartPicker.launch(arrayOf("*/*")) })
                         SettingsPage.Video -> VideoPage()
                         SettingsPage.Audio -> AudioPage()
                         SettingsPage.Performance -> PerformancePage()
@@ -139,28 +137,31 @@ private fun <T> ch(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.save
 
 @Composable
 private fun SystemPage(
-    onRequestAllFiles: () -> Unit, onBios: () -> Unit, onGamesFolder: () -> Unit,
-    onDataFolder: () -> Unit, onDataInternal: () -> Unit,
+    onBios: () -> Unit, onGamesFolder: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onCart: (String) -> Unit,
 ) {
     Group("Getting started", Icons.Default.PlayCircle) {
         ActionRow(Icons.Default.Memory, "Saturn BIOS", if (Emulator.iplLoaded) "Loaded" else "Required: choose your IPL ROM (512 KiB)",
             if (Emulator.iplLoaded) "Replace" else "Choose", onBios, warn = !Emulator.iplLoaded)
-        if (!Storage.hasAllFilesAccess()) {
-            Divider()
-            ActionRow(Icons.Default.FolderOff, "File access", "Required to read disc images", "Grant", onRequestAllFiles, warn = true)
-        }
         Divider()
-        ActionRow(Icons.Default.Folder, "Games folder", Emulator.gamesDir.ifBlank { "Not set" }, "Choose", onGamesFolder, warn = Emulator.gamesDir.isBlank())
+        ActionRow(Icons.Default.Folder, "Games folder", if (Emulator.gamesDir.isBlank()) "Not set" else Storage.folderLabel(Emulator.gamesDir),
+            "Choose", onGamesFolder, warn = Emulator.gamesDir.isBlank())
     }
     Group("Data", Icons.Default.Storage) {
-        val internal = Emulator.dataDir == Emulator.defaultDataDir
-        ActionRow(Icons.Default.SdStorage, "Emulator data location",
-            (if (internal) "Internal app storage" else Emulator.dataDir.path) + " · BIOS, saves, save states, cheats, covers",
-            "Change", onDataFolder)
-        if (!internal) {
+        Emulator.legacyDataDir?.let { old ->
+            ActionRow(Icons.Default.Warning, "Data from the previous version",
+                "Your saves were in $old. Import that folder to bring them back.", "Import", onImport, warn = true)
             Divider()
-            ActionRow(Icons.Default.PhoneAndroid, "Move back to internal storage", "Copies the data and uses it after a restart", "Move", onDataInternal)
         }
+        ActionRow(Icons.Default.Upload, "Export data", "Copy BIOS, saves, save states, cheats and covers to a folder (backup)", "Export", onExport)
+        Divider()
+        ActionRow(Icons.Default.Download, "Import data", "Restore a GBSat backup or an older GBSat data folder", "Import", onImport)
+    }
+    Group("Cartridge ROMs", Icons.Default.SdCard) {
+        ActionRow(Icons.Default.SdCard, "King of Fighters '95", if (Emulator.hasCartRom("kof95.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
+            "Choose", { onCart("kof95.bin") })
+        Divider()
+        ActionRow(Icons.Default.SdCard, "Ultraman", if (Emulator.hasCartRom("ultraman.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
+            "Choose", { onCart("ultraman.bin") })
     }
     Group("Save states", Icons.Default.Save) {
         ToggleRow(Icons.Default.Save, "Auto save", "Save the game's state when you close it", Emulator.autoSave, ch { Emulator.autoSave = it })

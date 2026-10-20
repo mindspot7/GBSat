@@ -76,7 +76,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 ## Getting started
 
 1. Install the APK from the [Releases](../../releases/latest) page.
-2. Follow the setup wizard: select your BIOS, grant file access, pick your games folder and a preset.
+2. Follow the setup wizard: select your BIOS, pick your games folder and a preset. No storage permission is needed: GBSat only reads the folder you pick.
 3. Choose a game in the library. In game, Back (or the on-screen menu button) opens the quick menu.
 
 ## Downloads and versions

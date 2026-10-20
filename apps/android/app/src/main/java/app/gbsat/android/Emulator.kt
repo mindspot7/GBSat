@@ -306,25 +306,64 @@ object Emulator {
     /** Folder holding the emulator data. Defaults to the app's private storage. */
     lateinit var dataDir: File; private set
     private val dataSubdirs = listOf("bios", "saves", "states", "cheats", "covers")
-    val defaultDataDir: File get() = appContext.filesDir
+    /** Folder used by an older version for the data, when it couldn't be read after the update (shown in Settings). */
+    var legacyDataDir by mutableStateOf<String?>(null); private set
+
+    /** Copies the data (BIOS, saves, states, cheats, covers, carts) to a "GBSat backup" folder in the picked folder. */
+    suspend fun exportData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, tree) ?: error("Folder not available")
+            val out = root.findFile("GBSat backup") ?: root.createDirectory("GBSat backup") ?: error("Can't create the backup folder")
+            fun copy(src: File, dst: androidx.documentfile.provider.DocumentFile) {
+                src.listFiles()?.forEach { f ->
+                    if (f.isDirectory) copy(f, dst.findFile(f.name) ?: dst.createDirectory(f.name) ?: return@forEach)
+                    else {
+                        dst.findFile(f.name)?.delete()
+                        val doc = dst.createFile("application/octet-stream", f.name) ?: return@forEach
+                        appContext.contentResolver.openOutputStream(doc.uri)?.use { o -> f.inputStream().use { it.copyTo(o) } }
+                    }
+                }
+            }
+            (dataSubdirs + "carts").forEach { n ->
+                val src = File(dataDir, n)
+                if (src.exists()) copy(src, out.findFile(n) ?: out.createDirectory(n) ?: return@forEach)
+            }
+        }.exceptionOrNull()?.let { "Export failed: ${it.message}" }
+    }
 
     /**
-     * Moves the emulator data to [target] (copying the existing files) and uses it from the next launch.
-     * Returns an error message or null.
+     * Copies data from the picked folder: a GBSat backup or an older GBSat data folder (with bios, saves, states...
+     * inside, or one level down). Existing files are replaced. Restart GBSat afterwards.
      */
-    suspend fun changeDataDir(target: File): String? = withContext(Dispatchers.IO) {
-        if (target.absolutePath == dataDir.absolutePath) return@withContext null
-        if (!target.exists() && !target.mkdirs()) return@withContext "Cannot create ${target.path}"
-        if (!target.canWrite()) return@withContext "Cannot write to ${target.path}"
+    suspend fun importData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
         runCatching {
-            dataSubdirs.forEach { name ->
-                val src = File(dataDir, name)
-                if (src.exists()) src.copyRecursively(File(target, name), overwrite = true)
+            var root = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, tree) ?: error("Folder not available")
+            val names = dataSubdirs + "carts"
+            if (root.listFiles().none { it.isDirectory && it.name in names }) {
+                root = root.listFiles().firstOrNull { d -> d.isDirectory && d.listFiles().any { it.isDirectory && it.name in names } }
+                    ?: error("No GBSat data found in this folder")
             }
-        }.exceptionOrNull()?.let { return@withContext "Copy failed: ${it.message}" }
-        prefs.edit().putString("dataDir", if (target.absolutePath == defaultDataDir.absolutePath) null else target.absolutePath).commit()
-        null
+            fun copy(src: androidx.documentfile.provider.DocumentFile, dst: File) {
+                dst.mkdirs()
+                src.listFiles().forEach { f ->
+                    val name = f.name ?: return@forEach
+                    if (f.isDirectory) copy(f, File(dst, name))
+                    else appContext.contentResolver.openInputStream(f.uri)?.use { i -> File(dst, name).outputStream().use { i.copyTo(it) } }
+                }
+            }
+            root.listFiles().filter { it.isDirectory && it.name in names }.forEach { copy(it, File(dataDir, it.name!!)) }
+            legacyDataDir = null
+        }.exceptionOrNull()?.let { "Import failed: ${it.message}" }
     }
+
+    /** Stores a ROM cartridge dump picked by the user (KOF95 or Ultraman), used automatically by the games that need it. */
+    suspend fun importCartRom(uri: android.net.Uri, fileName: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val dst = File(dataDir, "carts").apply { mkdirs() }.resolve(fileName)
+            appContext.contentResolver.openInputStream(uri)?.use { i -> dst.outputStream().use { i.copyTo(it) } } ?: error("Can't read the file")
+        }.exceptionOrNull()?.let { "Copy failed: ${it.message}" }
+    }
+    fun hasCartRom(fileName: String) = File(dataDir, "carts/$fileName").exists()
 
     // ---- Library badges: games with save states / RetroAchievements ----
     var achievementGames by mutableStateOf<Set<String>>(emptySet()); private set
@@ -365,8 +404,19 @@ object Emulator {
     fun init(context: Context) {
         appContext = context.applicationContext
         prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
-        dataDir = prefs.getString("dataDir", null)?.let { File(it) }?.takeIf { (it.isDirectory || it.mkdirs()) && it.canWrite() }
-            ?: appContext.filesDir
+        Storage.init(appContext)
+        // Data lives in the app's storage. Older versions could keep it in a folder of the user's choice, which needed
+        // the all-files permission; that data can be brought back with Settings → System → Import data.
+        val oldDir = prefs.getString("dataDir", null)
+        dataDir = appContext.filesDir
+        if (oldDir != null) {
+            val f = File(oldDir)
+            if (f.canRead()) runCatching { dataSubdirs.forEach { n -> File(f, n).takeIf { it.exists() }?.copyRecursively(File(dataDir, n), overwrite = false) } }
+            else legacyDataDir = oldDir
+            prefs.edit().remove("dataDir").apply()
+        }
+        // Games folder paths from older versions are no longer readable: the folder must be picked again
+        if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         loadPlayTimes()
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
@@ -478,7 +528,10 @@ object Emulator {
     suspend fun launch(path: String, useAutoLoad: Boolean = true): String? = withContext(Dispatchers.IO) {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
-        val err = NativeBridge.nativeLoadDisc(path, preloadDisc)
+        openDisc?.close()
+        val disc = Storage.open(path) ?: return@withContext "Can't open ${Storage.fileName(path)}. Choose the games folder again in Settings → System."
+        val err = NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
+        if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()
             if (useAutoLoad && autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
@@ -511,7 +564,10 @@ object Emulator {
         RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }
         NativeBridge.nativeEjectDisc()
+        openDisc?.close(); openDisc = null
     }
+    /** Files of the running disc (kept open while the game runs). */
+    private var openDisc: Storage.OpenDisc? = null
 
     // ---- Input merging: touch + gamepad each own a mask; native sees the OR. ----
     private var touchMask = 0

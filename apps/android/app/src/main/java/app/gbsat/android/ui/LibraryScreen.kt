@@ -417,7 +417,7 @@ private fun Library(
         }
         games.isEmpty() -> Panel(Modifier.fillMaxSize()) {
             if (loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            else EmptyState(Icons.Default.SearchOff, "No games found", "Nothing found in ${Emulator.gamesDir}", null, {})
+            else EmptyState(Icons.Default.SearchOff, "No games found", "Nothing found in ${Storage.folderLabel(Emulator.gamesDir)}", null, {})
         }
         else -> {
             val ctx = LocalContext.current

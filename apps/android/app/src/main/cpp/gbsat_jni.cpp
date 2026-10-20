@@ -859,7 +859,7 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
                 notice = std::string(kof ? "KOF95" : "Ultraman") + " ROM cartridge inserted";
             } else {
                 notice = std::string("This game needs the ") + (kof ? "King of Fighters '95" : "Ultraman") +
-                         " ROM cartridge: copy its dump to GBSat/carts/" + (kof ? "kof95.bin" : "ultraman.bin");
+                         " ROM cartridge: add its dump in Settings → System → Cartridge ROMs";
             }
         }
         if (want != g->cartType && want != 10) {

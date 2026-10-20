@@ -32,29 +32,15 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
-    var hasAccess by remember { mutableStateOf(Storage.hasAllFilesAccess()) }
-    LifecycleResumeEffect(Unit) { hasAccess = Storage.hasAllFilesAccess(); onPauseOrDispose { } }
 
     val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { scope.launch { message = Emulator.importBios(ctx, it) ?: "BIOS loaded" } }
     }
     val gamesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let {
-            val path = Storage.treeUriToPath(it)
-            if (path == null) message = "Unsupported folder" else { Emulator.gamesDir = path; Emulator.savePrefs(); message = null }
-        }
-    }
-    val dataPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let {
-            val path = Storage.treeUriToPath(it)
-            if (path == null) message = "Unsupported folder" else scope.launch {
-                message = Emulator.changeDataDir(java.io.File(path, "GBSat"))
-                    ?: "Data will be stored in $path/GBSat after GBSat restarts."
-            }
-        }
+        uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs(); message = null }
     }
 
-    val steps = 6
+    val steps = 4
     Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
         listOf(Color(0xFF1D1636), Color(0xFF2B2152), Color(0xFF161126)))).safeDrawingPadding().padding(24.dp)) {
         LinearProgressIndicator(progress = { (step + 1f) / steps }, modifier = Modifier.fillMaxWidth())
@@ -72,23 +58,12 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
                     if (Emulator.iplLoaded) Status("BIOS loaded")
                 }
                 2 -> {
-                    Page(Icons.Default.Lock, "File access", listOf(Color(0xFF4FC3F7), Color(0xFF5C6BF0)),
-                        "GBSat reads disc images (CUE/BIN, CHD, ISO, MDS, CCD) directly from your storage.")
-                    if (hasAccess) Status("Access granted") else Button(onClick = onRequestAllFiles) { Text("Grant access") }
+                    Page(Icons.Default.VideoLibrary, "Games folder", listOf(Color(0xFF66E3A4), Color(0xFF1FA2A8)),
+                        "Pick the folder that holds your Saturn disc images (CUE/BIN, CHD, ISO, MDS, CCD). GBSat only reads that folder.")
+                    Button(onClick = { gamesPicker.launch(null) }) { Text("Choose folder") }
+                    if (Emulator.gamesDir.isNotBlank()) Status(Storage.folderLabel(Emulator.gamesDir))
                 }
                 3 -> {
-                    Page(Icons.Default.VideoLibrary, "Games folder", listOf(Color(0xFF66E3A4), Color(0xFF1FA2A8)), "Pick the folder that holds your Saturn games.")
-                    Button(onClick = { if (hasAccess) gamesPicker.launch(null) else onRequestAllFiles() }) { Text("Choose folder") }
-                    if (Emulator.gamesDir.isNotBlank()) Status(Emulator.gamesDir)
-                }
-                4 -> {
-                    Page(Icons.Default.Cloud, "Emulator data", listOf(Color(0xFF7FD7FF), Color(0xFF7A5CFF)),
-                        "BIOS, saves, save states, cheats and covers are kept in the app's internal storage. " +
-                            "You can store them in a folder of your choice instead (easier to back up).")
-                    OutlinedButton(onClick = { if (hasAccess) dataPicker.launch(null) else onRequestAllFiles() }) { Text("Choose folder (optional)") }
-                    Status(if (Emulator.dataDir == Emulator.defaultDataDir) "Internal app storage" else Emulator.dataDir.path)
-                }
-                5 -> {
                     Page(Icons.Default.AutoAwesome, "Preset", listOf(Color(0xFFFFD25A), Color(0xFFE8A13A)),
                         "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.")
                     val descriptions = mapOf(

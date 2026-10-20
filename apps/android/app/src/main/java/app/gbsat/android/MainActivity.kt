@@ -45,13 +45,8 @@ class MainActivity : ComponentActivity() {
         android.os.Process.killProcess(android.os.Process.myPid()) // emulator state lives in the process; start clean next time
     }
 
-    private fun requestAllFiles() {
-        if (Build.VERSION.SDK_INT >= 30 && !Storage.hasAllFilesAccess()) {
-            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-        } else if (Build.VERSION.SDK_INT < 30) {
-            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 1)
-        }
-    }
+    /** Games are read through the folder picker (no broad storage permission), so there is nothing to request. */
+    private fun requestAllFiles() {}
 
     private fun setImmersiveMode(on: Boolean) {
         val c = WindowInsetsControllerCompat(window, window.decorView)

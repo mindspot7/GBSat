@@ -194,7 +194,7 @@ object RetroAchievements {
         val none = null to emptyList<Achievement>()
         val u = user ?: return@withContext none
         val t = prefs.getString("token", null) ?: return@withContext none
-        val hash = NativeBridge.nativeRaHashFile(path) ?: return@withContext none
+        val hash = Storage.open(path)?.use { NativeBridge.nativeRaHashFile(it.path) } ?: return@withContext none
         val gameId = request("r=gameid&m=$hash")?.optLong("GameID", 0L) ?: 0L
         if (gameId <= 0) return@withContext none
         val enc = { s: String -> java.net.URLEncoder.encode(s, "UTF-8") }
