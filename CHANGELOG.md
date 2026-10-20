@@ -1,6 +1,7 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
+- Monitoring overlay header only when all monitoring overlays are on. Code cleanup.
 - Auto frame skip skips more frames on hi-res/interlaced screens (menus such as Daytona USA's), which cost up to 4x the rendering work.
 - Threaded VDP can be switched again during a game (applies immediately).
 - Fixed lasting slowdown after changing video/performance options in game: threads created by the emulation thread (GPU driver, recreated render threads) no longer stay on its CPU core.
