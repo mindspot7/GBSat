@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Threaded VDP: new Auto mode (default) that measures the game with and without render threads and keeps the faster one.
 - In-game menu: Performance page with Frame skip, Threaded VDP and Threaded audio.
 - Threaded audio (on by default): the SCSP sound chip and its 68000 run on their own thread, so the emulation thread only runs the SH-2s; that thread is also placed on a fast core.
 - Fixed a frozen picture with the Vulkan GPU renderer and automatic frame skip.

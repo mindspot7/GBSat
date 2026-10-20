@@ -32,7 +32,41 @@ object Emulator {
     var gamesDir by mutableStateOf("")
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
-    var threadedVdp by mutableStateOf(true)
+    /** Threaded VDP rendering: 0 = Auto (measured when a game starts), 1 = On, 2 = Off. */
+    var vdpMode by mutableStateOf(0)
+    /** Threaded VDP actually in use (the Auto result, or the fixed choice). */
+    var threadedVdp by mutableStateOf(true); private set
+    private var vdpAutoJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Auto mode: on chips with few fast cores the extra render threads can help or hurt depending on how Android places
+     * them, so both settings are measured in the running game (emulation time per frame, while running) and the faster
+     * one is kept. Not needed for the Vulkan GPU renderer, which doesn't use these threads.
+     */
+    private fun startVdpAuto() {
+        vdpAutoJob?.cancel()
+        if (vdpMode != 0 || renderer == 4) return
+        vdpAutoJob = scope.launch {
+            suspend fun measure(on: Boolean): Long {
+                threadedVdp = on; NativeBridge.nativeSetThreadedVdp(on)
+                delay(1500) // settle
+                var sum = 0L; var n = 0
+                while (n < 12) { // ~3 s of running emulation
+                    delay(250)
+                    if (!running) return Long.MAX_VALUE
+                    if (paused) continue
+                    sum += NativeBridge.nativeGetStats().getOrElse(5) { 0L }; n++
+                }
+                return sum / n
+            }
+            delay(4000) // past the boot logos
+            val on = measure(true)
+            val off = measure(false)
+            if (!running) return@launch
+            val best = on <= off
+            threadedVdp = best; NativeBridge.nativeSetThreadedVdp(best)
+        }
+    }
     var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread
     var preloadDisc by mutableStateOf(false)
     var cartridge by mutableStateOf(2) // 4 MiB RAM expansion (fixed; works with 1 MiB games too)
@@ -61,22 +95,22 @@ object Emulator {
     // ---- Presets: groups of video/performance options ----
     enum class Preset(val label: String) { Low("Low"), Mid("Mid"), High("High") }
     private data class PresetValues(val renderer: Int, val resScale: Int, val shader: Int, val filter: Int,
-                                    val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
+                                    val frameSkip: Boolean, val sh2Cache: Boolean, val vdpMode: Int)
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at the screen's native resolution with scanlines, accurate SH-2 cache
-        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, vdpMode = 0)
         // Mid-range: CPU rendering through OpenGL ES, no shader
-        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, vdpMode = 0)
         // Modest devices: Software renderer, frame skip
-        Preset.Low -> PresetValues(renderer = 0, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
+        Preset.Low -> PresetValues(renderer = 0, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, vdpMode = 0)
     }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
     val currentPreset: Preset?
-        get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache, threadedVdp) }
+        get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache, vdpMode) }
     fun applyPreset(p: Preset) {
         val v = presetValues(p)
         renderer = v.renderer; resScale = v.resScale; shader = v.shader; filter = v.filter
-        frameSkip = v.frameSkip; sh2Cache = v.sh2Cache; threadedVdp = v.threadedVdp
+        frameSkip = v.frameSkip; sh2Cache = v.sh2Cache; vdpMode = v.vdpMode
         savePrefs(); applyOptions()
     }
     var setupDone by mutableStateOf(true)
@@ -374,7 +408,8 @@ object Emulator {
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
-        threadedVdp = prefs.getBoolean("threadedVdp", true)
+        vdpMode = prefs.getInt("vdpMode", 0)
+        threadedVdp = vdpMode != 2
         threadedScsp = prefs.getBoolean("threadedScsp", true)
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
@@ -441,8 +476,10 @@ object Emulator {
         runCatching { appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName }.getOrNull() ?: "?"
 
     fun applyOptions() {
+        if (running && vdpMode == 0 && vdpAutoJob?.isActive != true) startVdpAuto()
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
+        if (vdpMode != 0) threadedVdp = vdpMode == 1
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetThreadedScsp(threadedScsp)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
@@ -457,7 +494,7 @@ object Emulator {
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putBoolean("preloadDisc", preloadDisc)
+        .putInt("vdpMode", vdpMode).putBoolean("threadedScsp", threadedScsp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
@@ -485,6 +522,7 @@ object Emulator {
             pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
             NativeBridge.nativeTakeCartNotice()?.let { showToast(it) }
+            withContext(Dispatchers.Main) { startVdpAuto() }
         }
         err
     }
