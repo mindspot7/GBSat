@@ -364,7 +364,7 @@ private fun ExtrasPage() {
         if (ra.enabled) {
             Divider()
             if (ra.user != null) {
-                ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} hardcore · ${ra.scoreSoftcore} softcore points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
+                ActionRow(Icons.Default.AccountCircle, "Logged in as ${ra.user}", "${ra.score} points" + (ra.gameTitle?.let { " · playing $it" } ?: ""),
                     "Log out", { ra.logout() })
             } else {
                 var raUser by remember { mutableStateOf("") }

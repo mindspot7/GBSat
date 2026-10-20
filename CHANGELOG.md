@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Game database (adapted from Mednafen): the right cartridge per game (1 MiB RAM where 4 MiB breaks the game; KOF95/Ultraman ROM carts from GBSat/carts/kof95.bin and ultraman.bin; 4 MiB otherwise). SH-2 cache is forced only for the games that need it, so the High preset no longer turns it on for every game. Long game names stay on one line. RetroAchievements shows total points.
 - High preset uses the Native resolution. Fast-forward button next to the menu button; overlay shows the Android version.
 - Vulkan GPU: "Native" internal resolution, matching the screen (up to 6x; lowered automatically if the GPU can't handle it). Merged upstream Ymir 0.4.2 dependency updates. CI actions updated to Node 24.
 - Performance overlay redesigned (top right, colored): app version, FPS/speed, CPU name and usage, GPU name and load, renderer, resolution, frame time; "Show all monitoring" option. Recent view shows the latest save state of each game. RetroAchievements: hardcore and softcore points; unlocks from the current session endpoint.

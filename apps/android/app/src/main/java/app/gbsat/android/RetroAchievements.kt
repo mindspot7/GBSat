@@ -43,8 +43,7 @@ object RetroAchievements {
     var enabled by mutableStateOf(false); private set
     var hardcore by mutableStateOf(false); private set
     var user by mutableStateOf<String?>(null); private set
-    var score by mutableStateOf(0); private set          // hardcore points
-    var scoreSoftcore by mutableStateOf(0); private set  // softcore points
+    var score by mutableStateOf(0); private set // total points (hardcore + softcore)
     var loginPending by mutableStateOf(false); private set
     var loginError by mutableStateOf<String?>(null); private set
     var gameTitle by mutableStateOf<String?>(null); private set
@@ -134,10 +133,10 @@ object RetroAchievements {
             val url = p.getOrElse(4) { "" }
             when (kind) {
                 "login" -> {
-                    user = a; score = n; scoreSoftcore = p.getOrElse(5) { "0" }.toIntOrNull() ?: 0; loginPending = false; loginError = null
+                    user = a; score = n + (p.getOrElse(5) { "0" }.toIntOrNull() ?: 0); loginPending = false; loginError = null
                     avatarUrl = url.ifBlank { "https://media.retroachievements.org/UserPic/$a.png" }
                     prefs.edit().putString("token", b).putString("avatar", avatarUrl).apply()
-                    add += Notification("info", "RetroAchievements", "Logged in as $a ($n points)", 0, url)
+                    add += Notification("info", "RetroAchievements", "Logged in as $a ($score points)", 0, url)
                 }
                 "loginfail" -> { loginPending = false; loginError = a; user = null }
                 "game" -> { gameTitle = a; Emulator.markAchievementGame(); add += Notification("game", a, b, 0, url) }

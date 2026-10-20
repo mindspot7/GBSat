@@ -13,6 +13,8 @@
 #include <android/native_window_jni.h>
 
 #include <ymir/ymir.hpp>
+#include <ymir/db/game_db.hpp>
+#include <ymir/hw/cart/cart.hpp>
 
 #include "gbsat_ra.hpp"
 #include "gl_renderer.hpp"
@@ -120,6 +122,9 @@ struct Context {
     std::mutex lastFrameMutex;
     std::vector<uint32_t> lastFrame;
     uint32_t lastFrameW = 0, lastFrameH = 0;
+    std::string dataDir;      // GBSat data folder (carts/ holds the ROM cartridge dumps)
+    int cartType = -1;        // cartridge in the slot: 0 none, 1 = 1 MiB, 2 = 4 MiB, 3 = 6 MiB, 10 = ROM
+    std::string cartNotice;   // message about the cartridge picked for the last loaded disc (read once by the app)
     std::string discHeader; // first 256 bytes of the disc's system area (IP.BIN header), printable ASCII
 
     // Threading
@@ -650,6 +655,7 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     }
     g = new Context();
     g->saturn = std::make_unique<ymir::Saturn>();
+    g->dataDir = std::filesystem::path(JStr(env, backupRamPath)).parent_path().parent_path().string();
 
     g->saturn->SCSP.SetSampleCallback({nullptr, [](int16_t l, int16_t r, void *) {
                                            if (g->fastForward.load(std::memory_order_relaxed)) {
@@ -814,7 +820,51 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             g->discHeader = hdr;
         }
     }
-    RunSync([disc, raHash]() -> int {
+    // Cartridge from the game database (adapted from Mednafen): 1 MiB RAM for the games that need it (some don't work
+    // with 4 MiB), the KOF95/Ultraman ROM carts when their dumps are in <data>/carts/, otherwise the 4 MiB RAM cart.
+    std::string productCode;
+    {
+        std::lock_guard lk(g->winMutex);
+        if (g->discHeader.size() >= 0x2A) {
+            productCode = g->discHeader.substr(0x20, 10);
+            productCode.erase(productCode.find_last_not_of(' ') + 1);
+        }
+    }
+    RunSync([disc, raHash, productCode]() -> int {
+        using ymir::db::Cartridge;
+        const auto *info = ymir::db::GetGameInfo(productCode, ymir::XXH128Hash{});
+        const Cartridge need = info ? info->GetCartridge() : Cartridge::None;
+        int want = 2;
+        std::string notice;
+        if (need == Cartridge::DRAM8Mbit) {
+            want = 1;
+            notice = "1 MiB RAM cartridge inserted for this game";
+        } else if (need == Cartridge::DRAM48Mbit) {
+            want = 3;
+        } else if (need == Cartridge::ROM_KOF95 || need == Cartridge::ROM_Ultraman) {
+            const bool kof = need == Cartridge::ROM_KOF95;
+            const auto path = std::filesystem::path(g->dataDir) / "carts" / (kof ? "kof95.bin" : "ultraman.bin");
+            std::ifstream in(path, std::ios::binary);
+            std::vector<uint8_t> rom((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (!rom.empty()) {
+                g->saturn->InsertCartridge<ymir::cart::ROMCartridge>()->LoadROM(rom);
+                g->cartType = 10;
+                want = 10;
+                notice = std::string(kof ? "KOF95" : "Ultraman") + " ROM cartridge inserted";
+            } else {
+                notice = std::string("This game needs the ") + (kof ? "King of Fighters '95" : "Ultraman") +
+                         " ROM cartridge: copy its dump to GBSat/carts/" + (kof ? "kof95.bin" : "ultraman.bin");
+            }
+        }
+        if (want != g->cartType && want != 10) {
+            switch (want) {
+            case 1: g->saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>(); break;
+            case 3: g->saturn->InsertCartridge<ymir::cart::DRAM48MbitCartridge>(); break;
+            default: g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>(); break;
+            }
+            g->cartType = want;
+        }
+        g->cartNotice = notice;
         g->saturn->LoadDisc(std::move(*disc));
         g->saturn->AutodetectRegion();
         g->saturn->Reset(true);
@@ -903,11 +953,10 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
 JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
     if (g) {
         Post([type] {
-            static int current = -1;
-            if (type == current) {
+            if (type == g->cartType) {
                 return; // unchanged: don't reset the running game
             }
-            current = type;
+            g->cartType = type;
             switch (type) {
             case 1: g->saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>(); break;
             case 2: g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>(); break;
@@ -1126,6 +1175,15 @@ JNI_FN(void, nativeRaInit)(JNIEnv *env, jclass, jstring userAgent) {
 }
 
 // Returned as UTF-8 bytes: titles may contain characters that JNI's modified UTF-8 strings cannot carry.
+// Message about the cartridge chosen for the last loaded game (empty if nothing to say); cleared when read.
+JNI_FN(jstring, nativeTakeCartNotice)(JNIEnv *env, jclass) {
+    std::string n;
+    if (g) {
+        RunSync([&n]() -> int { n.swap(g->cartNotice); return 0; });
+    }
+    return n.empty() ? nullptr : env->NewStringUTF(n.c_str());
+}
+
 JNI_FN(jstring, nativeGetGpuName)(JNIEnv *env, jclass) {
     return env->NewStringUTF(glr::GpuName().c_str());
 }

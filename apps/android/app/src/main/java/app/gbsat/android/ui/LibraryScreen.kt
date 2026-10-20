@@ -191,7 +191,7 @@ private fun RaUserHeader() {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (ra.hardcoreActive) "${ra.score} pts · Hardcore" else "${ra.score + ra.scoreSoftcore} pts", style = MaterialTheme.typography.labelMedium,
+            Text("${ra.score} pts", style = MaterialTheme.typography.labelMedium,
                 color = Gold, maxLines = 1)
         }
     }
@@ -460,7 +460,7 @@ private fun Library(
                 LaunchedEffect(g) { latest = withContext(Dispatchers.IO) { Emulator.latestState(g.path) } }
                 AlertDialog(
                     onDismissRequest = { gameMenu = null },
-                    title = { Text(g.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    title = { Text(g.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     text = {
                         Column {
                             val secs = Emulator.playTime(g.path)
@@ -507,8 +507,9 @@ private fun Library(
                         enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
                         val g = selected
                         if (g != null) Column(Modifier.fillMaxWidth().padding(start = edgePad + 8.dp, end = 20.dp, top = 8.dp)) {
+                            // Long names stay on one line
                             Text(g.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                                 val secs = Emulator.playTime(g.path)
                                 Icon(Icons.Default.Schedule, null, tint = Color.White.copy(alpha = .7f), modifier = Modifier.size(16.dp))

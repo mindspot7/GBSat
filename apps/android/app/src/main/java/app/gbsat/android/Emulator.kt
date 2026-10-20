@@ -63,7 +63,7 @@ object Emulator {
                                     val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at the screen's native resolution with scanlines, accurate SH-2 cache
-        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = true, threadedVdp = true)
+        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
         // Mid-range: CPU rendering through OpenGL ES, no shader
         Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
         // Modest devices: Software renderer, frame skip
@@ -442,7 +442,6 @@ object Emulator {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
-        NativeBridge.nativeSetCartridge(cartridge)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
@@ -482,6 +481,7 @@ object Emulator {
             if (useAutoLoad && autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
             pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
+            NativeBridge.nativeTakeCartNotice()?.let { showToast(it) }
         }
         err
     }
