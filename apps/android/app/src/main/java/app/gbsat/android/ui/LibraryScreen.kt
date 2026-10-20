@@ -254,14 +254,21 @@ private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
         Surface(
             Modifier.fillMaxWidth(0.55f).widthIn(min = 240.dp, max = 360.dp)
                 .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {},
-            shape = RoundedCornerShape(24.dp), color = Color(0xFF231C42), border = PanelBorder, shadowElevation = 16.dp,
+            shape = RoundedCornerShape(28.dp), color = Color(0xFF2B2A30), shadowElevation = 16.dp,
         ) {
-            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Confirm Quit?", style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onConfirm, modifier = Modifier.focusRequester(fr)) { ButtonHint("A", Color(0xFFE5483B), "Confirm", Modifier) }
-                    TextButton(onClick = onCancel) { ButtonHint("B", Color(0xFFF2C230), "Cancel", Modifier) }
+            // Same look as the system dialogs: title, message, text button + filled pill button on the right
+            Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 18.dp)) {
+                Text("Exit", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                Spacer(Modifier.height(14.dp))
+                Text("Are you sure you want to exit?", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .8f))
+                Spacer(Modifier.height(22.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onCancel) { Text("Cancel", color = Color.White.copy(alpha = .85f)) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onConfirm, modifier = Modifier.focusRequester(fr), shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .14f), contentColor = Color.White)) {
+                        Text("Exit")
+                    }
                 }
             }
         }
