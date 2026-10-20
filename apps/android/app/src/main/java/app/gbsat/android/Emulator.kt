@@ -309,7 +309,7 @@ object Emulator {
     /** Folder used by an older version for the data, when it couldn't be read after the update (shown in Settings). */
     var legacyDataDir by mutableStateOf<String?>(null); private set
 
-    /** Copies saves, save states, cheats and cartridge ROMs to a "GBSat backup" folder (no BIOS or covers). */
+    /** Copies saves and save states to a "GBSat backup" folder. */
     suspend fun exportData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
         runCatching {
             val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, tree) ?: error("Folder not available")
@@ -324,7 +324,7 @@ object Emulator {
                     }
                 }
             }
-            listOf("saves", "states", "cheats", "carts").forEach { n ->
+            listOf("saves", "states").forEach { n ->
                 val src = File(dataDir, n)
                 if (src.exists()) copy(src, out.findFile(n) ?: out.createDirectory(n) ?: return@forEach)
             }
