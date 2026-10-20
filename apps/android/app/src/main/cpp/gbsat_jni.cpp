@@ -547,7 +547,10 @@ void EmuLoop() {
         {
             // Automatic frame skip: when the previous frame finished late, skip rendering this one (at most 2 in a row,
             // so the picture keeps updating); at full speed every frame is rendered
-            const bool skip = g->frameSkip.load() && g->behind && g->skipRun < 2;
+            // Hi-res/interlaced screens (704x480, used by many menus and title screens) cost up to 4x the rendering
+            // work: there up to 4 frames in a row may be skipped, since such screens are mostly static
+            const bool hires = g->videoW.load(std::memory_order_relaxed) >= 560 || g->videoH.load(std::memory_order_relaxed) >= 400;
+            const bool skip = g->frameSkip.load() && g->behind && g->skipRun < (hires ? 4 : 2);
             g->skipRun = skip ? g->skipRun + 1 : 0;
             g->saturn->VDP.SetSkipFrameRender(skip);
             g->skipPresent = skip;
