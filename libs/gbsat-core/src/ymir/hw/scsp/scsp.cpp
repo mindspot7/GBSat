@@ -1490,13 +1490,20 @@ void SCSP::WakeSCSPThread() {
 }
 
 void SCSP::WaitForSCSPWork(uint32 seq) {
-    // Spin-wait to avoid the expensive wait if possible
-    static constexpr int kSpinCount = 1200;
+    // Spin briefly to avoid the expensive wait if possible. A CPU pause instead of yielding to the scheduler: a
+    // syscall per iteration kept the core busy in the kernel for milliseconds while there was no work.
+    static constexpr int kSpinCount = 2000;
     for (int i = 0; i < kSpinCount; ++i) {
         if (m_wakeSeq.load(std::memory_order_acquire) != seq) {
             return;
         }
+#if defined(__aarch64__) || defined(__arm__)
+        __asm__ __volatile__("yield");
+#elif defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#else
         std::this_thread::yield();
+#endif
     }
     m_wakeSeq.wait(seq, std::memory_order_acquire);
 }

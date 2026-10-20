@@ -50,6 +50,8 @@ static struct ThreadDynamicLink {
 
 #endif
 
+#include <cstring>
+
 namespace util {
 
 /// @brief Changes the name of the current thread.
@@ -69,7 +71,10 @@ void SetCurrentThreadName(const char *threadName) {
 
 #elif defined(__linux__)
 
-    pthread_setname_np(pthread_self(), threadName);
+    // Linux limits thread names to 15 characters and rejects longer ones (ERANGE), leaving the old name
+    char shortName[16] = {};
+    strncpy(shortName, threadName, sizeof(shortName) - 1);
+    pthread_setname_np(pthread_self(), shortName);
 
 #elif defined(__FreeBSD__)
 
