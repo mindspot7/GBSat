@@ -127,11 +127,10 @@ jobs:
             exit 0
           fi
           cp "apps/android/app/build/outputs/apk/release/${{ steps.ver.outputs.name }}.apk" "GBSat-v${VER}.apk"
-          cp "apps/android/app/build/outputs/apk/release/${{ steps.ver.outputs.name }}.aab" "GBSat-v${VER}.aab"
           awk -v ver="$VER" '
             /^## / { if (found) exit; if (index($0, "## " ver) == 1) { found = 1; next } }
             found { print }
           ' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "GBSat ${VER}" > notes.md
-          gh release create "v${VER}" "GBSat-v${VER}.apk" "GBSat-v${VER}.aab" --target "$GITHUB_SHA" --title "GBSat ${VER}" --notes-file notes.md
+          gh release create "v${VER}" "GBSat-v${VER}.apk" --target "$GITHUB_SHA" --title "GBSat ${VER}" --notes-file notes.md
           echo "::notice title=Release::Published v${VER}"
