@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Edge-to-edge: removed the deprecated status/navigation bar color and cutout settings (Android 15+).
+
 ## 1.3.1
 - In-game menu: Exit goes straight back to the library (Quit GBSat removed); the game picture no longer takes the controller's key focus, so the menu works with a controller. Exit dialog in the app colors.
 - Controller: A confirms the Quit dialog right after start or after closing a game; the in-game menu takes the focus on its first item, so the controller works as soon as it opens.
