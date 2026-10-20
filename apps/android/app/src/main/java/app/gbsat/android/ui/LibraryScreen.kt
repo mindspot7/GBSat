@@ -268,7 +268,6 @@ private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF1D1636), Col
 private val PanelColor = Color(0xFF1B1830).copy(alpha = 0.88f)
 private val PanelBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
 private val Gold = Color(0xFFE8C26A)
-private val Focus = Color(0xFFC9B8FF) // selection outline (light violet)
 
 @Composable
 private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = RoundedCornerShape(24.dp), content: @Composable () -> Unit) =
@@ -294,7 +293,6 @@ private fun Header(recentMode: Boolean, modifier: Modifier, onToggleRecent: () -
             delay(20_000)
         }
     }
-    var headerFocused by remember { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(32.dp), color = PanelColor, modifier =
         modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
             .focusProperties { canFocus = false } // touch only: the controller never moves to the top bar
@@ -387,22 +385,6 @@ private fun MenuEntry(icon: MenuIcon, label: String, modifier: Modifier = Modifi
     }
 }
 
-/** Glossy app-style icon tile: color gradient, soft top highlight and drop shadow. */
-@Composable
-fun IconTile(icon: ImageVector, color: Color, size: androidx.compose.ui.unit.Dp = 40.dp) {
-    val shape = RoundedCornerShape(size * 0.3f)
-    Box(
-        Modifier.size(size).shadow(6.dp, shape, ambientColor = color, spotColor = color).clip(shape)
-            .background(Brush.linearGradient(listOf(lerpColor(color, Color.White, .25f), lerpColor(color, Color.Black, .35f)))),
-        contentAlignment = Alignment.Center,
-    ) {
-        // highlight on the upper half
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.White.copy(alpha = .35f), 0.5f to Color.Transparent)))
-        Icon(icon, null, Modifier.size(size * 0.58f), tint = Color.White)
-    }
-}
-
-private fun lerpColor(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
 
 @Composable
 private fun Library(

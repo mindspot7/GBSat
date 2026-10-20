@@ -35,7 +35,6 @@ object Emulator {
     var threadedVdp by mutableStateOf(true)
     var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread
     var preloadDisc by mutableStateOf(false)
-    var cartridge by mutableStateOf(2) // 4 MiB RAM expansion (fixed; works with 1 MiB games too)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     var showFps by mutableStateOf(false)

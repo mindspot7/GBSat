@@ -141,8 +141,4 @@ object Covers {
         context.contentResolver.openInputStream(uri)?.use { i -> custom(title).outputStream().use { o -> i.copyTo(o) } }
         memory.remove(title)
     }
-
-    suspend fun clearCustom(title: String) = withContext(Dispatchers.IO) {
-        custom(title).delete(); cached(title).delete(); miss(title).delete(); memory.remove(title)
-    }
 }

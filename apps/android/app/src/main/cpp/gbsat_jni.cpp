@@ -961,23 +961,6 @@ JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
         Post([on] { g->saturn->configuration.audio.threadedSCSP = on; });
     }
 }
-// 0 = none, 1 = 1 MiB DRAM cart, 2 = 4 MiB DRAM cart
-JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
-    if (g) {
-        Post([type] {
-            if (type == g->cartType) {
-                return; // unchanged: don't reset the running game
-            }
-            g->cartType = type;
-            switch (type) {
-            case 1: g->saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>(); break;
-            case 2: g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>(); break;
-            default: g->saturn->RemoveCartridge(); break;
-            }
-            g->saturn->Reset(true);
-        });
-    }
-}
 
 // Stats: [fps*100, videoW, videoH]
 JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {

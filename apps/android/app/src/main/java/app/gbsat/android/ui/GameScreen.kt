@@ -64,7 +64,6 @@ fun GameScreen(onQuitApp: () -> Unit) {
     LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
-        val screenW = maxWidth
         val landscape = maxWidth > maxHeight
         val ratio = if (Emulator.aspect == 2) 16f / 9f else 4f / 3f
         val videoMod = if (Emulator.aspect == 1) Modifier.fillMaxSize() else Modifier.aspectRatio(ratio)
