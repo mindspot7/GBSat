@@ -10,13 +10,13 @@ plugins {
 
 android {
     namespace = "app.gbsat.android"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "app.gbsat.android"
         minSdk = 28 // iconv in libc, AAudio, ANativeWindow
-        targetSdk = 35
+        targetSdk = 36
         versionCode = gbsatBuild
         versionName = "$gbsatVersion (build $gbsatBuild)"
 
@@ -32,6 +32,8 @@ android {
                     "-DCMAKE_BUILD_TYPE=Release",
                     "-DYmir_EXTRA_INLINING=ON",
                     "-DYmir_ENABLE_IPO=ON",
+                    // 16 KB memory pages (required by Google Play for native code on Android 15+)
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                 )
             }
         }

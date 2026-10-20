@@ -27,11 +27,11 @@ jobs:
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"
 
       - uses: gradle/actions/setup-gradle@v5
         with:
-          gradle-version: 8.10.2
+          gradle-version: 8.14.3
 
       - name: Install DXC (HLSL to SPIR-V shader compiler)
         env:
@@ -74,7 +74,7 @@ jobs:
           GBSAT_KEYSTORE_PASSWORD: ${{ secrets.GBSAT_KEYSTORE_PASSWORD }}
         run: |
           set +e
-          gradle --no-daemon assembleRelease --stacktrace > build.log 2>&1
+          gradle --no-daemon assembleRelease bundleRelease --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
@@ -90,13 +90,16 @@ jobs:
           NAME="GBSat-v${VER}-build${GITHUB_RUN_NUMBER}"
           cd apps/android/app/build/outputs/apk/release
           mv *.apk "${NAME}.apk"
+          mv ../../bundle/release/*.aab "${NAME}.aab"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "::notice title=APK::${NAME}.apk"
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.ver.outputs.name }}
-          path: apps/android/app/build/outputs/apk/release/*.apk
+          path: |
+            apps/android/app/build/outputs/apk/release/*.apk
+            apps/android/app/build/outputs/apk/release/*.aab
 
       # A release is published once per version: when apps/android/VERSION changes to a version that has no release yet,
       # this build is published as release v<version> with the APK named GBSat-v<version>.apk and the matching
@@ -112,10 +115,11 @@ jobs:
             exit 0
           fi
           cp "apps/android/app/build/outputs/apk/release/${{ steps.ver.outputs.name }}.apk" "GBSat-v${VER}.apk"
+          cp "apps/android/app/build/outputs/apk/release/${{ steps.ver.outputs.name }}.aab" "GBSat-v${VER}.aab"
           awk -v ver="$VER" '
             /^## / { if (found) exit; if (index($0, "## " ver) == 1) { found = 1; next } }
             found { print }
           ' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "GBSat ${VER}" > notes.md
-          gh release create "v${VER}" "GBSat-v${VER}.apk" --target "$GITHUB_SHA" --title "GBSat ${VER}" --notes-file notes.md
+          gh release create "v${VER}" "GBSat-v${VER}.apk" "GBSat-v${VER}.aab" --target "$GITHUB_SHA" --title "GBSat ${VER}" --notes-file notes.md
           echo "::notice title=Release::Published v${VER}"

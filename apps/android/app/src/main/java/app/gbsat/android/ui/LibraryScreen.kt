@@ -308,7 +308,7 @@ private fun Header(recentMode: Boolean, modifier: Modifier, onToggleRecent: () -
                     Text("GBSat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                     Icon(if (menuOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Menu", tint = Gold)
                 }
-                Text(if (recentMode) "Recent · save states" else "Sega Saturn Emulation", style = MaterialTheme.typography.bodySmall,
+                Text(if (recentMode) "Recent · save states" else "Saturn emulator", style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = .7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // Library / Recent switch

@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Google Play readiness: targets Android 16 (API 36), 16 KB memory page support, App Bundle (.aab) built alongside the APK. Header subtitle "Saturn emulator".
+
 ## 1.2.0
 - Monitoring overlay header only when all monitoring overlays are on. Code cleanup.
 - Auto frame skip skips more frames on hi-res/interlaced screens (menus such as Daytona USA's), which cost up to 4x the rendering work.

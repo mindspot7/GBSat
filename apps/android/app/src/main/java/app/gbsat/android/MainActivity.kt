@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
         }
         // Outside games the menus are driven by the controller like a console: A selects, B goes back
         if (!Emulator.running) {
+            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
             val mapped = when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
                 KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK
@@ -150,7 +151,17 @@ class MainActivity : ComponentActivity() {
     private val dpadKeys = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
         KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER)
 
+    /**
+     * B = Back. Sent straight to the back dispatcher (Compose BackHandler): with targetSdk 36 (predictive back) a
+     * synthesized KEYCODE_BACK no longer reaches the back callbacks.
+     */
+    private fun backKey(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBackPressedDispatcher.onBackPressed()
+        return true
+    }
+
     private fun uiKey(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
         val mapped = when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
             KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK
