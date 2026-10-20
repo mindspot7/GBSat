@@ -33,6 +33,7 @@ object Emulator {
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
     var threadedVdp by mutableStateOf(true)
+    var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread
     var preloadDisc by mutableStateOf(false)
     var cartridge by mutableStateOf(2) // 4 MiB RAM expansion (fixed; works with 1 MiB games too)
     var showTouchControls by mutableStateOf(true)
@@ -374,6 +375,7 @@ object Emulator {
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
+        threadedScsp = prefs.getBoolean("threadedScsp", true)
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
@@ -442,6 +444,7 @@ object Emulator {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
+        NativeBridge.nativeSetThreadedScsp(threadedScsp)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
@@ -454,7 +457,7 @@ object Emulator {
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()

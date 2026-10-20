@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Threaded audio (on by default): the SCSP sound chip and its 68000 run on their own thread, so the emulation thread only runs the SH-2s; that thread is also placed on a fast core.
 - Fixed a frozen picture with the Vulkan GPU renderer and automatic frame skip.
 - The screen no longer turns off while a game is open.
 - CPU placement ranks cores by scheduler capacity: the emulation thread gets the fastest core to itself, VDP1 the next big core(s), so chips with close big/LITTLE clocks (Unisoc T618) are handled.

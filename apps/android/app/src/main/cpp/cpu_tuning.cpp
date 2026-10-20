@@ -106,7 +106,7 @@ void PinEmulationThreads() {
     const pid_t self = (pid_t)syscall(SYS_gettid);
     std::vector<int32_t> tids{self};
     if (havePinning) sched_setaffinity(self, sizeof(mainMask), &mainMask);
-    // VDP render threads ("VDP1 render th", "VDP2 render th", "VDP deinterlac")
+    // VDP render threads ("VDP1 render th", "VDP2 render th", "VDP deinterlac") and the sound thread ("SCSP thread")
     if (DIR *d = opendir("/proc/self/task")) {
         while (dirent *e = readdir(d)) {
             if (e->d_name[0] == '.') continue;
@@ -116,7 +116,7 @@ void PinEmulationThreads() {
                 if (!fgets(name, sizeof(name), f)) name[0] = 0;
                 fclose(f);
             }
-            if (strncmp(name, "VDP", 3) == 0) {
+            if (strncmp(name, "VDP", 3) == 0 || strncmp(name, "SCSP", 4) == 0) {
                 const pid_t tid = (pid_t)atoi(e->d_name);
                 if (havePinning) {
                     const cpu_set_t *mask = strncmp(name, "VDP1", 4) == 0 ? &vdp1Mask : &otherMask;

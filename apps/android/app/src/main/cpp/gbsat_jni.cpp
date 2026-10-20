@@ -952,6 +952,12 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
         });
     }
 }
+// SCSP (sound) and its MC68EC000 CPU on their own thread, off the emulation thread that runs the two SH-2s
+JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        Post([on] { g->saturn->configuration.audio.threadedSCSP = on; });
+    }
+}
 // 0 = none, 1 = 1 MiB DRAM cart, 2 = 4 MiB DRAM cart
 JNI_FN(void, nativeSetCartridge)(JNIEnv *, jclass, jint type) {
     if (g) {
