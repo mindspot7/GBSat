@@ -152,7 +152,7 @@ private fun SystemPage(
                 "Your saves were in $old. Import that folder to bring them back.", "Import", onImport, warn = true)
             Divider()
         }
-        ActionRow(Icons.Default.Upload, "Export data", "Copy BIOS, saves, save states, cheats and covers to a folder (backup)", "Export", onExport)
+        ActionRow(Icons.Default.Upload, "Export data", "Copy saves, save states and cheats to a folder (backup)", "Export", onExport)
         Divider()
         ActionRow(Icons.Default.Download, "Import data", "Restore a GBSat backup or an older GBSat data folder", "Import", onImport)
     }
