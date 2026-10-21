@@ -35,6 +35,8 @@ android {
                     // 16 KB memory pages (required by Google Play for native code on Android 15+)
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                 )
+                // PGO training build (-PgbsatPgoGen): instrumented code that records which paths run most
+                if (project.hasProperty("gbsatPgoGen")) arguments += "-DGBSAT_PGO_GEN=ON"
             }
         }
     }

@@ -13,6 +13,19 @@ set(Ymir_ENABLE_DEVLOG OFF CACHE BOOL "" FORCE)
 set(Ymir_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Profile-guided optimization: GBSAT_PGO_GEN=ON builds the instrumented training APK; otherwise the merged profile in
+# apps/android/pgo/gbsat.profdata (if present) optimizes the hot paths (SH-2 interpreter, renderers, sound).
+option(GBSAT_PGO_GEN "Build the PGO training (instrumented) version" OFF)
+set(GBSAT_PGO_PROFILE "${YMIR_ROOT}/apps/android/pgo/gbsat.profdata")
+if(GBSAT_PGO_GEN)
+    add_compile_options(-fprofile-generate)
+    add_link_options(-fprofile-generate)
+    add_compile_definitions(GBSAT_PGO_GEN)
+elseif(EXISTS "${GBSAT_PGO_PROFILE}")
+    message(STATUS "Using PGO profile ${GBSAT_PGO_PROFILE}")
+    add_compile_options("-fprofile-use=${GBSAT_PGO_PROFILE}" -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date)
+endif()
+
 add_subdirectory("${YMIR_ROOT}" ymir-build)
 
 # cereal (header-only) for save state serialization; the serializers are shared with the desktop app.
@@ -34,7 +47,7 @@ target_include_directories(rcheevos PUBLIC "${RCHEEVOS_DIR}/include" "${RCHEEVOS
 target_compile_definitions(rcheevos PUBLIC RC_DISABLE_LUA RC_CLIENT_SUPPORTS_HASH)
 set_target_properties(rcheevos PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp gl_renderer.cpp cpu_tuning.cpp)
+add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp gl_renderer.cpp cpu_tuning.cpp pgo.cpp)
 target_include_directories(gbsat PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_features(gbsat PRIVATE cxx_std_20)
 target_link_libraries(gbsat PRIVATE ymir::ymir-core rcheevos cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)
