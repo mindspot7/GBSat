@@ -503,6 +503,11 @@ object Emulator {
         } else closeGame()
     }
 
+    /** Saves the auto save state without blocking (used when the app goes to the background during a game). */
+    fun autoSaveInBackground() {
+        if (autoSave && running && currentGame != null) scope.launch { saveState(AUTO_SLOT) }
+    }
+
     /** Saves the auto save state synchronously (used when quitting the app from a game). */
     fun autoSaveBlocking() {
         if (autoSave && running && currentGame != null) kotlinx.coroutines.runBlocking { saveState(AUTO_SLOT) }

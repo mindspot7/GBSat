@@ -32,6 +32,13 @@ class MainActivity : ComponentActivity() {
         if (Emulator.running) Emulator.pause(true)
     }
 
+    // Leaving the app (Home, recents, another app) while in a game: write the auto save now, since Android may close
+    // GBSat in the background and the in-game Exit (which also saves it) never runs
+    override fun onStop() {
+        super.onStop()
+        if (Emulator.running) Emulator.autoSaveInBackground()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) setImmersiveMode(true) // hide the system bars again after dialogs, pickers or app switches
