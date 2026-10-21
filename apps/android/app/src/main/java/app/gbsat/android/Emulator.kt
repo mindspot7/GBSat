@@ -483,7 +483,8 @@ object Emulator {
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()
-            if (useAutoLoad && autoLoad && stateFile(AUTO_SLOT)?.exists() == true) loadState(AUTO_SLOT)?.let { showToast(it) }
+            // Auto load: continue from the game's most recent save state (auto, quick or a numbered slot)
+            if (useAutoLoad && autoLoad) latestState(path)?.let { st -> loadState(st.slot)?.let { showToast(it) } }
             pause(false)
             widescreenHack?.let { showToast("Widescreen hack enabled: $it") }
             NativeBridge.nativeTakeCartNotice()?.let { showToast(it) }

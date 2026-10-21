@@ -166,7 +166,7 @@ private fun SystemPage(
     SettingsGroup("Save states", Icons.Default.Save) {
         ToggleRow(Icons.Default.Save, "Auto save", "Save the game's state when you close it", Emulator.autoSave, ch { Emulator.autoSave = it })
         SettingsDivider()
-        ToggleRow(Icons.Default.Restore, "Auto load", "Continue from the auto save when you start the game", Emulator.autoLoad, ch { Emulator.autoLoad = it })
+        ToggleRow(Icons.Default.Restore, "Auto load", "Continue from the game's latest save state (auto, quick or slot) when you start it", Emulator.autoLoad, ch { Emulator.autoLoad = it })
     }
     SettingsGroup("Startup", Icons.Default.RocketLaunch) {
         ToggleRow(Icons.Default.FastForward, "Fast boot", "Skip the BIOS clock and language screens", Emulator.fastBoot, ch { Emulator.fastBoot = it })

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Auto load continues from the game's latest save state, whichever slot it is in (auto, quick or a numbered slot), so it also works with Auto save off.
 - Auto save is also written when you leave GBSat during a game (Home, recent apps), so Auto load works even if Android closes the app in the background.
 - Software renderer: the VDP2 render thread (backgrounds) now runs on a fast core next to the sound thread instead of the slower cores (heavy and hi-res games such as Virtua Fighter 2 and Burning Rangers).
 - Fast forward no longer slows down heavy games: it shows about 20 frames per second (at most 1 of every 3 frames) and spends the rest emulating.
