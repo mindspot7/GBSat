@@ -1,7 +1,8 @@
 # Changelog
 
 ## Unreleased
-- Fast forward no longer slows down games that already run below full speed (it always skips at least every other frame).
+- Fast forward no longer slows down heavy games: it shows about 20 frames per second (at most 1 of every 3 frames) and spends the rest emulating.
+- Automatic frame skip is gentler: it only skips when the game is clearly below full speed, and never more than 1 frame in a row (2 on hi-res screens).
 - Performance log for tests: Android/media/app.gbsat.android/perf-log.csv (tools/perf-log.bat) records fps with the renderer, frame skip and fast forward settings.
 
 ## 1.3.2

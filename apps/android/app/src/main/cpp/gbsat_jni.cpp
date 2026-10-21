@@ -603,9 +603,17 @@ void EmuLoop() {
                 // spend the time emulating instead of drawing frames nobody can see
                 // (at most ~30 per second, and at least every other frame is skipped even when the game can't reach
                 // full speed: rendering every frame made fast forward slower than normal play with frame skip)
-                skip = (t - g->lastRendered < milliseconds(33) || g->skipRun < 1) && g->skipRun < 8;
+                // Fast forward: show ~20 frames per second and never more than 1 of every 3 frames, so heavy (and hi-res)
+                // games spend the time emulating
+                skip = (t - g->lastRendered < milliseconds(50) || g->skipRun < 2) && g->skipRun < 12;
             } else {
-                skip = g->frameSkip.load() && g->behind && g->skipRun < (hires ? 4 : 2) && t >= g->skipBlockedUntil;
+                // Only skip when clearly behind (below ~92% speed over the last second): skipping 2 of 3 frames to
+                // recover a few percent made the picture much choppier than running slightly slow. At most 1 frame in a
+                // row (2 on hi-res screens), so at least half of the emulated frames are shown.
+                const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
+                const bool clearlyBehind = g->fps.load(std::memory_order_relaxed) < target * 0.92f;
+                skip = g->frameSkip.load() && g->behind && clearlyBehind && g->skipRun < (hires ? 2 : 1) &&
+                       t >= g->skipBlockedUntil;
                 // Back-off: over 2 s, if the game was behind on almost every frame even with skipping, skipping is
                 // not catching up (the CPU emulation is the bottleneck): stop skipping for 10 s
                 ++g->skipWinFrames;
