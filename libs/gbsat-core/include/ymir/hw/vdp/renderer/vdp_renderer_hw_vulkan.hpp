@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 /**
 @file
 @brief VDP1 and VDP2 renderer implementation using Vulkan compute shaders.
@@ -120,6 +122,8 @@ public:
     /// @brief VDP2 layer render batches of the last frame and what triggered them (diagnostics).
     struct FrameStats {
         uint32 batches = 0, vram = 0, cram = 0, layer = 0, compose = 0;
+        // Changed layer parameters: NBG0-3 x (base, scroll, pages, line/cell scroll), RBGs, windows, line/back/SFC
+        std::array<uint32, 19> changed{};
     };
     FrameStats LastFrameStats() const;
 

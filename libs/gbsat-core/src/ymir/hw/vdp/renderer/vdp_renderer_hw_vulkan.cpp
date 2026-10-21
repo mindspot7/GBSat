@@ -3602,6 +3602,31 @@ struct VulkanVDPRenderer::Impl {
         }
     }
 
+    /// @brief Diagnostics: counts which parts of the layer parameters changed between scanlines.
+    void VDP2CountChangedParams(const VDP2LayerRenderParams &a, const VDP2LayerRenderParams &b) {
+        auto ne = [](const auto &x, const auto &y) { return std::memcmp(&x, &y, sizeof(x)) != 0; };
+        auto &c = stats.changed;
+        for (int i = 0; i < 4; ++i) {
+            const NBGParams &x = a.nbg[i], &y = b.nbg[i];
+            if (ne(x.base, y.base)) ++c[i * 4 + 0];
+            if (ne(x.scrollAmount, y.scrollAmount) || ne(x.scrollInc, y.scrollInc)) ++c[i * 4 + 1];
+            if (ne(x.pageBaseAddresses, y.pageBaseAddresses)) ++c[i * 4 + 2];
+            if (x.lineScrollTableAddress != y.lineScrollTableAddress || x.vcellScrollOffset != y.vcellScrollOffset ||
+                x.vcellScrollDelay != y.vcellScrollDelay || x.vcellScrollRepeat != y.vcellScrollRepeat ||
+                x.scrollYIncBase != y.scrollYIncBase || x.lineScrollInterval != y.lineScrollInterval ||
+                x.vcellScrollEnable != y.vcellScrollEnable || x.lineScrollXEnable != y.lineScrollXEnable ||
+                x.lineScrollYEnable != y.lineScrollYEnable || x.lineZoomEnable != y.lineZoomEnable) {
+                ++c[i * 4 + 3];
+            }
+        }
+        if (ne(a.rbg, b.rbg)) ++c[16];
+        if (ne(a.windows, b.windows) || ne(a.rotWindows, b.rotWindows)) ++c[17];
+        if (ne(a.lineScreenParams, b.lineScreenParams) || ne(a.backScreenParams, b.backScreenParams) ||
+            a.specialFunctionCodes != b.specialFunctionCodes) {
+            ++c[18];
+        }
+    }
+
     /// @brief Computing the layer parameters without uploading them (see VDP2RenderLine).
     bool layerParamsDryRun = false;
 
@@ -3636,6 +3661,7 @@ struct VulkanVDPRenderer::Impl {
                 if (std::memcmp(&prev, &vdp2.cpuLayerRenderParams, sizeof(prev)) == 0) {
                     layerRenderParamsDirty = false; // unchanged: the generation is now in sync
                 } else {
+                    VDP2CountChangedParams(prev, vdp2.cpuLayerRenderParams);
                     vdp2.cpuLayerRenderParams = prev; // changed: render the previous lines first, then upload
                     frameCtx.layerRenderParamsGeneration = prevGen;
                     vdp2.resetNBGScrollY = prevResetNBGScrollY;

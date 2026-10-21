@@ -337,12 +337,26 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     // Diagnostics: Vulkan VDP2 render batches per frame, logged every 2 s (adb logcat -s GBSat)
     if (auto *vk = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         static uint32_t frames = 0, batches = 0, vram = 0, cram = 0, layer = 0, compose = 0;
+        static std::array<uint32_t, 19> changed{};
         const auto st = vk->LastFrameStats();
         ++frames; batches += st.batches; vram += st.vram; cram += st.cram; layer += st.layer; compose += st.compose;
+        for (size_t i = 0; i < changed.size(); ++i) changed[i] += st.changed[i];
         if (frames == 120) {
             LOGI("Vulkan VDP2 batches/frame: %.1f (VRAM %.1f, CRAM %.1f, layer params %.1f, compose params %.1f)",
                  batches / 120.0, vram / 120.0, cram / 120.0, layer / 120.0, compose / 120.0);
+            static const char *kNames[19] = {"N0base", "N0scroll", "N0pages", "N0line", "N1base", "N1scroll",
+                "N1pages", "N1line", "N2base", "N2scroll", "N2pages", "N2line", "N3base", "N3scroll", "N3pages",
+                "N3line", "RBG", "windows", "lnclBackSfc"};
+            std::string list;
+            for (size_t i = 0; i < changed.size(); ++i) {
+                if (!changed[i]) continue;
+                char item[32];
+                snprintf(item, sizeof(item), " %s=%.1f", kNames[i], changed[i] / 120.0);
+                list += item;
+            }
+            LOGI("Vulkan VDP2 changed params/frame:%s", list.empty() ? " none" : list.c_str());
             frames = batches = vram = cram = layer = compose = 0;
+            changed = {};
         }
     }
     {
