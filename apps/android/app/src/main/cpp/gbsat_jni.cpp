@@ -154,10 +154,6 @@ struct Context {
     std::atomic<bool> frameSkip{false}; // automatic frame skip: skip rendering only while running below full speed
     bool behind = false;                // last frame finished late (emulation thread only)
     int skipRun = 0;                    // consecutive skipped frames
-    // Automatic frame skip back-off: when the game stays behind even while skipping (CPU-bound), skipping only makes the
-    // picture choppy, so it's suspended for a while (emulation thread only)
-    int skipWinFrames = 0, skipWinSkipped = 0, skipWinBehind = 0;
-    std::chrono::steady_clock::time_point skipBlockedUntil{};
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -612,19 +608,7 @@ void EmuLoop() {
                 // row (2 on hi-res screens), so at least half of the emulated frames are shown.
                 const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
                 const bool clearlyBehind = g->fps.load(std::memory_order_relaxed) < target * 0.92f;
-                skip = g->frameSkip.load() && g->behind && clearlyBehind && g->skipRun < (hires ? 2 : 1) &&
-                       t >= g->skipBlockedUntil;
-                // Back-off: over 2 s, if the game was behind on almost every frame even with skipping, skipping is
-                // not catching up (the CPU emulation is the bottleneck): stop skipping for 10 s
-                ++g->skipWinFrames;
-                g->skipWinSkipped += skip ? 1 : 0;
-                g->skipWinBehind += g->behind ? 1 : 0;
-                if (g->skipWinFrames >= 120) {
-                    if (g->skipWinSkipped >= 20 && g->skipWinBehind * 10 >= g->skipWinFrames * 9) {
-                        g->skipBlockedUntil = t + seconds(10);
-                    }
-                    g->skipWinFrames = g->skipWinSkipped = g->skipWinBehind = 0;
-                }
+                skip = g->frameSkip.load() && g->behind && clearlyBehind && g->skipRun < (hires ? 2 : 1);
             }
             if (!skip) {
                 g->lastRendered = t;

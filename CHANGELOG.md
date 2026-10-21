@@ -1,8 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Software renderer: the VDP2 render thread (backgrounds) now runs on a fast core next to the sound thread instead of the slower cores (heavy and hi-res games such as Virtua Fighter 2 and Burning Rangers).
 - Fast forward no longer slows down heavy games: it shows about 20 frames per second (at most 1 of every 3 frames) and spends the rest emulating.
-- Automatic frame skip is gentler: it only skips when the game is clearly below full speed, and never more than 1 frame in a row (2 on hi-res screens).
+- Automatic frame skip is gentler: it only skips when the game is clearly below full speed, and never more than 1 frame in a row (2 on hi-res screens); the automatic pause added in 1.3.2 is removed.
 - Performance log for tests: Android/media/app.gbsat.android/perf-log.csv (tools/perf-log.bat) records fps with the renderer, frame skip and fast forward settings.
 
 ## 1.3.2

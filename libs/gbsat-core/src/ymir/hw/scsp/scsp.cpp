@@ -1492,7 +1492,7 @@ void SCSP::WakeSCSPThread() {
 void SCSP::WaitForSCSPWork(uint32 seq) {
     // Spin briefly to avoid the expensive wait if possible. A CPU pause instead of yielding to the scheduler: a
     // syscall per iteration kept the core busy in the kernel for milliseconds while there was no work.
-    static constexpr int kSpinCount = 2000;
+    static constexpr int kSpinCount = 300; // short: the VDP2 render thread may share this core
     for (int i = 0; i < kSpinCount; ++i) {
         if (m_wakeSeq.load(std::memory_order_acquire) != seq) {
             return;
