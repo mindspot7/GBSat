@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Frame skip on interlaced hi-res screens skips both fields together, so moving objects no longer leave a trail (e.g. Virtua Fighter 2).
 - Software renderer: faster background drawing (each 8-dot character cell is looked up once instead of for every dot), with identical output.
 - The library reopens in the layout you used last (all games or recent save states).
 - Auto load continues from the game's latest save state, whichever slot it is in (auto, quick or a numbered slot), so it also works with Auto save off.
