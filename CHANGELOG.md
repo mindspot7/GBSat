@@ -1,19 +1,15 @@
 # Changelog
 
 ## Unreleased
+
+## 1.3.2
+- Faster emulation: native code optimized with a profile recorded while playing (PGO); lower CPU use and less heat on every renderer.
+- Performance: the sound thread no longer wastes CPU while waiting, and the video render threads are placed on the right cores.
+- Vulkan renderer: much faster in games with per-scanline background effects (e.g. DonPachi: from 30 to 60 fps on Mali GPUs), and faster frame delivery on Mali GPUs.
 - Fast forward renders about 60 frames per second and skips the rest, so heavy games actually run faster.
 - Automatic frame skip pauses itself when skipping does not help the game catch up (smoother picture in very heavy scenes).
 - Games that do not need a RAM cartridge now get a 4 MiB save (backup memory) cartridge, stored with the saves (e.g. Dragon Force no longer reports a missing save cartridge).
-- Vulkan renderer: finished frames are read back from cached GPU memory in a single pass (faster frame delivery on Mali GPUs).
-- Vulkan renderer: games that change the scroll of the NBG2/NBG3 backgrounds every scanline (e.g. DonPachi) render each frame in one GPU batch instead of one per line.
-- Vulkan renderer: games that rewrite video registers every scanline with unchanged values (e.g. DonPachi) no longer split each frame into hundreds of GPU batches.
-- Faster emulation: native code is now optimized with a profile recorded while playing (PGO). Training: "PGO training build" workflow and tools/pgo-pull.bat.
-- Performance: the sound thread no longer burns CPU in the kernel while waiting, and the video render threads get their names (so they are placed on the right cores).
-- Profiling support: GBSat can be sampled by the on-device profiler (profileable); "Profiling build" workflow and tools/profile.bat.
-- Play time, save data export/import, the Resume view and the controller diagram also come from the shared UI kit.
-- Setup wizard, box art and RetroAchievements now come from the shared UI kit.
-- The interface building blocks (theme, settings rows, dialogs, menu icons, monitoring overlay) now come from the shared UI kit (github.com/mindspot7/UI_GB, git submodule libs/ui_gb).
-- Edge-to-edge: removed the deprecated status/navigation bar color and cutout settings (Android 15+).
+- The interface now comes from the shared UI kit (github.com/mindspot7/UI_GB); edge-to-edge display without the deprecated bar color settings (Android 15+).
 
 ## 1.3.1
 - In-game menu: Exit goes straight back to the library (Quit GBSat removed); the game picture no longer takes the controller's key focus, so the menu works with a controller. Exit dialog in the app colors.
