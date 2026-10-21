@@ -154,6 +154,8 @@ struct Context {
     std::atomic<bool> frameSkip{false}; // automatic frame skip: skip rendering only while running below full speed
     bool behind = false;                // last frame finished late (emulation thread only)
     int skipRun = 0;                    // consecutive skipped frames
+    bool skipActive = false; // automatic frame skip engaged (emulation thread only)
+    int notBehindRun = 0;    // consecutive frames on time
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -607,8 +609,17 @@ void EmuLoop() {
                 // recover a few percent made the picture much choppier than running slightly slow. At most 1 frame in a
                 // row (2 on hi-res screens), so at least half of the emulated frames are shown.
                 const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
-                const bool clearlyBehind = g->fps.load(std::memory_order_relaxed) < target * 0.92f;
-                skip = g->frameSkip.load() && g->behind && clearlyBehind && g->skipRun < (hires ? 2 : 1);
+                // Hysteresis: skipping starts when clearly behind and stays on until the game keeps up without help
+                // (not behind for a whole second); deciding from the last second's fps alone made it switch on and
+                // off every second (60 fps while skipping -> stop -> 33 fps -> skip again).
+                if (g->fps.load(std::memory_order_relaxed) < target * 0.92f && g->behind) {
+                    g->skipActive = true;
+                }
+                g->notBehindRun = g->behind ? 0 : g->notBehindRun + 1;
+                if (g->notBehindRun >= 60) {
+                    g->skipActive = false;
+                }
+                skip = g->frameSkip.load() && g->skipActive && g->behind && g->skipRun < (hires ? 2 : 1);
             }
             if (!skip) {
                 g->lastRendered = t;
