@@ -3256,6 +3256,10 @@ struct VulkanVDPRenderer::Impl {
 
     // ---- end copy ----
 
+        if (layerParamsDryRun) {
+            return {}; // only computing the parameters (VDP2RenderLine)
+        }
+
         // Update buffer
         return UploadToBuffer(frames.GetCurrentFrame().layerRenderParamsBuffer, 0, &vdp2.cpuLayerRenderParams,
                               sizeof(vdp2.cpuLayerRenderParams));
@@ -3598,7 +3602,9 @@ struct VulkanVDPRenderer::Impl {
         }
     }
 
-// ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4445-4473 ----
+    /// @brief Computing the layer parameters without uploading them (see VDP2RenderLine).
+    bool layerParamsDryRun = false;
+
     void VDP2RenderLine(uint32 y) {
         VDP2CalcAccessPatterns();
         VDP2CalcVCellScrollDelay();
@@ -3611,11 +3617,31 @@ struct VulkanVDPRenderer::Impl {
         // render lines up to Y-1 then sync the state, unless Y=0, in which case we just sync the state.
 
         if (y > 0) {
-            const FrameContext &frameCtx = frames.GetCurrentFrame();
+            FrameContext &frameCtx = frames.GetCurrentFrame();
             const bool cramDirty = vdp2.cramGeneration != frameCtx.cramGeneration;
-            const bool layerRenderParamsDirty =
-                vdp2.layerRenderParamsGeneration != frameCtx.layerRenderParamsGeneration;
+            bool layerRenderParamsDirty = vdp2.layerRenderParamsGeneration != frameCtx.layerRenderParamsGeneration;
             const bool composeParamsDirty = vdp2.composeParamsGeneration != frameCtx.composeParamsGeneration;
+
+            // Games that rewrite VDP2 registers every scanline with the same values (e.g. from an HBlank interrupt)
+            // marked the layer parameters dirty on every line, so every line became its own GPU batch (hundreds of
+            // tiny dispatches per frame, too slow for mobile GPUs). Compute the new parameters and only split the
+            // batch if they actually changed.
+            if (layerRenderParamsDirty) {
+                const VDP2LayerRenderParams prev = vdp2.cpuLayerRenderParams;
+                const uint32 prevGen = frameCtx.layerRenderParamsGeneration;
+                const auto prevResetNBGScrollY = vdp2.resetNBGScrollY;
+                layerParamsDryRun = true;
+                (void)VDP2UpdateLayerRenderParams(y);
+                layerParamsDryRun = false;
+                if (std::memcmp(&prev, &vdp2.cpuLayerRenderParams, sizeof(prev)) == 0) {
+                    layerRenderParamsDirty = false; // unchanged: the generation is now in sync
+                } else {
+                    vdp2.cpuLayerRenderParams = prev; // changed: render the previous lines first, then upload
+                    frameCtx.layerRenderParamsGeneration = prevGen;
+                    vdp2.resetNBGScrollY = prevResetNBGScrollY;
+                }
+            }
+
             const bool renderLayers = vdp2.vramDirty || cramDirty || layerRenderParamsDirty || composeParamsDirty;
             const bool compose = composeParamsDirty;
             if (renderLayers) {
@@ -3628,7 +3654,6 @@ struct VulkanVDPRenderer::Impl {
 
         VDP2UpdateState(y);
     }
-    // ---- end copy ----
 
     VulkanVDPRenderer::FrameStats stats{};
     VulkanVDPRenderer::FrameStats lastStats{};
