@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Software renderer: faster background drawing (each 8-dot character cell is looked up once instead of for every dot), with identical output.
 - The library reopens in the layout you used last (all games or recent save states).
 - Auto load continues from the game's latest save state, whichever slot it is in (auto, quick or a numbered slot), so it also works with Auto save off.
 - Auto save is also written when you leave GBSat during a game (Home, recent apps), so Auto load works even if Android closes the app in the background.

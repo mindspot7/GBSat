@@ -34,6 +34,10 @@
 
 namespace ymir::vdp {
 
+/// @brief Enables the software renderer's scroll background fast path (tests compare it against the per-dot path).
+inline bool g_swScrollFastPath = true;
+
+
 /// @brief Invoked when the software VDP2 renderer finishes rendering a frame.
 /// Framebuffer data is in little-endian XRGB8888 format.
 ///

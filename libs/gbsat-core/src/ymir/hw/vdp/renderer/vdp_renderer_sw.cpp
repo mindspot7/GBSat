@@ -4475,6 +4475,17 @@ NO_INLINE void SoftwareVDPRenderer::VDP2DrawNormalScrollBG(const VDP2Regs &regs2
         vcellScrollY = readCellScrollY(true);
     }
 
+    // Fast path: without mosaic, vertical cell scroll, horizontal zoom or delayed character pattern accesses, every dot
+    // of the same 8-dot character cell shares the plane/page/character lookup done for the first one (which would be a
+    // character cache hit anyway), so the following dots only fetch their pixel. Produces identical output (checked
+    // against the per-dot path by apps/vk-test/sw_fastpath_test).
+    const bool fastPath = g_swScrollFastPath && !bgParams.mosaicEnable && !vcellScrollEnable &&
+                          bgState.scrollIncH == 0x100 && !bgParams.charPatDelay[0] && !bgParams.charPatDelay[1] &&
+                          !bgParams.charPatDelay[2] && !bgParams.charPatDelay[3];
+    bool cellValid = false;
+    uint32 cellKey = 0;
+    uint32 cellIndex = 0;
+
     for (uint32 x = 0; x < m_HRes; x++) {
         // Apply horizontal mosaic or vertical cell-scrolling
         // Mosaic takes priority
@@ -4510,11 +4521,29 @@ NO_INLINE void SoftwareVDPRenderer::VDP2DrawNormalScrollBG(const VDP2Regs &regs2
             const uint32 scrollY = (fracScrollY + vcellScrollY) >> 8u;
             const CoordU32 scrollCoord{scrollX, scrollY};
 
-            // Plot pixel
-            const Pixel pixel = VDP2FetchScrollBGPixel<false, charMode, fourCellChar, colorFormat, colorMode>(
-                bgParams, regs2, bgParams.pageBaseAddresses, bgParams.pageShiftH, bgParams.pageShiftV, scrollCoord,
-                vramFetcher);
-            layerOut.pixels.SetPixel(x, pixel);
+            if (fastPath && cellValid && (scrollX >> 3u) == cellKey) {
+                const CoordU32 dotCoord{scrollX & 7u, scrollY & 7u};
+                const Pixel pixel =
+                    VDP2FetchCharacterPixel<colorFormat, colorMode>(bgParams, regs2, vramFetcher, dotCoord, cellIndex);
+                layerOut.pixels.SetPixel(x, pixel);
+            } else {
+                // Plot pixel
+                const Pixel pixel = VDP2FetchScrollBGPixel<false, charMode, fourCellChar, colorFormat, colorMode>(
+                    bgParams, regs2, bgParams.pageBaseAddresses, bgParams.pageShiftH, bgParams.pageShiftV, scrollCoord,
+                    vramFetcher);
+                layerOut.pixels.SetPixel(x, pixel);
+                if (fastPath) {
+                    // Same cell index computation as VDP2FetchScrollBGPixel (the VRAM data offset can flip cell X)
+                    const uint32 planeX = (scrollX >> (9u + bgParams.pageShiftH)) & 1u;
+                    const uint32 planeY = (scrollY >> (9u + bgParams.pageShiftV)) & 1u;
+                    const uint32 bank = (bgParams.pageBaseAddresses[planeX + (planeY << 1u)] >> 17u) & 3u;
+                    const uint32 adjX = scrollX + bgParams.vramDataOffset[bank];
+                    constexpr uint32 fourCell = fourCellChar ? 1u : 0u;
+                    cellIndex = (bit::extract<3>(adjX) & fourCell) + ((bit::extract<3>(scrollY) & fourCell) << 1u);
+                    cellKey = scrollX >> 3u;
+                    cellValid = true;
+                }
+            }
         }
 
         // Increment horizontal coordinate
