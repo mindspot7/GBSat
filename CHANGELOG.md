@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fast forward renders about 60 frames per second and skips the rest, so heavy games actually run faster.
+- Automatic frame skip pauses itself when skipping does not help the game catch up (smoother picture in very heavy scenes).
+- Games that do not need a RAM cartridge now get a 4 MiB save (backup memory) cartridge, stored with the saves (e.g. Dragon Force no longer reports a missing save cartridge).
 - Vulkan renderer: finished frames are read back from cached GPU memory in a single pass (faster frame delivery on Mali GPUs).
 - Vulkan renderer: games that change the scroll of the NBG2/NBG3 backgrounds every scanline (e.g. DonPachi) render each frame in one GPU batch instead of one per line.
 - Vulkan renderer: games that rewrite video registers every scanline with unchanged values (e.g. DonPachi) no longer split each frame into hundreds of GPU batches.

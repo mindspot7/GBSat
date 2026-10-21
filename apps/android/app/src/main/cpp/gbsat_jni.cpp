@@ -123,7 +123,7 @@ struct Context {
     std::vector<uint32_t> lastFrame;
     uint32_t lastFrameW = 0, lastFrameH = 0;
     std::string dataDir;      // GBSat data folder (carts/ holds the ROM cartridge dumps)
-    int cartType = -1;        // cartridge in the slot: 0 none, 1 = 1 MiB, 2 = 4 MiB, 3 = 6 MiB, 10 = ROM
+    int cartType = -1;        // cartridge in the slot: 0 none, 1/2/3 = 1/4/6 MiB RAM, 4 = backup memory, 10 = ROM
     std::string cartNotice;   // message about the cartridge picked for the last loaded disc (read once by the app)
     std::string discHeader; // first 256 bytes of the disc's system area (IP.BIN header), printable ASCII
 
@@ -154,6 +154,11 @@ struct Context {
     std::atomic<bool> frameSkip{false}; // automatic frame skip: skip rendering only while running below full speed
     bool behind = false;                // last frame finished late (emulation thread only)
     int skipRun = 0;                    // consecutive skipped frames
+    // Automatic frame skip back-off: when the game stays behind even while skipping (CPU-bound), skipping only makes the
+    // picture choppy, so it's suspended for a while (emulation thread only)
+    int skipWinFrames = 0, skipWinSkipped = 0, skipWinBehind = 0;
+    std::chrono::steady_clock::time_point skipBlockedUntil{};
+    std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
     uint32_t resScale = 1; // Vulkan GPU renderer internal resolution scale (1..4)
@@ -333,22 +338,6 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     if (g->skipPresent.load(std::memory_order_relaxed) &&
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
-    }
-    // Diagnostics: Vulkan renderer statistics, logged every 2 s (adb logcat -s GBSat)
-    if (auto *vk = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
-        using clk = std::chrono::steady_clock;
-        static clk::time_point t0 = clk::now();
-        static uint32_t frames = 0, batches = 0, syncs = 0, waitUs = 0, cmds = 0;
-        const auto st = vk->LastFrameStats();
-        ++frames; batches += st.batches; syncs += st.syncs; waitUs += st.waitUs; cmds += st.vdp1Cmds;
-        const double secs = std::chrono::duration<double>(clk::now() - t0).count();
-        if (secs >= 2.0) {
-            LOGI("Vulkan: %.1f fps, per frame: %.1f VDP2 batches, %.1f GPU syncs, %.2f ms waiting for GPU, %.0f VDP1 cmds",
-                 frames / secs, batches / (double)frames, syncs / (double)frames, waitUs / 1000.0 / frames,
-                 cmds / (double)frames);
-            frames = batches = syncs = waitUs = cmds = 0;
-            t0 = clk::now();
-        }
     }
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
@@ -566,7 +555,29 @@ void EmuLoop() {
             // Hi-res/interlaced screens (704x480, used by many menus and title screens) cost up to 4x the rendering
             // work: there up to 4 frames in a row may be skipped, since such screens are mostly static
             const bool hires = g->videoW.load(std::memory_order_relaxed) >= 560 || g->videoH.load(std::memory_order_relaxed) >= 400;
-            const bool skip = g->frameSkip.load() && g->behind && g->skipRun < (hires ? 4 : 2);
+            const auto t = steady_clock::now();
+            bool skip;
+            if (g->fastForward.load()) {
+                // Fast forward: render about 60 frames per second of real time and skip the rest, so heavy games
+                // spend the time emulating instead of drawing frames nobody can see
+                skip = t - g->lastRendered < milliseconds(15) && g->skipRun < 8;
+            } else {
+                skip = g->frameSkip.load() && g->behind && g->skipRun < (hires ? 4 : 2) && t >= g->skipBlockedUntil;
+                // Back-off: over 2 s, if the game was behind on almost every frame even with skipping, skipping is
+                // not catching up (the CPU emulation is the bottleneck): stop skipping for 10 s
+                ++g->skipWinFrames;
+                g->skipWinSkipped += skip ? 1 : 0;
+                g->skipWinBehind += g->behind ? 1 : 0;
+                if (g->skipWinFrames >= 120) {
+                    if (g->skipWinSkipped >= 20 && g->skipWinBehind * 10 >= g->skipWinFrames * 9) {
+                        g->skipBlockedUntil = t + seconds(10);
+                    }
+                    g->skipWinFrames = g->skipWinSkipped = g->skipWinBehind = 0;
+                }
+            }
+            if (!skip) {
+                g->lastRendered = t;
+            }
             g->skipRun = skip ? g->skipRun + 1 : 0;
             g->saturn->VDP.SetSkipFrameRender(skip);
             g->skipPresent = skip;
@@ -842,8 +853,9 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             g->discHeader = hdr;
         }
     }
-    // Cartridge from the game database (adapted from Mednafen): 1 MiB RAM for the games that need it (some don't work
-    // with 4 MiB), the KOF95/Ultraman ROM carts when their dumps are in <data>/carts/, otherwise the 4 MiB RAM cart.
+    // Cartridge from the game database (adapted from Mednafen): the RAM cartridge for the games that need one (1, 4 or
+    // 6 MiB), the KOF95/Ultraman ROM carts when their dumps are in <data>/carts/, otherwise a 4 MiB backup memory
+    // cartridge (saves/cartridge_backup.bin) for games that save to (or ask for) a save cartridge.
     std::string productCode;
     {
         std::lock_guard lk(g->winMutex);
@@ -856,9 +868,11 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
         using ymir::db::Cartridge;
         const auto *info = ymir::db::GetGameInfo(productCode, ymir::XXH128Hash{});
         const Cartridge need = info ? info->GetCartridge() : Cartridge::None;
-        int want = 2;
+        int want = 4;
         std::string notice;
-        if (need == Cartridge::DRAM8Mbit) {
+        if (need == Cartridge::DRAM32Mbit) {
+            want = 2;
+        } else if (need == Cartridge::DRAM8Mbit) {
             want = 1;
             notice = "1 MiB RAM cartridge inserted for this game";
         } else if (need == Cartridge::DRAM48Mbit) {
@@ -878,10 +892,30 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
                          " ROM cartridge: add its dump in Settings → System → Cartridge ROMs";
             }
         }
-        if (want != g->cartType && want != 10) {
+        // Always reinserted: loading a save state may have swapped the cartridge
+        if (want != 10) {
             switch (want) {
             case 1: g->saturn->InsertCartridge<ymir::cart::DRAM8MbitCartridge>(); break;
             case 3: g->saturn->InsertCartridge<ymir::cart::DRAM48MbitCartridge>(); break;
+            case 4: {
+                const auto path = std::filesystem::path(g->dataDir) / "saves" / "cartridge_backup.bin";
+                ymir::bup::BackupMemory bm;
+                std::error_code ec;
+                bool ok = false;
+                if (std::filesystem::exists(path)) {
+                    ok = bm.LoadFrom(path, false, ec) == ymir::bup::BackupMemoryImageLoadResult::Success && !ec;
+                } else {
+                    bm.CreateFrom(path, false, ec, ymir::bup::BackupMemorySize::_32Mbit);
+                    ok = !ec;
+                }
+                if (ok) {
+                    g->saturn->InsertCartridge<ymir::cart::BackupMemoryCartridge>(std::move(bm));
+                } else {
+                    LOGE("Backup memory cartridge unavailable (%s), using the 4 MiB RAM cartridge", ec.message().c_str());
+                    g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>();
+                }
+                break;
+            }
             default: g->saturn->InsertCartridge<ymir::cart::DRAM32MbitCartridge>(); break;
             }
             g->cartType = want;
