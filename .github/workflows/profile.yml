@@ -36,12 +36,20 @@ jobs:
         run: |
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/gbsat-release.jks"
           echo "GBSAT_KEYSTORE_FILE=$RUNNER_TEMP/gbsat-release.jks" >> "$GITHUB_ENV"
+      - name: Version code
+        # Same build number as the latest normal APK, so this installs over it (Android refuses lower version codes)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          N=$(gh api "repos/${{ github.repository }}/actions/workflows/android.yml/runs?branch=android-port&per_page=1" -q '.workflow_runs[0].run_number')
+          echo "BUILD_NUMBER=${N:-$GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
       - name: Build
         working-directory: apps/android
         env:
           GBSAT_KEYSTORE_PASSWORD: ${{ secrets.GBSAT_KEYSTORE_PASSWORD }}
         run: |
           set +e
+          export GITHUB_RUN_NUMBER=$BUILD_NUMBER
           gradle --no-daemon assembleRelease -PgbsatProfile --stacktrace > build.log 2>&1; rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log; grep -E "What went wrong" -A4 build.log) | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
@@ -51,7 +59,7 @@ jobs:
       - name: Name APK
         run: |
           VER=$(tr -d '[:space:]' < apps/android/VERSION)
-          cd apps/android/app/build/outputs/apk/release && mv *.apk "GBSat-v${VER}-profile${GITHUB_RUN_NUMBER}.apk"
+          cd apps/android/app/build/outputs/apk/release && mv *.apk "GBSat-v${VER}-profile${BUILD_NUMBER}.apk"
       - uses: actions/upload-artifact@v6
         with:
           name: GBSat-profile
