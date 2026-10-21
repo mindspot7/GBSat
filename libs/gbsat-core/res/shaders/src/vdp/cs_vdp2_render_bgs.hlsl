@@ -22,6 +22,11 @@ Buffer<uint4> g_cramColor : register(t3);
 ByteAddressBuffer g_cramRotCoeff : register(t4);
 StructuredBuffer<RotParamBase> g_rotParamBases : register(t5);
 Texture2DArray<uint> g_spriteAttrsIn : register(t6);
+#ifdef __spirv__
+// Per-scanline scroll of NBG2/NBG3 (two uint4 per line: [NBG2 scroll XY, NBG3 scroll XY], [NBG2/NBG3 Y increment base]).
+// Used when scrollYIncBase has bit 31 set, so games that change these registers every line render in one batch.
+StructuredBuffer<uint4> g_nbgLineScroll : register(t7);
+#endif
 
 VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_layerOut : register(u1);
 VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_rbgLineColorOut : register(u2);
@@ -886,7 +891,7 @@ uint4 FetchScrollRBGPixel(const BaseBGParams params, uint2 scrollPos, uint2 page
 uint4 DrawNBG(uint2 pos, // pixel coordinates
               uint index // NBG index (0 to 3)
              ) {
-    const NBGParams params = g_layerRenderParams[0].nbg[index];
+    NBGParams params = g_layerRenderParams[0].nbg[index];
     if (!params.base.enabled) {
         return kTransparentPixel;
     }
@@ -895,6 +900,14 @@ uint4 DrawNBG(uint2 pos, // pixel coordinates
     if (deinterlace && interlaceMode == kInterlaceModeSingleDensity) {
         pos.y >>= 1;
     }
+#ifdef __spirv__
+    if (index >= 2 && (params.scrollYIncBase & 0x80000000u) != 0u) {
+        const uint4 scroll = g_nbgLineScroll[pos.y * 2u];
+        const uint4 base = g_nbgLineScroll[pos.y * 2u + 1u];
+        params.scrollAmount = index == 2 ? scroll.xy : scroll.zw;
+        params.scrollYIncBase = index == 2 ? base.x : base.y;
+    }
+#endif
 
     if (InsideWindows(params.base.windowParams, pos)) {
         return kTransparentPixel;

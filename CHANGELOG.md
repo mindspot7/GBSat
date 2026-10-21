@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Vulkan renderer: games that change the scroll of the NBG2/NBG3 backgrounds every scanline (e.g. DonPachi) render each frame in one GPU batch instead of one per line.
 - Vulkan renderer: games that rewrite video registers every scanline with unchanged values (e.g. DonPachi) no longer split each frame into hundreds of GPU batches.
 - Faster emulation: native code is now optimized with a profile recorded while playing (PGO). Training: "PGO training build" workflow and tools/pgo-pull.bat.
 - Performance: the sound thread no longer burns CPU in the kernel while waiting, and the video render threads get their names (so they are placed on the right cores).

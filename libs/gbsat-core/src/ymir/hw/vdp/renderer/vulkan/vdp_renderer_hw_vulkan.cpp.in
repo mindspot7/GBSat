@@ -265,6 +265,12 @@ struct VulkanVDPRenderer::Impl {
 
         std::array<bool, 2> resetNBGScrollY;
 
+        // Per-scanline NBG2/NBG3 scroll (see cs_vdp2_render_bgs g_nbgLineScroll): current values and the table of
+        // values per line. Games that write these registers every line render in a single batch instead of one per line.
+        std::array<HLSLuint2, 2> nbg23Scroll{};
+        std::array<HLSLuint, 2> nbg23YIncBase{};
+        std::array<std::array<HLSLuint, 8>, kMaxNormalResV> cpuNBGLineScroll{};
+
         GpuPipeline drawSpritePipe;
         GpuPipeline drawBGsPipe;
         GpuPipeline composePipe;
@@ -327,6 +333,7 @@ struct VulkanVDPRenderer::Impl {
         GpuBuffer rotParamBasesBuffer;
         GpuImage spriteAttrsTexture;
         GpuBuffer layerRenderParamsBuffer;
+        GpuBuffer nbgLineScrollBuffer;
         uint32 layerRenderParamsGeneration = 0xFFFFFFFF;
         GpuBuffer composeParamsBuffer;
         uint32 composeParamsGeneration = 0xFFFFFFFF;
@@ -1203,6 +1210,8 @@ struct VulkanVDPRenderer::Impl {
                                     "VDP2 sprite attributes" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.layerRenderParamsBuffer, sizeof(VDP2LayerRenderParams), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 layer render params" + sfx));
+            YMIR_VK_TRY(CreateBuffer(f.nbgLineScrollBuffer, sizeof(vdp2.cpuNBGLineScroll), kSSBO, false,
+                                     VK_FORMAT_UNDEFINED, "VDP2 NBG2/3 line scroll" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.composeParamsBuffer, sizeof(VDP2ComposeParams), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 compose params" + sfx));
 
@@ -1251,7 +1260,7 @@ struct VulkanVDPRenderer::Impl {
                             {f.layerOutTexture, f.spriteAttrsTexture}));
             YMIR_VK_TRY(set(f.drawBGsSet, vdp2.drawBGsPipe,
                             {f.layerRenderParamsBuffer, vdp2.vramBuffer, f.cramColorBuffer, f.cramRotCoeffBuffer,
-                             f.rotParamBasesBuffer, f.spriteAttrsTexture},
+                             f.rotParamBasesBuffer, f.spriteAttrsTexture, f.nbgLineScrollBuffer},
                             {f.layerOutTexture, f.rbgLineColorOutTexture, f.colorCalcWindowTexture}));
             YMIR_VK_TRY(set(f.composeSet, vdp2.composePipe,
                             {f.composeParamsBuffer, f.layerOutTexture, f.lnclBackBuffer, f.rbgLineColorOutTexture,
@@ -2531,6 +2540,25 @@ struct VulkanVDPRenderer::Impl {
 
     //@@COPY 3715-3994@@
 
+        // NBG2/NBG3 scroll goes through the per-line table (non-interlaced modes): keep the real values aside and
+        // mark the parameters (bit 31 of scrollYIncBase) so that per-line scroll writes don't change them.
+        {
+            const bool perLine = !vdpState.regs2.TVMD.IsInterlaced();
+            for (int i = 0; i < 2; ++i) {
+                NBGParams &np = vdp2.cpuLayerRenderParams.nbg[i + 2];
+                if ((np.scrollYIncBase & 0x80000000u) == 0u) {
+                    vdp2.nbg23YIncBase[i] = np.scrollYIncBase;
+                }
+                vdp2.nbg23Scroll[i] = np.scrollAmount;
+                if (perLine) {
+                    np.scrollAmount = HLSLuint2{};
+                    np.scrollYIncBase = 0x80000000u;
+                } else {
+                    np.scrollYIncBase = vdp2.nbg23YIncBase[i];
+                }
+            }
+        }
+
         if (layerParamsDryRun) {
             return {}; // only computing the parameters (VDP2RenderLine)
         }
@@ -2617,6 +2645,11 @@ struct VulkanVDPRenderer::Impl {
         }
 
         // Draw NBGs and RBGs
+        if (auto result = UploadToBuffer(frames.GetCurrentFrame().nbgLineScrollBuffer, 0, vdp2.cpuNBGLineScroll.data(),
+                                         sizeof(vdp2.cpuNBGLineScroll));
+            !result) {
+            devlog::warn<grp::dx12_vdp2>("Failed to upload NBG line scroll: {}", result.Error().message);
+        }
         if (auto result = Dispatch(vdp2.drawBGsPipe, frames.GetCurrentFrame().drawBGsSet,
                                    {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}}, HRes / 32,
                                    numLines, 1);
@@ -2725,6 +2758,8 @@ struct VulkanVDPRenderer::Impl {
                 const VDP2LayerRenderParams prev = vdp2.cpuLayerRenderParams;
                 const uint32 prevGen = frameCtx.layerRenderParamsGeneration;
                 const auto prevResetNBGScrollY = vdp2.resetNBGScrollY;
+                const auto prevNBG23Scroll = vdp2.nbg23Scroll;
+                const auto prevNBG23YIncBase = vdp2.nbg23YIncBase;
                 layerParamsDryRun = true;
                 (void)VDP2UpdateLayerRenderParams(y);
                 layerParamsDryRun = false;
@@ -2735,6 +2770,8 @@ struct VulkanVDPRenderer::Impl {
                     vdp2.cpuLayerRenderParams = prev; // changed: render the previous lines first, then upload
                     frameCtx.layerRenderParamsGeneration = prevGen;
                     vdp2.resetNBGScrollY = prevResetNBGScrollY;
+                    vdp2.nbg23Scroll = prevNBG23Scroll;
+                    vdp2.nbg23YIncBase = prevNBG23YIncBase;
                 }
             }
 
@@ -2749,6 +2786,25 @@ struct VulkanVDPRenderer::Impl {
         }
 
         VDP2UpdateState(y);
+        VDP2RecordNBGLineScroll(y);
+    }
+
+    /// @brief VDP2BeginFrame resets the Y increment base of every NBG to 0; mirror that in the per-line state.
+    void VDP2BeginFrameNBGLineScroll() {
+        vdp2.nbg23YIncBase = {0u, 0u};
+        if (!vdpState.regs2.TVMD.IsInterlaced()) {
+            vdp2.cpuLayerRenderParams.nbg[2].scrollYIncBase = 0x80000000u;
+            vdp2.cpuLayerRenderParams.nbg[3].scrollYIncBase = 0x80000000u;
+        }
+        VDP2RecordNBGLineScroll(0);
+    }
+
+    void VDP2RecordNBGLineScroll(uint32 y) {
+        if (y < vdp2.cpuNBGLineScroll.size()) {
+            auto &e = vdp2.cpuNBGLineScroll[y];
+            e = {vdp2.nbg23Scroll[0].x, vdp2.nbg23Scroll[0].y, vdp2.nbg23Scroll[1].x, vdp2.nbg23Scroll[1].y,
+                 vdp2.nbg23YIncBase[0], vdp2.nbg23YIncBase[1], 0u, 0u};
+        }
     }
 
     VulkanVDPRenderer::FrameStats stats{};
@@ -3025,6 +3081,7 @@ void VulkanVDPRenderer::VDP2LatchTVMD() {}
 
 void VulkanVDPRenderer::VDP2BeginFrame() {
     m_impl->VDP2BeginFrame();
+    m_impl->VDP2BeginFrameNBGLineScroll();
 }
 
 void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
