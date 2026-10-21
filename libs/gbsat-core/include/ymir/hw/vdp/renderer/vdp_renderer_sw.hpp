@@ -37,6 +37,12 @@ namespace ymir::vdp {
 /// @brief Enables the software renderer's scroll background fast path (tests compare it against the per-dot path).
 inline bool g_swScrollFastPath = true;
 
+/// @brief Relaxed frame synchronization for the threaded software renderer: the emulation thread no longer waits for the
+/// VDP2 render thread at the end of every frame and at VDP1 framebuffer swaps/erases. The VDP2 thread keeps its own copy
+/// of the displayed VDP1 framebuffer (taken when it processes the swap) and delivers finished frames itself. At most one
+/// frame of lag is allowed. Not used with the deinterlace or transparent meshes enhancements.
+inline bool g_swRelaxedSync = false;
+
 
 /// @brief Invoked when the software VDP2 renderer finishes rendering a frame.
 /// Framebuffer data is in little-endian XRGB8888 format.
@@ -160,6 +166,11 @@ public:
     void VDP2BeginFrame() override;
     void VDP2RenderLine(uint32 y) override;
     void VDP2EndFrame() override;
+
+    /// @brief Whether relaxed frame synchronization applies right now (see g_swRelaxedSync).
+    bool RelaxedSyncActive() const;
+    /// @brief Relaxed synchronization: waits until the VDP2 thread copied the framebuffer of the last swap.
+    void WaitRelaxedSwapCopied();
 
     // -------------------------------------------------------------------------
     // Debugger
@@ -388,6 +399,7 @@ private:
             VDP2LatchTVMD,
             VDP1EraseFramebuffer,
             VDP1SwapFramebuffer,
+            VDP1SwapFramebufferRelaxed,
             VDP1WriteTVMR,
 
             VDP2UpdateResolution,
@@ -395,6 +407,7 @@ private:
             VDP2UpdateEnabledBGs,
             VDP2DrawLine,
             VDP2EndFrame,
+            VDP2EndFrameRelaxed,
 
             VDP2VRAMWriteByte,
             VDP2VRAMWriteWord,
@@ -427,6 +440,10 @@ private:
             struct {
                 bool odd;
             } oddField;
+
+            struct {
+                uint8 displayFB;
+            } swap;
 
             struct {
                 uint32 address;
@@ -476,6 +493,16 @@ private:
 
         static VDP2RenderEvent VDP2EndFrame() {
             return {Type::VDP2EndFrame};
+        }
+
+        static VDP2RenderEvent VDP2EndFrameRelaxed() {
+            return {Type::VDP2EndFrameRelaxed};
+        }
+
+        static VDP2RenderEvent VDP1SwapFramebufferRelaxed(uint8 displayFB) {
+            VDP2RenderEvent ev{Type::VDP1SwapFramebufferRelaxed};
+            ev.swap.displayFB = displayFB;
+            return ev;
         }
 
         template <mem_primitive_16 T>
@@ -559,6 +586,14 @@ private:
         } vdp2;
 
         VDP1RegTVMR tvmr;
+
+        // Relaxed synchronization (g_swRelaxedSync): the VDP2 thread's own copy of the displayed VDP1 framebuffer
+        alignas(16) SpriteFB spriteFB{};
+        bool useSpriteFB = false;          // sprite layer reads spriteFB instead of the shared framebuffer
+        uint32 linesDrawn = 0;             // lines drawn in the current frame (0 = skipped frame, not delivered)
+        std::atomic<uint32> swapsCopied{0}; // relaxed swaps whose framebuffer copy was taken (VDP2 thread)
+        uint32 swapsIssued = 0;             // relaxed swaps sent (emulation thread)
+        bool framePending = false;          // a relaxed end of frame was sent and not yet waited for
 
         void Reset() {
             vdp2.regs.Reset();

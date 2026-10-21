@@ -449,8 +449,26 @@ void SoftwareVDPRenderer::VDP2WriteReg(uint32 address, uint16 value) {
 // -----------------------------------------------------------------------------
 // Rendering process
 
+bool SoftwareVDPRenderer::RelaxedSyncActive() const {
+    return g_swRelaxedSync && m_threadedVDP2Rendering && !m_enhancements.deinterlace &&
+           !m_enhancements.transparentMeshes;
+}
+
+void SoftwareVDPRenderer::WaitRelaxedSwapCopied() {
+    auto &rctx = m_vdp2RenderingContext;
+    uint32 copied = rctx.swapsCopied.load(std::memory_order_acquire);
+    while (copied != rctx.swapsIssued) {
+        rctx.swapsCopied.wait(copied, std::memory_order_acquire);
+        copied = rctx.swapsCopied.load(std::memory_order_acquire);
+    }
+}
+
 void SoftwareVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
-    if (m_threadedVDP2Rendering) {
+    if (RelaxedSyncActive()) {
+        // The VDP2 thread reads its own copy of the displayed framebuffer: only the copy of the last swap must be
+        // taken before the erase changes it
+        WaitRelaxedSwapCopied();
+    } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1EraseFramebuffer());
         m_vdp2RenderingContext.eraseFramebufferReadySignal.Wait();
         m_vdp2RenderingContext.eraseFramebufferReadySignal.Reset();
@@ -472,7 +490,15 @@ void SoftwareVDPRenderer::VDP1SwapFramebuffer() {
         m_vdp1RenderingContext.swapBuffersSignal.Wait();
         m_vdp1RenderingContext.swapBuffersSignal.Reset();
     }
-    if (m_threadedVDP2Rendering) {
+    if (RelaxedSyncActive()) {
+        // The new display framebuffer is the one VDP1 just finished drawing; the VDP2 thread copies it when it
+        // reaches this point, while the emulation goes on. The previous copy must be done first, since VDP1 is about to
+        // draw into that framebuffer again.
+        auto &rctx = m_vdp2RenderingContext;
+        WaitRelaxedSwapCopied();
+        ++rctx.swapsIssued;
+        rctx.EnqueueEvent(VDP2RenderEvent::VDP1SwapFramebufferRelaxed(m_state.fbIndex.draw));
+    } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1SwapFramebuffer());
         m_vdp2RenderingContext.framebufferSwapSignal.Wait();
         m_vdp2RenderingContext.framebufferSwapSignal.Reset();
@@ -563,6 +589,25 @@ void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
 }
 
 void SoftwareVDPRenderer::VDP2EndFrame() {
+    if (RelaxedSyncActive()) {
+        // Don't wait for this frame: the VDP2 thread delivers it. Wait for the previous one instead (one frame of lag
+        // at most).
+        auto &rctx = m_vdp2RenderingContext;
+        if (rctx.framePending) {
+            rctx.renderFinishedSignal.Wait();
+            rctx.renderFinishedSignal.Reset();
+        }
+        rctx.framePending = true;
+        rctx.EnqueueEvent(VDP2RenderEvent::VDP2EndFrameRelaxed());
+        Callbacks.VDP2DrawFinished();
+        return;
+    }
+    if (m_vdp2RenderingContext.framePending) {
+        // Relaxed synchronization was just turned off: finish the outstanding frame first
+        m_vdp2RenderingContext.renderFinishedSignal.Wait();
+        m_vdp2RenderingContext.renderFinishedSignal.Reset();
+        m_vdp2RenderingContext.framePending = false;
+    }
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame());
         m_vdp2RenderingContext.renderFinishedSignal.Wait();
@@ -707,20 +752,33 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
             case EvtType::OddField: rctx.vdp2.regs.TVSTAT.ODD = event.oddField.odd; break;
             case EvtType::VDP2LatchTVMD: rctx.vdp2.regs.LatchTVMD(); break;
             case EvtType::VDP1EraseFramebuffer: rctx.eraseFramebufferReadySignal.Set(); break;
-            case EvtType::VDP1SwapFramebuffer: rctx.framebufferSwapSignal.Set(); break;
+            case EvtType::VDP1SwapFramebuffer:
+                rctx.useSpriteFB = false;
+                rctx.framebufferSwapSignal.Set();
+                break;
+            case EvtType::VDP1SwapFramebufferRelaxed:
+                rctx.spriteFB = m_state.mem1.FBRAM[event.swap.displayFB];
+                rctx.useSpriteFB = true;
+                rctx.swapsCopied.fetch_add(1, std::memory_order_release);
+                rctx.swapsCopied.notify_all();
+                break;
             case EvtType::VDP1WriteTVMR: rctx.tvmr.Write(event.writeTVMR.value); break;
 
             case EvtType::VDP2UpdateResolution:
                 VDP2UpdateResolution(event.updateResolution.h, event.updateResolution.v,
                                      event.updateResolution.exclusive);
                 break;
-            case EvtType::VDP2BeginFrame: VDP2InitFrame(); break;
+            case EvtType::VDP2BeginFrame:
+                rctx.linesDrawn = 0;
+                VDP2InitFrame();
+                break;
             case EvtType::VDP2UpdateEnabledBGs: VDP2UpdateEnabledBGs(); break;
             case EvtType::VDP2DrawLine: //
             {
                 const bool deinterlaceRender = m_enhancements.deinterlace;
                 const bool threadedDeinterlacer = m_threadedDeinterlacer;
                 const bool interlaced = rctx.vdp2.regs.TVMD.IsInterlaced();
+                ++rctx.linesDrawn;
                 VDP2PrepareLine(event.drawLine.vcnt);
                 if (deinterlaceRender && interlaced && threadedDeinterlacer) {
                     rctx.deinterlaceY = event.drawLine.vcnt;
@@ -739,6 +797,13 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
                 break;
             }
             case EvtType::VDP2EndFrame: rctx.renderFinishedSignal.Set(); break;
+            case EvtType::VDP2EndFrameRelaxed:
+                // Frames whose rendering was skipped (no lines drawn) are not delivered
+                if (rctx.linesDrawn > 0) {
+                    SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
+                }
+                rctx.renderFinishedSignal.Set();
+                break;
 
             case EvtType::VDP2VRAMWriteByte: rctx.vdp2.mem.VRAM[event.write.address] = event.write.value; break;
             case EvtType::VDP2VRAMWriteWord:
@@ -804,6 +869,7 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
 
             case EvtType::PreSaveStateSync: rctx.preSaveSyncSignal.Set(); break;
             case EvtType::PostLoadStateSync:
+                rctx.useSpriteFB = false;
                 rctx.vdp2.regs = m_state.regs2;
                 rctx.vdp2.mem = m_state.mem2;
                 rctx.tvmr = m_state.regs1.tvmr;
@@ -2667,7 +2733,9 @@ NO_INLINE void SoftwareVDPRenderer::VDP2DrawSpriteLayer(uint32 y, const VDP2Regs
     auto &layerAttrs = m_spriteLayerAttrs[altField];
 
     const uint8 fbIndex = m_state.fbIndex.display;
-    const auto &fbram = doubleDensity && altField ? m_altFBRAM[fbIndex] : m_state.mem1.FBRAM[fbIndex];
+    const auto &fbram = doubleDensity && altField           ? m_altFBRAM[fbIndex]
+                        : m_vdp2RenderingContext.useSpriteFB ? m_vdp2RenderingContext.spriteFB
+                                                             : m_state.mem1.FBRAM[fbIndex];
 
     [[maybe_unused]] auto &meshLayerOut = m_meshLayerOutput[altField];
     [[maybe_unused]] auto &meshLayerAttrs = m_meshLayerAttrs[altField];

@@ -13,6 +13,7 @@
 #include <android/native_window_jni.h>
 
 #include <ymir/ymir.hpp>
+#include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
 #include <ymir/db/game_db.hpp>
 #include <ymir/hw/cart/cart.hpp>
 
@@ -335,7 +336,8 @@ void DrainCommands() {
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     // Frame skipping: this frame was not rendered. The Vulkan renderer delivers its frames one frame late, so gating
     // them with the current frame's skip flag dropped the rendered ones too (frozen picture); it's not gated.
-    if (g->skipPresent.load(std::memory_order_relaxed) &&
+    // (relaxed sync: the software renderer delivers frames from its own thread, a frame late, and never skipped ones)
+    if (g->skipPresent.load(std::memory_order_relaxed) && !ymir::vdp::g_swRelaxedSync &&
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
     }
@@ -553,7 +555,7 @@ void WritePerfLog(float fps, float presentedFps) {
     }
     if (fresh) {
         fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
-                   "emu_ms_per_frame\n");
+                   "emu_ms_per_frame,relaxed_sync\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "Vulkan" : mode == 1 ? "OpenGL ES" : "Software";
@@ -561,10 +563,10 @@ void WritePerfLog(float fps, float presentedFps) {
     char ts[32];
     const time_t now = time(nullptr);
     strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&now));
-    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f\n", ts, title.c_str(), renderer,
+    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%d\n", ts, title.c_str(), renderer,
             mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
-            presentedFps, g->frameTimeUs.load() / 1000.0);
+            presentedFps, g->frameTimeUs.load() / 1000.0, ymir::vdp::g_swRelaxedSync ? 1 : 0);
     fclose(f);
 }
 
@@ -1065,6 +1067,12 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
     }
 }
 // SCSP (sound) and its MC68EC000 CPU on their own thread, off the emulation thread that runs the two SH-2s
+JNI_FN(void, nativeSetRelaxedSync)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        Post([on] { ymir::vdp::g_swRelaxedSync = on; }); // switched between frames, on the emulation thread
+    }
+}
+
 JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] { g->saturn->configuration.audio.threadedSCSP = on; });
