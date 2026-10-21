@@ -334,6 +334,17 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
     }
+    // Diagnostics: Vulkan VDP2 render batches per frame, logged every 2 s (adb logcat -s GBSat)
+    if (auto *vk = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
+        static uint32_t frames = 0, batches = 0, vram = 0, cram = 0, layer = 0, compose = 0;
+        const auto st = vk->LastFrameStats();
+        ++frames; batches += st.batches; vram += st.vram; cram += st.cram; layer += st.layer; compose += st.compose;
+        if (frames == 120) {
+            LOGI("Vulkan VDP2 batches/frame: %.1f (VRAM %.1f, CRAM %.1f, layer params %.1f, compose params %.1f)",
+                 batches / 120.0, vram / 120.0, cram / 120.0, layer / 120.0, compose / 120.0);
+            frames = batches = vram = cram = layer = compose = 0;
+        }
+    }
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
         const uint32_t tw = width / step, th = height / step;

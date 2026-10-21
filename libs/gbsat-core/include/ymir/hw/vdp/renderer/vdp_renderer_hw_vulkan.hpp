@@ -117,6 +117,12 @@ public:
     /// @brief Internal resolution scale of the frame passed to the frame ready callback (call from the callback).
     uint32 DeliveredFrameScale() const;
 
+    /// @brief VDP2 layer render batches of the last frame and what triggered them (diagnostics).
+    struct FrameStats {
+        uint32 batches = 0, vram = 0, cram = 0, layer = 0, compose = 0;
+    };
+    FrameStats LastFrameStats() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

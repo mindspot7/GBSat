@@ -2579,6 +2579,16 @@ struct VulkanVDPRenderer::Impl {
 
         const uint32 startY = vdp2.nextLayerRenderLine;
 
+        // Statistics: layer batches per frame and what triggered them
+        {
+            const FrameContext &fc = frames.GetCurrentFrame();
+            ++stats.batches;
+            if (vdp2.vramDirty) ++stats.vram;
+            if (vdp2.cramGeneration != fc.cramGeneration) ++stats.cram;
+            if (vdp2.layerRenderParamsGeneration != fc.layerRenderParamsGeneration) ++stats.layer;
+            if (vdp2.composeParamsGeneration != fc.composeParamsGeneration) ++stats.compose;
+        }
+
         // Determine how many lines to draw and update next scanline counter
         const uint32 baseNumLines = y - startY + 1;
         const uint32 numLines = baseNumLines << yShift;
@@ -2660,6 +2670,9 @@ struct VulkanVDPRenderer::Impl {
 
     //@@COPY 4445-4473@@
 
+    VulkanVDPRenderer::FrameStats stats{};
+    VulkanVDPRenderer::FrameStats lastStats{};
+
     void VDP2EndFrame() {
         const uint32 vShift = vdpState.regs2.TVMD.IsInterlaced() ? 1u : 0u;
         const uint32 vres = VRes >> vShift;
@@ -2702,6 +2715,8 @@ struct VulkanVDPRenderer::Impl {
         if (nextCtx.readbackPending) {
             DeliverFrame(nextCtx);
         }
+        lastStats = stats;
+        stats = {};
         WaitFrame(nextCtx);
         BeginCommands(nextCtx);
     }
@@ -2933,6 +2948,10 @@ void VulkanVDPRenderer::VDP2BeginFrame() {
 
 void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
     m_impl->VDP2RenderLine(y);
+}
+
+VulkanVDPRenderer::FrameStats VulkanVDPRenderer::LastFrameStats() const {
+    return m_impl->lastStats;
 }
 
 uint32 VulkanVDPRenderer::DeliveredFrameScale() const {
