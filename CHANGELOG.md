@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Experimental "Relaxed frame sync" option (Settings → Emulation): with the software renderer, emulation and drawing overlap across frames instead of waiting for each other at every frame.
+- Experimental "Relaxed frame sync" option (Settings → Emulation): with the software renderer, emulation and drawing overlap across frames instead of waiting for each other at every frame; also in the in-game Performance menu. The performance log now records how long the emulation waits for the sound and video threads.
 - Frame skip on interlaced hi-res screens skips both fields together, so moving objects no longer leave a trail (e.g. Virtua Fighter 2).
 - Software renderer: faster background drawing (each 8-dot character cell is looked up once instead of for every dot), with identical output.
 - The library reopens in the layout you used last (all games or recent save states).

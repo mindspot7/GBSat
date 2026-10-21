@@ -1,3 +1,4 @@
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
 
 #include <ymir/util/constexpr_for.hpp>
@@ -341,6 +342,10 @@ void SoftwareVDPRenderer::VDP1SyncFB() {
     if (m_threadedVDP1Rendering) {
         auto &ctx = m_vdp1RenderingContext;
         ctx.FlushPendingEvents();
+        if (ctx.cmdCount == ctx.cmdFence.load(std::memory_order_acquire)) {
+            return;
+        }
+        util::waitstats::Timer waitTimer{util::waitstats::VDP1};
         for (;;) {
             const uint32 curr = ctx.cmdFence.load(std::memory_order_acquire);
             if (ctx.cmdCount == curr) {
@@ -457,6 +462,10 @@ bool SoftwareVDPRenderer::RelaxedSyncActive() const {
 void SoftwareVDPRenderer::WaitRelaxedSwapCopied() {
     auto &rctx = m_vdp2RenderingContext;
     uint32 copied = rctx.swapsCopied.load(std::memory_order_acquire);
+    if (copied == rctx.swapsIssued) {
+        return;
+    }
+    util::waitstats::Timer waitTimer{util::waitstats::VDP2};
     while (copied != rctx.swapsIssued) {
         rctx.swapsCopied.wait(copied, std::memory_order_acquire);
         copied = rctx.swapsCopied.load(std::memory_order_acquire);
@@ -470,6 +479,7 @@ void SoftwareVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
         WaitRelaxedSwapCopied();
     } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1EraseFramebuffer());
+        util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.eraseFramebufferReadySignal.Wait();
         m_vdp2RenderingContext.eraseFramebufferReadySignal.Reset();
     }
@@ -487,6 +497,7 @@ void SoftwareVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
 void SoftwareVDPRenderer::VDP1SwapFramebuffer() {
     if (m_threadedVDP1Rendering) {
         m_vdp1RenderingContext.EnqueueEvent(VDP1RenderEvent::SwapBuffers());
+        util::waitstats::Timer waitTimer{util::waitstats::VDP1};
         m_vdp1RenderingContext.swapBuffersSignal.Wait();
         m_vdp1RenderingContext.swapBuffersSignal.Reset();
     }
@@ -500,6 +511,7 @@ void SoftwareVDPRenderer::VDP1SwapFramebuffer() {
         rctx.EnqueueEvent(VDP2RenderEvent::VDP1SwapFramebufferRelaxed(m_state.fbIndex.draw));
     } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1SwapFramebuffer());
+        util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.framebufferSwapSignal.Wait();
         m_vdp2RenderingContext.framebufferSwapSignal.Reset();
     }
@@ -594,6 +606,7 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
         // at most).
         auto &rctx = m_vdp2RenderingContext;
         if (rctx.framePending) {
+            util::waitstats::Timer waitTimer{util::waitstats::VDP2};
             rctx.renderFinishedSignal.Wait();
             rctx.renderFinishedSignal.Reset();
         }
@@ -610,6 +623,7 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
     }
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame());
+        util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.renderFinishedSignal.Wait();
         m_vdp2RenderingContext.renderFinishedSignal.Reset();
     }

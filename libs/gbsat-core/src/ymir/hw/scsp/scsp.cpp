@@ -1,3 +1,4 @@
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/hw/scsp/scsp.hpp>
 
 #include <ymir/sys/clocks.hpp>
@@ -1514,6 +1515,12 @@ void SCSP::SyncSCSPThread() {
     }
 
     uint64 target = m_eventsProcessed.load(std::memory_order_acquire);
+    if (target == m_eventsEnqueued && m_currSlotStep.load(std::memory_order_acquire) ==
+                                          m_targetSlotStep.load(std::memory_order_acquire)) {
+        PollSCSPInterrupts();
+        return;
+    }
+    util::waitstats::Timer waitTimer{util::waitstats::SCSP};
     while (target != m_eventsEnqueued) {
         m_eventsProcessed.wait(target, std::memory_order_acquire);
         target = m_eventsProcessed.load(std::memory_order_acquire);
