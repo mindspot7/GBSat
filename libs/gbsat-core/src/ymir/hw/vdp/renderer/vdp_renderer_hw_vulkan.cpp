@@ -77,6 +77,7 @@ struct GpuBuffer {
     VkBufferView view = VK_NULL_HANDLE;
     VkDeviceSize size = 0;
     void *mapped = nullptr;
+    bool coherent = true; // host-visible memory that needs no flush/invalidate
 };
 
 struct GpuImage {
@@ -553,7 +554,17 @@ struct VulkanVDPRenderer::Impl {
                                                    ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
                                                    : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
         const VkMemoryPropertyFlags preferred = hostCached ? VK_MEMORY_PROPERTY_HOST_CACHED_BIT : 0;
-        int memType = FindMemoryType(req.memoryTypeBits, required, preferred);
+        int memType = -1;
+        if (hostVisible && hostCached) {
+            // CPU reads (readback): uncached memory is very slow to read on mobile GPUs (Mali), so take cached memory
+            // even if it isn't coherent (invalidated before reading)
+            memType = FindMemoryType(req.memoryTypeBits,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        }
+        if (memType < 0) {
+            memType = FindMemoryType(req.memoryTypeBits, required, preferred);
+        }
         if (memType < 0 && !hostVisible) {
             memType = FindMemoryType(req.memoryTypeBits, 0);
         }
@@ -563,6 +574,7 @@ struct VulkanVDPRenderer::Impl {
         VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mai.allocationSize = req.size;
         mai.memoryTypeIndex = (uint32)memType;
+        buf.coherent = (memProps.memoryTypes[memType].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
         if (VkResult r = vkAllocateMemory(device, &mai, nullptr, &buf.memory); r != VK_SUCCESS) {
             return util::ErrorMessage{
                 fmt::format("Could not allocate {} bytes for buffer \"{}\" ({})", req.size, name, (int)r)};
@@ -1537,6 +1549,7 @@ struct VulkanVDPRenderer::Impl {
         SubmitAndWait();
 
         // Copy downloaded FBRAM
+        InvalidateForRead(vdp1.fbramDownloadBuffer);
         memcpy(vdpState.mem1.FBRAM.data(), vdp1.fbramDownloadBuffer.mapped, kVDP1FBRAMSize * 2);
     }
 
@@ -3824,6 +3837,7 @@ struct VulkanVDPRenderer::Impl {
         vkCmdCopyBuffer(cmd, vdp1.fbramBuffer.buffer, debugReadback.buffer, 1, &fb1);
         pendingBarrier = true;
         SubmitAndWait();
+        InvalidateForRead(debugReadback);
         const auto *b = static_cast<const uint8 *>(debugReadback.mapped);
         std::string s = fmt::format("({},{}) layers[NBG0..3,RBG0,RBG1,SPR,MESH] rgba:", x, y);
         for (int l = 0; l < 8; ++l) {
@@ -3835,6 +3849,20 @@ struct VulkanVDPRenderer::Impl {
         return s;
     }
 
+    std::vector<uint32> deliveredPixels;
+
+    /// @brief Makes GPU writes visible to the CPU on non-coherent (cached) host memory.
+    void InvalidateForRead(const GpuBuffer &buf) {
+        if (buf.coherent || buf.mapped == nullptr) {
+            return;
+        }
+        VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+        range.memory = buf.memory;
+        range.offset = 0;
+        range.size = VK_WHOLE_SIZE;
+        vkInvalidateMappedMemoryRanges(device, 1, &range);
+    }
+
     void DeliverFrame(FrameContext &frameCtx) {
         if (!frameCtx.readbackPending) {
             return;
@@ -3842,12 +3870,17 @@ struct VulkanVDPRenderer::Impl {
         WaitFrame(frameCtx);
         frameCtx.readbackPending = false;
         deliveredScale = frameCtx.readbackScale;
-        auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
+        InvalidateForRead(frameCtx.readbackBuffer);
+        // One sequential pass over the mapped memory into a CPU buffer (with opaque alpha); the frame consumer reads
+        // it several times (thumbnail, presentation), which is slow straight from GPU-visible memory
+        const auto *src = static_cast<const uint32 *>(frameCtx.readbackBuffer.mapped);
         const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
+        deliveredPixels.resize(count);
+        uint32 *dst = deliveredPixels.data();
         for (size_t i = 0; i < count; ++i) {
-            pixels[i] |= 0xFF000000u; // force opaque alpha
+            dst[i] = src[i] | 0xFF000000u; // force opaque alpha
         }
-        hwCallbacks.FrameReady(pixels, frameCtx.readbackW, frameCtx.readbackH);
+        hwCallbacks.FrameReady(dst, frameCtx.readbackW, frameCtx.readbackH);
     }
 };
 
