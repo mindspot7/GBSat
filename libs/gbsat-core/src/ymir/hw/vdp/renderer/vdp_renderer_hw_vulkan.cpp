@@ -33,6 +33,7 @@
 #include <cassert>
 #include <concepts>
 #include <cstdlib>
+#include <chrono>
 #include <cstring>
 #include <functional>
 #include <span>
@@ -931,7 +932,10 @@ struct VulkanVDPRenderer::Impl {
 
     void WaitFrame(FrameContext &frameCtx) {
         if (frameCtx.submitted) {
+            const auto t0 = std::chrono::steady_clock::now();
             vkWaitForFences(device, 1, &frameCtx.fence, VK_TRUE, UINT64_MAX);
+            stats.waitUs += (uint32)std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - t0).count();
             vkResetFences(device, 1, &frameCtx.fence);
             frameCtx.submitted = false;
         }
@@ -939,6 +943,7 @@ struct VulkanVDPRenderer::Impl {
 
     /// @brief Submits the commands recorded so far, waits for them and restarts recording in the same frame.
     void SubmitAndWait() {
+        ++stats.syncs;
         FrameContext &frameCtx = frames.GetCurrentFrame();
         SubmitCommands(frameCtx);
         WaitFrame(frameCtx);
@@ -1824,6 +1829,7 @@ struct VulkanVDPRenderer::Impl {
     }
 
     void VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
+        ++stats.vdp1Cmds;
         VDP1UpdateAction(VDP1Action::Draw);
 
         switch (control.command) {

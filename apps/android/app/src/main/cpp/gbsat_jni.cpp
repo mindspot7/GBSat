@@ -334,6 +334,22 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
     }
+    // Diagnostics: Vulkan renderer statistics, logged every 2 s (adb logcat -s GBSat)
+    if (auto *vk = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
+        using clk = std::chrono::steady_clock;
+        static clk::time_point t0 = clk::now();
+        static uint32_t frames = 0, batches = 0, syncs = 0, waitUs = 0, cmds = 0;
+        const auto st = vk->LastFrameStats();
+        ++frames; batches += st.batches; syncs += st.syncs; waitUs += st.waitUs; cmds += st.vdp1Cmds;
+        const double secs = std::chrono::duration<double>(clk::now() - t0).count();
+        if (secs >= 2.0) {
+            LOGI("Vulkan: %.1f fps, per frame: %.1f VDP2 batches, %.1f GPU syncs, %.2f ms waiting for GPU, %.0f VDP1 cmds",
+                 frames / secs, batches / (double)frames, syncs / (double)frames, waitUs / 1000.0 / frames,
+                 cmds / (double)frames);
+            frames = batches = syncs = waitUs = cmds = 0;
+            t0 = clk::now();
+        }
+    }
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
         const uint32_t tw = width / step, th = height / step;
