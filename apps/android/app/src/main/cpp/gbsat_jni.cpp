@@ -155,7 +155,6 @@ struct Context {
     bool behind = false;                // last frame finished late (emulation thread only)
     int skipRun = 0;                    // consecutive skipped frames
     bool skipActive = false; // automatic frame skip engaged (emulation thread only)
-    int fieldPhase = 0;      // interlaced screens: 0 = first field of a pair, 1 = second
     bool pairSkip = false;   // skip decision for the current field pair
     int notBehindRun = 0;    // consecutive frames on time
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
@@ -628,14 +627,13 @@ void EmuLoop() {
             }
             // Interlaced (double-density) screens draw one field per frame: skipping single frames left the other
             // field stale, so moving objects showed a trail. Skip or render both fields of a pair together.
+            // The pair follows the real field order (TVSTAT.ODD), so both fields of a rendered frame are fresh.
             if (g->videoH.load(std::memory_order_relaxed) >= 400) {
-                if (g->fieldPhase == 1) {
+                const bool secondField = (g->saturn->mainBus.Peek<uint16_t>(0x25F80004) >> 1) & 1;
+                if (secondField) {
                     skip = g->pairSkip;
                 }
                 g->pairSkip = skip;
-                g->fieldPhase ^= 1;
-            } else {
-                g->fieldPhase = 0;
             }
             g->skipRun = skip ? g->skipRun + 1 : 0;
             g->saturn->VDP.SetSkipFrameRender(skip);
