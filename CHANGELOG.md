@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Fast forward no longer slows down games that already run below full speed (it always skips at least every other frame).
+- Performance log for tests: Android/media/app.gbsat.android/perf-log.csv (tools/perf-log.bat) records fps with the renderer, frame skip and fast forward settings.
 
 ## 1.3.2
 - Faster emulation: native code optimized with a profile recorded while playing (PGO); lower CPU use and less heat on every renderer.

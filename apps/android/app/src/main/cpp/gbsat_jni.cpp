@@ -185,6 +185,7 @@ struct Context {
     std::string smpcPath;
     std::string lastError;
     std::atomic<float> fps{0.0f};
+    std::atomic<uint32_t> presented{0}; // frames sent to the screen (performance log)
     std::atomic<int64_t> frameTimeUs{0}; // emulation time per frame (smoothed)
 };
 
@@ -339,6 +340,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
     }
+    g->presented.fetch_add(1, std::memory_order_relaxed);
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
         const uint32_t tw = width / step, th = height / step;
@@ -528,6 +530,45 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
+// Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
+// Android/media/app.gbsat.android/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
+void WritePerfLog(float fps, float presentedFps) {
+    static const char *kPath = "/sdcard/Android/media/app.gbsat.android/perf-log.csv";
+    std::string title;
+    {
+        std::lock_guard lk(g->winMutex);
+        if (g->discHeader.size() >= 0x60 + 16) {
+            title = g->discHeader.substr(0x60, std::min<size_t>(64, g->discHeader.size() - 0x60));
+        }
+    }
+    title.erase(title.find_last_not_of(" \0") + 1);
+    for (char &c : title) {
+        if (c == ',' || c == '"' || (unsigned char)c < 32) c = ' ';
+    }
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(kPath, ec);
+    const bool fresh = ec || size > 2u * 1024 * 1024;
+    FILE *f = fopen(kPath, fresh ? "w" : "a");
+    if (!f) {
+        return;
+    }
+    if (fresh) {
+        fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
+                   "emu_ms_per_frame\n");
+    }
+    const int mode = g->rendererMode;
+    const char *renderer = mode == 4 ? "Vulkan" : mode == 1 ? "OpenGL ES" : "Software";
+    const auto &cfg = g->saturn->configuration;
+    char ts[32];
+    const time_t now = time(nullptr);
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f\n", ts, title.c_str(), renderer,
+            mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
+            cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
+            presentedFps, g->frameTimeUs.load() / 1000.0);
+    fclose(f);
+}
+
 void EmuLoop() {
     cputune::PinEmulationThreads();
     auto lastPin = steady_clock::now();
@@ -560,7 +601,9 @@ void EmuLoop() {
             if (g->fastForward.load()) {
                 // Fast forward: render about 60 frames per second of real time and skip the rest, so heavy games
                 // spend the time emulating instead of drawing frames nobody can see
-                skip = t - g->lastRendered < milliseconds(15) && g->skipRun < 8;
+                // (at most ~30 per second, and at least every other frame is skipped even when the game can't reach
+                // full speed: rendering every frame made fast forward slower than normal play with frame skip)
+                skip = (t - g->lastRendered < milliseconds(33) || g->skipRun < 1) && g->skipRun < 8;
             } else {
                 skip = g->frameSkip.load() && g->behind && g->skipRun < (hires ? 4 : 2) && t >= g->skipBlockedUntil;
                 // Back-off: over 2 s, if the game was behind on almost every frame even with skipping, skipping is
@@ -619,7 +662,9 @@ void EmuLoop() {
             cputune::PinEmulationThreads();
         }
         if (now - fpsWindowStart >= seconds(1)) {
-            g->fps = fpsFrames / duration<float>(now - fpsWindowStart).count();
+            const float secs = duration<float>(now - fpsWindowStart).count();
+            g->fps = fpsFrames / secs;
+            WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);
             fpsFrames = 0;
             fpsWindowStart = now;
         }
