@@ -182,8 +182,9 @@ internal object MenuState {
     /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
     val quitOpen = mutableStateOf(false)
     var onQuit: (() -> Unit)? = null
-    /** Library shows recent save states instead of all games (Select; toggled in MainActivity so it works without focus). */
-    val recent = mutableStateOf(false)
+    /** Library shows recent save states instead of all games (Select; toggled in MainActivity so it works without
+     *  focus). Remembered between sessions by the kit's LibraryView. */
+    val recent = gb.ui.LibraryView.recent
     var selected by mutableStateOf<SettingsPage?>(null)
 }
 

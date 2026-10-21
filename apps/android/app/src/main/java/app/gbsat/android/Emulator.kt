@@ -367,6 +367,7 @@ object Emulator {
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.ui.PlayTime.init(prefs)
+        gb.ui.LibraryView.init(prefs)
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
