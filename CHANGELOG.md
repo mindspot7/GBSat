@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Profile-guided optimization support: "PGO training build" workflow and tools/pgo-pull.bat; builds use apps/android/pgo/gbsat.profdata when present.
+- Faster emulation: native code is now optimized with a profile recorded while playing (PGO). Training: "PGO training build" workflow and tools/pgo-pull.bat.
 - Performance: the sound thread no longer burns CPU in the kernel while waiting, and the video render threads get their names (so they are placed on the right cores).
 - Profiling support: GBSat can be sampled by the on-device profiler (profileable); "Profiling build" workflow and tools/profile.bat.
 - Play time, save data export/import, the Resume view and the controller diagram also come from the shared UI kit.
