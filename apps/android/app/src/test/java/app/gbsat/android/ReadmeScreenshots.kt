@@ -59,9 +59,28 @@ abstract class ScreenTest {
         Emulator.gamesDir = games.path
         setState("iplLoaded", true)
         Emulator.setupDone = true
-        MenuState.open.value = false; MenuState.selected = null
+        MenuState.open.value = false; MenuState.selected = null; MenuState.recent.value = false
         gb.frame.HomeTheme.style.value = gb.frame.HomeStyle.Showcase
         Emulator.renderer = 4; Emulator.resScale = 4; Emulator.shader = 1; Emulator.filter = 1; Emulator.sh2Cache = true
+    }
+
+    /** Sample save states (with a screenshot made from part of the cover) for the first games, newest first. */
+    protected fun sampleStates() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val data = File(ctx.filesDir, "data"); val games = File(ctx.filesDir, "games")
+        val covers = File(javaClass.getResource("/covers")!!.toURI()).listFiles()!!.sorted().take(4)
+        covers.forEachIndexed { i, png ->
+            val title = png.nameWithoutExtension
+            val dir = File(data, "states/$title").apply { mkdirs() }
+            File(dir, "game.txt").writeText(File(games, "$title.chd").path)
+            val state = File(dir, if (i == 0) "auto.savestate" else "${i - 1}.savestate").apply { writeText("x") }
+            val src = android.graphics.BitmapFactory.decodeFile(png.path)
+            val h = src.width * 3 / 4
+            val crop = android.graphics.Bitmap.createBitmap(src, 0, (src.height - h) / 2, src.width, h)
+            val shot = android.graphics.Bitmap.createScaledBitmap(crop, 320, 240, true)
+            File(state.path + ".png").outputStream().use { shot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            state.setLastModified(System.currentTimeMillis() - i * 3_600_000L)
+        }
     }
 
     protected fun shot(name: String, content: @androidx.compose.runtime.Composable () -> Unit, action: (() -> Unit)? = null) {
@@ -82,6 +101,7 @@ class ReadmeScreenshots : ScreenTest() {
             rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300); rule.waitForIdle()
         }
     }
+    @Test fun recent() { sampleStates(); MenuState.recent.value = true; shot("recent", { LibraryScreen({}, {}, {}, {}) }) }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, SettingsPage.Video) })
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, SettingsPage.Controls) })
     @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, SettingsPage.Performance) })
@@ -97,6 +117,17 @@ class DeviceScreens : ScreenTest() {
 
     private fun library(d: String) = shot("$d-library", { LibraryScreen({}, {}, {}, {}) })
     private fun menu(d: String) = shot("$d-menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
+    private fun recentShot(d: String, style: gb.frame.HomeStyle) {
+        gb.frame.HomeTheme.style.value = style
+        sampleStates(); MenuState.recent.value = true
+        shot("$d-recent-${style.name.lowercase()}", { LibraryScreen({}, {}, {}, {}) })
+    }
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun r640Showcase() = recentShot("640x480-hdpi", gb.frame.HomeStyle.Showcase)
+    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun r720Showcase() = recentShot("720x720-xhdpi", gb.frame.HomeStyle.Showcase)
+    @Test @Config(qualifiers = "w853dp-h480dp-land-xhdpi") fun allInOneStates() {
+        sampleStates(); gb.frame.HomeTheme.style.value = gb.frame.HomeStyle.Continue
+        shot("16x9-theme-continue-states", { LibraryScreen({}, {}, {}, {}) })
+    }
     private fun theme(d: String, style: gb.frame.HomeStyle) {
         gb.frame.HomeTheme.style.value = style
         shot("$d-theme-${style.name.lowercase()}", { LibraryScreen({}, {}, {}, {}) })

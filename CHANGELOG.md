@@ -1,10 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Fixed: X (menu) and the D-pad stopped working in the library after a tap or after closing a menu.
 - New main menu: a panel that slides in from the left (X on a controller, or a tap on the top bar) with the library view (All games / Recent, with counts), the settings as large icon tiles and Quit.
 - The Quality preset row was removed from Settings → Video; the preset for the device is still applied on first run and the individual options stay.
 - New home screen (Showcase): the selected game shown large over its blurred cover, with play time, save state and achievements and Continue / Start fresh / Options buttons, and the box art shelf below. The top bar shows the app icon and name, the clock and the battery.
-- Themes for the home screen in Settings → Extras: Showcase (default), Grid (box art grid with the settings as icons) and Continue (latest save states first, then all games).
+- Home screen layouts in Settings → Extras → Layout: Showcase (default), Grid (box art grid) and All in One (latest save states first, then all games). In Showcase, long game names stay on one line and scroll, and Recent shows the save-state screenshots in the same layout.
 - The setup wizard no longer asks for a preset: GBSat picks it for the detected device (Settings → Performance shows the device class and the recommended preset). The Preset item was removed from the in-game Video menu (presets stay in Settings → Video).
 - The game picture sits at the top of the screen when the screen is narrower than the picture (e.g. 5:4 screens, 16:9 mode on 4:3): the black bars go below it.
 - Touch controls hide automatically while a controller is connected (built-in controls of handhelds included).

@@ -75,6 +75,23 @@ class MainActivity : ComponentActivity() {
             }
             return true
         }
+        // Library: X opens/closes the main menu, and a controller key that arrives while nothing has the focus (after a tap,
+        // or when a menu closed) first puts the focus back, so the controller never gets stuck. Handled here because
+        // Compose key handlers only see events while something inside them is focused.
+        val menu = app.gbsat.android.ui.MenuState
+        if (!Emulator.running && menu.libraryShown && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && !menu.quitOpen.value) {
+            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) menu.open.value = !menu.open.value
+                return true
+            }
+            if (!menu.hasFocus && (event.keyCode in dpadKeys || event.keyCode == KeyEvent.KEYCODE_BUTTON_A ||
+                    event.keyCode == KeyEvent.KEYCODE_BUTTON_Y || event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER)) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    if (menu.open.value) menu.menuRefocus.intValue++ else menu.refocus.intValue++
+                }
+                return true
+            }
+        }
         // Remap dialog is open: the next physical button press becomes the binding.
         Emulator.remapTarget?.let { target ->
             val fromPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0

@@ -64,7 +64,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 - Recommended per-game settings for slower devices; renderer, frame skip and threaded audio changed in a game are remembered for that game
 
 **Controls and interface**
-- Home screen themes (Settings → Extras): Showcase (default), Grid and Continue; main menu panel with the library view and the settings
+- Home screen layouts (Settings → Extras → Layout): Showcase (default), Grid and All in One; main menu panel with the library view and the settings
 - Controller navigation everywhere, including the in-game quick menu (save/load, video, audio, overlays, cheats, disc tray, reset)
 - Button remapping (including L3/R3), hotkeys for quick save/load, fast-forward (hold or toggle) and the menu
 - First-run setup wizard, configurable data folder, crash reports with automatic fallback to the CPU renderer

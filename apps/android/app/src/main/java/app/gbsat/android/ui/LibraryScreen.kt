@@ -50,7 +50,7 @@ import kotlinx.coroutines.withContext
 /**
  * Home screen: top bar (app icon, name, clock, battery), the game library in the theme chosen in Settings → Extras
  * (gb.frame.HomeLibrary: Showcase by default, Grid or Continue) and the main menu (gb.frame.HomeMenuPanel: library view,
- * settings, quit), which slides in from the left (the Grid theme also shows the settings as an icon rail). Works with touch and with a controller: the D-pad moves the
+ * settings, quit), which slides in from the left. Works with touch and with a controller: the D-pad moves the
  * selection, A opens, B goes back, X opens the menu, Y (or a long press) opens the game options, Select shows the recent
  * save states.
  */
@@ -67,14 +67,15 @@ fun LibraryScreen(
     var recentMode by MenuState.recent
     var menuOpen by MenuState.open
     val style by HomeTheme.style
-    val rail = style == HomeStyle.Grid // settings also as an icon rail beside the games
     val menuFocus = remember { FocusRequester() }
-    val railFocus = remember { FocusRequester() } // Grid theme: its icon rail (reached with left)
-    val focusManager = LocalFocusManager.current
     val hasPad = rememberHasGamepad()
-    var railFocused by remember { mutableStateOf(false) }
-    // Rail: coming back from a settings page focuses the entry that was opened
-    LaunchedEffect(menuOpen) { if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } }
+    // Menu opened: focus its entry; closed: the focus goes back to the library
+    LaunchedEffect(menuOpen) {
+        if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
+    }
+    LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen) runCatching { menuFocus.requestFocus() } }
+    // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
+    DisposableEffect(Unit) { MenuState.libraryShown = true; onDispose { MenuState.libraryShown = false; MenuState.hasFocus = false } }
     var confirmQuit by MenuState.quitOpen
     MenuState.onQuit = onQuit
 
@@ -112,7 +113,7 @@ fun LibraryScreen(
         gameMenu = null
     }
 
-    // B / Back: close the menu, leave the rail or Recent, otherwise ask before quitting
+    // B / Back: close the menu, leave Recent, otherwise ask before quitting
     // Some controllers deliver B twice (as BUTTON_B mapped to Back and as a system Back): one press must act only once,
     // otherwise the quit dialog opens and immediately closes again
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -124,7 +125,6 @@ fun LibraryScreen(
             confirmQuit -> confirmQuit = false
             achievementsFor != null -> achievementsFor = null
             menuOpen -> menuOpen = false
-            rail && railFocused -> focusManager.moveFocus(FocusDirection.Right)
             recentMode -> recentMode = false
             else -> confirmQuit = true
         }
@@ -139,9 +139,6 @@ fun LibraryScreen(
         openMenu = { menuOpen = true },
         showRecent = { recentMode = it },
     )
-    val railItems = SettingsEntries.map { (icon, label, page) ->
-        HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
-    } + HomeMenuItem(MenuIcon.Quit, "Quit") { onQuit() }
     val toSystem = { openPage(SettingsPage.System) }
     val emptyKind = when {
         !Emulator.iplLoaded -> EmptyKind.Bios
@@ -152,7 +149,7 @@ fun LibraryScreen(
     }
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
 
-    Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
+    Box(Modifier.fillMaxSize().background(AppBackground).onFocusChanged { MenuState.hasFocus = it.hasFocus }.onPreviewKeyEvent { e ->
         // Quit dialog open: it owns the controller. A confirms, B/Back cancels; acting on key release and consuming the
         // press too, so the same press can't also reach the library or the system Back
         if (confirmQuit) {
@@ -164,18 +161,13 @@ fun LibraryScreen(
             }
             return@onPreviewKeyEvent true
         }
-        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        when (e.key) {
-            Key.ButtonX -> { menuOpen = !menuOpen; true } // X: main menu
-            else -> false
-        }
+        false
     }) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The top bar opens the main menu
             HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = { menuOpen = !menuOpen }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, recentMode, actions, railItems, railFocus, coverVersion, empty,
-                    onMenuFocus = { railFocused = it })
+                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty, refocus = MenuState.refocus.intValue)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
                     Box(Modifier.zIndex(10f).fillMaxSize()) {
@@ -232,6 +224,14 @@ internal object MenuState {
      *  focus). Remembered between sessions by the kit's LibraryView. */
     val recent = gb.frame.LibraryView.recent
     var selected by mutableStateOf<SettingsPage?>(null)
+    /** The library is on screen (not a settings page or a game): MainActivity handles X and lost focus there. */
+    @Volatile var libraryShown = false
+    /** Something inside the library screen has the focus (a tap or a closed menu can leave nothing focused). */
+    @Volatile var hasFocus = false
+    /** Bumped to put the focus back on the library. */
+    val refocus = mutableIntStateOf(0)
+    /** Bumped to put the focus back on the open menu. */
+    val menuRefocus = mutableIntStateOf(0)
 }
 
 private val SettingsEntries = listOf(
