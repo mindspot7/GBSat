@@ -144,22 +144,14 @@ fun LibraryScreen(
         HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
     } + HomeMenuItem(MenuIcon.Quit, "Quit") { onQuit() }
     val toSystem = { openPage(SettingsPage.System) }
-    val empty: (@Composable () -> Unit)? = when {
-        !Emulator.iplLoaded -> @Composable { Panel(Modifier.fillMaxSize()) {
-            EmptyState(Icons.Default.Memory, "Add a Saturn BIOS", "GBSat needs your own Saturn IPL ROM (512 KiB) to boot games.", "Open System options", toSystem)
-        } }
-        Emulator.gamesDir.isBlank() -> @Composable { Panel(Modifier.fillMaxSize()) {
-            EmptyState(Icons.Default.Folder, "Choose your games folder", "Pick the folder that holds your Saturn disc images.", "Open System options", toSystem)
-        } }
-        games.isEmpty() && !recentMode -> @Composable { Panel(Modifier.fillMaxSize()) {
-            if (loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            else EmptyState(Icons.Default.SearchOff, "No games found", "Nothing found in ${Storage.folderLabel(Emulator.gamesDir)}", null, {})
-        } }
-        recentMode && entries.isEmpty() -> @Composable { Panel(Modifier.fillMaxSize()) {
-            EmptyState(Icons.Default.History, "No save states yet", "Save states you create in games show up here, newest first.", null, {})
-        } }
+    val emptyKind = when {
+        !Emulator.iplLoaded -> EmptyKind.Bios
+        Emulator.gamesDir.isBlank() -> EmptyKind.Folder
+        games.isEmpty() && !recentMode -> if (loading) EmptyKind.Loading else EmptyKind.NoGames
+        recentMode && entries.isEmpty() -> EmptyKind.NoStates
         else -> null
     }
+    val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
 
     Box(Modifier.fillMaxSize().background(AppBackground).onPreviewKeyEvent { e ->
         // Quit dialog open: it owns the controller. A confirms, B/Back cancels; acting on key release and consuming the
@@ -227,6 +219,20 @@ fun LibraryScreen(
             onAchievements = { gameMenu = null; achievementsFor = g.key },
             onCover = { picker.launch(arrayOf("image/*")) }) }
         if (confirmQuit) QuitDialog(onConfirm = { confirmQuit = false; onQuit() }, onCancel = { confirmQuit = false })
+    }
+}
+
+private enum class EmptyKind { Bios, Folder, Loading, NoGames, NoStates }
+
+/** What the library shows while there are no games (or save states) to show. */
+@Composable
+private fun EmptyContent(kind: EmptyKind, toSystem: () -> Unit) = Panel(Modifier.fillMaxSize()) {
+    when (kind) {
+        EmptyKind.Bios -> EmptyState(Icons.Default.Memory, "Add a Saturn BIOS", "GBSat needs your own Saturn IPL ROM (512 KiB) to boot games.", "Open System options", toSystem)
+        EmptyKind.Folder -> EmptyState(Icons.Default.Folder, "Choose your games folder", "Pick the folder that holds your Saturn disc images.", "Open System options", toSystem)
+        EmptyKind.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        EmptyKind.NoGames -> EmptyState(Icons.Default.SearchOff, "No games found", "Nothing found in ${Storage.folderLabel(Emulator.gamesDir)}", null, {})
+        EmptyKind.NoStates -> EmptyState(Icons.Default.History, "No save states yet", "Save states you create in games show up here, newest first.", null, {})
     }
 }
 
