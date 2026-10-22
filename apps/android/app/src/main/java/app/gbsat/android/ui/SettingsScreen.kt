@@ -16,6 +16,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -55,7 +58,7 @@ import kotlinx.coroutines.launch
 enum class SettingsPage(val label: String, val icon: ImageVector) {
     System("System", Icons.Default.Tune),
     Video("Video", Icons.Default.Tv),
-    Audio("Audio", Icons.Default.VolumeUp),
+    Audio("Audio", Icons.AutoMirrored.Filled.VolumeUp),
     Performance("Performance", Icons.Default.Speed),
     Controls("Controls", Icons.Default.SportsEsports),
     Extras("Extras", Icons.Default.EmojiEvents),
@@ -234,10 +237,10 @@ private fun VideoPage() {
 
 @Composable
 private fun AudioPage() {
-    SettingsGroup("Output", Icons.Default.VolumeUp) {
+    SettingsGroup("Output", Icons.AutoMirrored.Filled.VolumeUp) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RowIcon(if (Emulator.volume == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp)
+                RowIcon(if (Emulator.volume == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp)
                 Spacer(Modifier.width(14.dp))
                 Text("Volume", style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
                 Text("${Emulator.volume}%", color = Gold, fontWeight = FontWeight.SemiBold)
@@ -277,7 +280,7 @@ private fun PerformancePage() {
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
     }
     SettingsGroup("Emulation", Icons.Default.Memory) {
-        ToggleRow(Icons.Default.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
+        ToggleRow(Icons.AutoMirrored.Filled.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
             Emulator.threadedVdp, ch { Emulator.threadedVdp = it })
         SettingsDivider()
         ChoiceRow("Threaded audio", "Sound chip and its 68000 on a separate thread. Auto tries both while a game runs slow and remembers the faster one per game",

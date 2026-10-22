@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -230,7 +232,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 // Hidden while the on-screen fast-forward button is shown
                                 if (!Emulator.showFfButton) MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
                                 MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
-                                MenuItem(Icons.Default.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
+                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
                                 MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
                                 MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
@@ -268,7 +270,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
                                     Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0); Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.Default.VolumeUp, "Volume up", value = "${Emulator.volume}%") {
+                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Volume up", value = "${Emulator.volume}%") {
                                     Emulator.volume = (Emulator.volume + 10).coerceAtMost(100); Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 MenuItem(Icons.Default.FastForward, "Fast-forward audio", value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio]) {
@@ -279,7 +281,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
                                     Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
+                                MenuItem(Icons.AutoMirrored.Filled.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
                                     Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
