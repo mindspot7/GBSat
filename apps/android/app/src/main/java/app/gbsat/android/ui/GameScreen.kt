@@ -54,12 +54,20 @@ fun GameScreen(onQuitApp: () -> Unit) {
     LaunchedEffect(Emulator.menuRequest) {
         if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }
     }
-    // Report if the Vulkan GPU renderer could not start (the software renderer keeps running).
+    // Report if the GPU (Vulkan) renderer could not start (the CPU renderer keeps running), and fall back to the plain
+    // window output if OpenGL ES can't start on this device.
     LaunchedEffect(Emulator.renderer) {
+        delay(1500)
         if (Emulator.renderer == 4) {
-            delay(1500)
             val err = NativeBridge.nativeGetGpuError().orEmpty()
-            if (err.isNotEmpty()) Emulator.showToast("Vulkan GPU unavailable, using software: $err")
+            if (err.isNotEmpty()) Emulator.showToast("GPU (Vulkan) unavailable, using the CPU renderer: $err")
+        }
+        if (Emulator.renderer != 0 && !Emulator.glFallback && NativeBridge.nativeGlFailed()) {
+            Emulator.glFallback = true
+            if (Emulator.renderer == 1) {
+                Emulator.applyOptions()
+                Emulator.showToast("OpenGL ES unavailable: showing the picture without filters or shaders")
+            }
         }
     }
     // Resume when returning from background.
@@ -110,7 +118,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
             PerfOptions(Emulator.showFps, Emulator.showSpeed, Emulator.showCpu, Emulator.showGpu, Emulator.showRenderer,
                 Emulator.showResolution, Emulator.showFrameTime),
             appName = "GBSat", fps = fps, targetFps = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f,
-            renderer = when (Emulator.renderer) { 0 -> "Software"; 1 -> "OpenGL ES"; else -> "Vulkan HW" },
+            renderer = Emulator.rendererLabel,
             width = stats.getOrElse(1) { 320 }.toInt(), height = stats.getOrElse(2) { 224 }.toInt(),
             frameMs = stats.getOrElse(5) { 0 } / 1000f, gpuName = { NativeBridge.nativeGetGpuName() },
             modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp),
@@ -135,7 +143,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
 @Composable
 private fun VideoSurface(modifier: Modifier) {
     // A SurfaceView can only be fed by one kind of producer, so switching renderer recreates it.
-    key(Emulator.renderer) { VideoSurfaceInner(modifier) }
+    key(Emulator.displayRenderer) { VideoSurfaceInner(modifier) }
 }
 
 @Composable
@@ -234,10 +242,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
                                     Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
                                 }
-                                val rendererIds = listOf(0, 1, 4)
-                                val rendererNames = listOf("Software", "OpenGL ES", "Vulkan GPU")
-                                MenuItem(Icons.Default.Memory, "Renderer", value = rendererNames[rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0)]) {
-                                    Emulator.renderer = rendererIds[(rendererIds.indexOf(Emulator.renderer) + 1) % rendererIds.size]
+                                MenuItem(Icons.Default.Memory, "Renderer", value = Emulator.rendererLabel) {
+                                    Emulator.renderer = if (Emulator.renderer == 4) 1 else 4
                                     Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 if (Emulator.renderer == 4) {

@@ -20,4 +20,6 @@ void Shutdown();
 
 // GPU name reported by the GL driver (empty until the presenter started)
 std::string GpuName();
+// OpenGL ES could not start (EGL setup failed): the app falls back to the plain window output
+bool Failed();
 } // namespace glr

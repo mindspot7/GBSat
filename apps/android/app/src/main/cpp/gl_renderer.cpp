@@ -135,6 +135,7 @@ struct State {
 State S;
 std::mutex gpuNameMutex;
 std::string gpuName;
+std::atomic<bool> failed{false};
 
 GLuint Compile(GLenum type, const char *src) {
     GLuint s = glCreateShader(type);
@@ -164,6 +165,7 @@ void Loop() {
     EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxAttr);
     if (n == 0 || ctx == EGL_NO_CONTEXT) {
         LOGE("EGL setup failed");
+        failed = true;
         return;
     }
 
@@ -438,6 +440,10 @@ void Submit(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t scale)
     S.fscale = scale ? scale : 1;
     S.frameReady = true;
     S.cv.notify_all();
+}
+
+bool Failed() {
+    return failed.load();
 }
 
 std::string GpuName() {

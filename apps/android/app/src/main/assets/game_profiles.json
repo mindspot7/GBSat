@@ -1,0 +1,21 @@
+{
+  "about": "Recommended settings per game and device class (gb.ui.GameProfiles). low = 2 fast cores or fewer (e.g. Unisoc T618 / Mali-G52), high = 3 or more. Keys: renderer (cpu | gpu), threadedAudio (true | false), frameSkip (true | false). Values come from performance logs on real devices; add a game only with measurements.",
+  "games": [
+    {
+      "titles": ["VIRTUA FIGHTER 2"],
+      "low": { "renderer": "cpu", "threadedAudio": false, "frameSkip": true }
+    },
+    {
+      "titles": ["J:AZEL PANZER DRAGOON RPG U:PANZER DRAGOON SAGA", "PANZER DRAGOON SAGA", "AZEL PANZER DRAGOON RPG"],
+      "low": { "renderer": "cpu", "threadedAudio": false }
+    },
+    {
+      "titles": ["BURNING RANGERS"],
+      "low": { "renderer": "cpu", "threadedAudio": true }
+    },
+    {
+      "titles": ["NIGHTS", "NiGHTS"],
+      "low": { "renderer": "cpu", "threadedAudio": true }
+    }
+  ]
+}

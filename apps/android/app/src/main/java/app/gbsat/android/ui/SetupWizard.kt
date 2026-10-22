@@ -33,8 +33,8 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
     val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
     val descriptions = mapOf(
         Emulator.Preset.High to "Vulkan GPU at the screen's native resolution, Scanlines shader. For powerful devices.",
-        Emulator.Preset.Mid to "OpenGL ES renderer, no shader. For mid-range devices.",
-        Emulator.Preset.Low to "Software renderer with frame skip. For modest devices.",
+        Emulator.Preset.Mid to "CPU renderer (OpenGL) with Scanlines shader. For mid-range devices.",
+        Emulator.Preset.Low to "CPU renderer (OpenGL), no shader, frame skip. For modest devices.",
     )
     gb.ui.SetupWizard(
         steps = listOf(

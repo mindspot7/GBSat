@@ -626,7 +626,7 @@ void WritePerfLog(float fps, float presentedFps) {
                    "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms\n");
     }
     const int mode = g->rendererMode;
-    const char *renderer = mode == 4 ? "Vulkan" : mode == 1 ? "OpenGL ES" : "Software";
+    const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
     const auto &cfg = g->saturn->configuration;
     char ts[32];
     const time_t now = time(nullptr);
@@ -1184,6 +1184,10 @@ JNI_FN(void, nativeScspModeKnown)(JNIEnv *, jclass) {
     if (g) {
         Post([] { g->scspTune.cooldownUntil = std::chrono::steady_clock::now() + std::chrono::seconds(600); });
     }
+}
+
+JNI_FN(jboolean, nativeGlFailed)(JNIEnv *, jclass) {
+    return glr::Failed();
 }
 
 JNI_FN(jboolean, nativeGetThreadedScsp)(JNIEnv *, jclass) {

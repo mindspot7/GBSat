@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option (CPU rendering shown without OpenGL) is gone, since CPU (OpenGL) renders the same and adds filters and shaders. Existing Software users move to CPU (OpenGL); the plain output is still used automatically if OpenGL ES can't start.
+- Recommended settings per game: heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices (built-in list, starting with Virtua Fighter 2, Panzer Dragoon Saga, Burning Rangers and NiGHTS on low-end chips). Changes made during a game are remembered for that game. Can be turned off in Settings.
+- Presets: Mid is CPU (OpenGL) with Scanlines, Low is CPU (OpenGL) without shader and with frame skip.
 - Threaded audio has a new Auto mode (default): when a game runs below full speed, GBSat tries the other mode for a few seconds, keeps the faster one and remembers it per game (some games need the sound thread, others the free core for the video renderer, e.g. on the Unisoc T618). On and Off are still available.
 - The performance log records how long the emulation waits for the sound and video threads.
 - Frame skip on interlaced hi-res screens skips both fields together, so moving objects no longer leave a trail (e.g. Virtua Fighter 2).

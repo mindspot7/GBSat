@@ -46,6 +46,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetScspMode(mode: Int)
     @JvmStatic external fun nativeGetThreadedScsp(): Boolean
     @JvmStatic external fun nativeScspModeKnown()
+    @JvmStatic external fun nativeGlFailed(): Boolean
     @JvmStatic external fun nativeTakeCartNotice(): String?
     @JvmStatic external fun nativeRaHttpResponse(id: Int, status: Int, body: ByteArray?)
 

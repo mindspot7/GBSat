@@ -52,7 +52,22 @@ object Emulator {
         get() = showFps && showSpeed && showRenderer && showResolution && showCpu && showGpu && showFrameTime
         set(v) { showFps = v; showSpeed = v; showRenderer = v; showResolution = v; showCpu = v; showGpu = v; showFrameTime = v }
     var fastBoot by mutableStateOf(true)
-    var renderer by mutableStateOf(0) // 0 = software, 1 = OpenGL ES, 4 = Vulkan GPU (2 = Vulkan present and 3 = ANGLE were removed)
+    // Renderer: 1 = CPU (OpenGL): VDPs emulated on the CPU, shown through OpenGL ES; 4 = GPU (Vulkan).
+    // 0 (CPU, plain window output) is no longer offered: it is only used internally when OpenGL ES can't start.
+    var renderer by mutableStateOf(1)
+    /** OpenGL ES could not start on this device: CPU frames go to the plain window output instead. */
+    var glFallback by mutableStateOf(false)
+    /** Renderer id actually used for presentation (see [glFallback]). */
+    val displayRenderer get() = if (renderer == 1 && glFallback) 0 else renderer
+    val rendererLabel get() = when (displayRenderer) { 4 -> "GPU (Vulkan)"; 1 -> "CPU (OpenGL)"; else -> "CPU (plain)" }
+
+    /** Use the built-in recommended settings per game (assets/game_profiles.json). */
+    var useGameProfiles by mutableStateOf(true)
+    // Per-game settings while a game runs: renderer, frame skip and threaded audio start from the user's own choice for
+    // that game, else the recommended profile, else the global settings. The global values are kept aside meanwhile.
+    private data class GameOpts(val renderer: Int, val frameSkip: Boolean, val scspMode: Int)
+    private var sessionGlobals: GameOpts? = null
+    private var sessionStart: GameOpts? = null
     var frameSkip by mutableStateOf(false) // render every other frame
     var volume by mutableStateOf(100)      // audio volume, percent
     var autoSave by mutableStateOf(false)  // save state when leaving a game
@@ -66,10 +81,10 @@ object Emulator {
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at the screen's native resolution with scanlines, accurate SH-2 cache
         Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
-        // Mid-range: CPU rendering through OpenGL ES, no shader
-        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
-        // Modest devices: Software renderer, frame skip
-        Preset.Low -> PresetValues(renderer = 0, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
+        // Mid-range: CPU rendering (OpenGL output) with scanlines
+        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        // Modest devices: CPU rendering (OpenGL output), no shader, frame skip
+        Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
     }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
     val currentPreset: Preset?
@@ -369,6 +384,7 @@ object Emulator {
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.ui.PlayTime.init(prefs)
         gb.ui.LibraryView.init(prefs)
+        gb.ui.GameProfiles.init(context)
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
@@ -394,7 +410,9 @@ object Emulator {
         showFrameTime = prefs.getBoolean("showFrameTime", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         // "Vulkan" (present-only, id 2) was replaced by Vulkan GPU, which also presents through Vulkan
-        renderer = prefs.getInt("renderer", 0).let { when (it) { 2 -> 4; 3 -> 1; else -> it } } // ANGLE (3) was removed
+        // 0 (Software, plain output) became CPU (OpenGL); 2 (Vulkan present) and 3 (ANGLE) were removed earlier
+        renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
+        useGameProfiles = prefs.getBoolean("gameProfiles", true)
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
@@ -423,8 +441,8 @@ object Emulator {
             crashFile.delete()
             if (text.isNotBlank()) {
                 val gpu = text.contains("renderer=4")
-                if (gpu) { renderer = 0; prefs.edit().putInt("renderer", 0).apply() }
-                lastCrash = (if (gpu) "GBSat closed while using the Vulkan GPU renderer, so the renderer was switched back to Software.\n\n" else "") +
+                if (gpu) { renderer = 1; prefs.edit().putInt("renderer", 1).apply() }
+                lastCrash = (if (gpu) "GBSat closed while using the GPU (Vulkan) renderer, so the renderer was switched to CPU (OpenGL).\n\n" else "") +
                     "GBSat ${appVersion()} crashed last time. Please send this report:\n\n" + text
             }
         }
@@ -454,18 +472,34 @@ object Emulator {
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
         NativeBridge.nativeSetAudio(volume, ffAudio)
-        NativeBridge.nativeSetRenderer(renderer)
+        NativeBridge.nativeSetRenderer(displayRenderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (running) applyCheats()
         if (fastBoot) NativeBridge.nativeSetFastBoot(true)
     }
 
-    fun savePrefs() = prefs.edit()
+    fun savePrefs() {
+        // While a game runs, changes to the per-game options are remembered for that game; the globals stay as they were
+        val g = sessionGlobals
+        val game = currentGame
+        val start = sessionStart
+        if (g != null && game != null && start != null) {
+            val e = prefs.edit()
+            if (renderer != start.renderer) e.putInt("game:$game:renderer", renderer)
+            if (frameSkip != start.frameSkip) e.putBoolean("game:$game:frameSkip", frameSkip)
+            if (scspMode != start.scspMode) e.putInt("game:$game:scspMode", scspMode)
+            e.apply()
+            sessionStart = GameOpts(renderer, frameSkip, scspMode)
+        }
+        savePrefsEditor(g).apply()
+    }
+
+    private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putInt("scspMode", scspMode).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
-        .putBoolean("ffToggle", ffToggle).apply()
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
+        .putBoolean("ffToggle", ffToggle)
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */
     suspend fun importBios(context: Context, uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
@@ -490,11 +524,7 @@ object Emulator {
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()
-            // Auto threaded audio: start from what worked best last time for this game (else the device default)
-            if (scspMode == 0) {
-                NativeBridge.nativeSetThreadedScsp(prefs.getBoolean("scsp:$path", threadedScsp))
-                if (prefs.contains("scsp:$path")) NativeBridge.nativeScspModeKnown()
-            }
+            applyGameOptions(path)
             // Auto load: continue from the game's most recent save state (auto, quick or a numbered slot)
             if (useAutoLoad && autoLoad) latestState(path)?.let { st -> loadState(st.slot)?.let { showToast(it) } }
             pause(false)
@@ -533,8 +563,46 @@ object Emulator {
         if (scspMode == 0 && running) prefs.edit().putBoolean("scsp:$game", NativeBridge.nativeGetThreadedScsp()).apply()
     }
 
+    /**
+     * Per-game renderer, frame skip and threaded audio: the user's choice for this game, else the recommended profile
+     * for this device class, else the global settings.
+     */
+    private fun applyGameOptions(path: String) {
+        val globals = sessionGlobals ?: GameOpts(renderer, frameSkip, scspMode)
+        sessionGlobals = globals
+        val header = NativeBridge.nativeGetDiscHeader().orEmpty()
+        val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
+        val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
+        val profile = if (useGameProfiles) gb.ui.GameProfiles.lookup(title, id, gb.ui.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount())) else emptyMap()
+        var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
+        var startThreaded = threadedScsp
+        var audioKnown = false
+        (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
+        (profile["frameSkip"] as? Boolean)?.let { fs = it }
+        (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
+        // Auto threaded audio: what the tuner measured for this game on this device beats the profile
+        if (prefs.contains("scsp:$path")) { startThreaded = prefs.getBoolean("scsp:$path", startThreaded); audioKnown = true }
+        // The user's own choices for this game win
+        var userChoice = false
+        if (prefs.contains("game:$path:renderer")) { r = prefs.getInt("game:$path:renderer", r); userChoice = true }
+        if (prefs.contains("game:$path:frameSkip")) { fs = prefs.getBoolean("game:$path:frameSkip", fs); userChoice = true }
+        if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm); userChoice = true }
+        renderer = r; frameSkip = fs; scspMode = sm
+        sessionStart = GameOpts(r, fs, sm)
+        applyOptions()
+        if (sm == 0) {
+            NativeBridge.nativeSetThreadedScsp(startThreaded)
+            if (audioKnown) NativeBridge.nativeScspModeKnown()
+        }
+        if (profile.isNotEmpty() && !userChoice) showToast("Recommended settings for this game: $rendererLabel")
+    }
+
     private fun closeGame() {
         rememberScspMode()
+        // Back to the global renderer, frame skip and threaded audio
+        sessionGlobals?.let { renderer = it.renderer; frameSkip = it.frameSkip; scspMode = it.scspMode }
+        sessionGlobals = null; sessionStart = null
+        applyOptions()
         pause(true); accountPlayTime(); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
         RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }

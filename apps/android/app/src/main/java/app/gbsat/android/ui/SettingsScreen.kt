@@ -178,21 +178,20 @@ private fun VideoPage() {
     val preset = Emulator.currentPreset
     SettingsGroup("Preset", Icons.Default.AutoAwesome) {
         ChoiceRow("Quality preset",
-            "High: Vulkan GPU Native + Scanlines · Mid: OpenGL ES · Low: Software + frame skip. Changing an option below sets Custom.",
+            "High: GPU (Vulkan) Native + Scanlines · Mid: CPU (OpenGL) + Scanlines · Low: CPU (OpenGL) + frame skip. Changing an option below sets Custom.",
             Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
             preset?.ordinal ?: Emulator.Preset.entries.size,
         ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
     }
     SettingsGroup("Renderer", Icons.Default.Memory) {
-        val rendererIds = listOf(0, 1, 4)
         ChoiceRow("Renderer",
-            when (Emulator.renderer) {
-                0 -> "CPU emulation, shown without filters or shaders"
-                1 -> "CPU emulation, shown with OpenGL ES (filters and shaders)"
-                else -> "Graphics emulated on the GPU with Vulkan (falls back to Software if unsupported)"
-            },
-            listOf("Software", "OpenGL ES", "Vulkan GPU"), rendererIds.indexOf(Emulator.renderer).coerceAtLeast(0),
-            ch { Emulator.renderer = rendererIds[it] })
+            if (Emulator.renderer == 4) "Saturn graphics emulated on the GPU with Vulkan; best on strong GPUs (falls back to the CPU if unsupported)"
+            else "Saturn graphics emulated on the CPU, shown with OpenGL ES (filters and shaders); best on most devices",
+            listOf("CPU (OpenGL)", "GPU (Vulkan)"), if (Emulator.renderer == 4) 1 else 0,
+            ch { Emulator.renderer = if (it == 1) 4 else 1 })
+        SettingsDivider()
+        ToggleRow(Icons.Default.Tune, "Recommended settings per game", "Heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices. Changes you make during a game are kept for that game",
+            Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
         if (Emulator.renderer == 4) {
             SettingsDivider()
             ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
@@ -223,7 +222,7 @@ private fun VideoPage() {
         SettingsDivider()
         ToggleRow(Icons.Default.Percent, "Show speed", "Emulation speed in percent (100% = full speed)", Emulator.showSpeed) { Emulator.showSpeed = it; Emulator.savePrefs() }
         SettingsDivider()
-        ToggleRow(Icons.Default.Memory, "Show renderer", "Software, OpenGL ES or Vulkan GPU", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
+        ToggleRow(Icons.Default.Memory, "Show renderer", "CPU (OpenGL) or GPU (Vulkan)", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
         SettingsDivider()
         ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Output resolution (including the internal resolution scale)",
             Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
