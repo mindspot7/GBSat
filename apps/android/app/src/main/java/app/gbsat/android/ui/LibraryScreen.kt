@@ -458,6 +458,8 @@ private fun Library(
                             )
                         }
                     }
+                    // Portrait (e.g. 3:4 handhelds): the shelf sits lower-middle instead of on the bottom edge
+                    if (portrait) Spacer(Modifier.weight(0.6f))
                 }
             }
         }

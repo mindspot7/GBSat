@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Small screens: the setup wizard is compact on short screens (e.g. 640x480) and shows the recommended preset; on portrait screens the game shelf sits higher.
 - Better first-run defaults per device class (CPU core types and GPU): Rockchip RK3566 and other chips with only little cores get the Low preset (it was High), Unisoc T820 and other fast CPUs with a modest GPU get Mid, Snapdragon 865-class chips keep High. Settings → About shows the detected class.
 - Native internal resolution is limited to what the GPU handles (4x on Adreno 730+, 3x on Adreno 640/650/660 and Mali-G710+).
 - Chips with 4+ equal cores (e.g. RK3566) now also keep the emulation thread alone on its own core.
