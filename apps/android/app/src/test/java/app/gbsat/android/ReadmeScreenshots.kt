@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.MutableState
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -72,7 +73,10 @@ class ReadmeScreenshots {
     @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}) })
     @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     @Test fun wizard() = shot("setup", { SetupWizard({}) }) {
-        repeat(5) { rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300) }
+        // Through to the last step (the preset picker)
+        while (rule.onAllNodesWithText("Next").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300); rule.waitForIdle()
+        }
     }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, SettingsPage.Video) })
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, SettingsPage.Controls) })
