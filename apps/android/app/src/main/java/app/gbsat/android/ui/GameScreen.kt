@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -236,7 +238,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
                                 MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
                                 MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
-                                MenuItem(Icons.Default.ExitToApp, "Exit") { Emulator.quitGame() } // back to the library
+                                MenuItem(Icons.AutoMirrored.Filled.ExitToApp, "Exit") { Emulator.quitGame() } // back to the library
                             }
                             MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
                             MenuPage.Video -> {
@@ -267,7 +269,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 }
                             }
                             MenuPage.Audio -> {
-                                MenuItem(Icons.Default.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
+                                MenuItem(Icons.AutoMirrored.Filled.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
                                     Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0); Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Volume up", value = "${Emulator.volume}%") {
