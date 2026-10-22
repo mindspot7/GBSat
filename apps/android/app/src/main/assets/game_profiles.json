@@ -3,11 +3,11 @@
   "games": [
     {
       "titles": ["VIRTUA FIGHTER 2"],
-      "low": { "renderer": "cpu", "threadedAudio": false, "frameSkip": true }
+      "low": { "renderer": "cpu", "threadedAudio": true, "frameSkip": true }
     },
     {
       "titles": ["J:AZEL PANZER DRAGOON RPG U:PANZER DRAGOON SAGA", "PANZER DRAGOON SAGA", "AZEL PANZER DRAGOON RPG"],
-      "low": { "renderer": "cpu", "threadedAudio": false }
+      "low": { "renderer": "cpu", "threadedAudio": true }
     },
     {
       "titles": ["BURNING RANGERS"],

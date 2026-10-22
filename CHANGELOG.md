@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Recommended settings: Virtua Fighter 2 and Panzer Dragoon Saga now use threaded audio on devices like the RG Rotate (measured faster: VF2 58.8 vs 53-54 fps, Panzer 56-59 vs 54).
 - Fixed: the performance log restarted every second (its header got longer than the version check read).
 - Fixed: on some interlaced hi-res screens (e.g. Batsugun at 640x480) the picture could freeze after fast forward or a skipped frame.
 - Faster: the SH-2 CPUs skip idle loops (loops that only wait for a value to change), with the same result as running them; the performance log showed most games spending 60-100% of the SH-2 time in such loops. Settings → Performance → Skip idle loops (on by default, also in the in-game menu → Performance) turns it off if a game misbehaves. Idle loops that count while waiting, delay loops and the slave CPU waiting for the master's signal are skipped too, by whole iterations with exact cycle counts. When both CPUs wait at the same time, they skip together to the next event.
