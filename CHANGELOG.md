@@ -1,23 +1,20 @@
 # Changelog
 
 ## Unreleased
-- Offline RetroAchievements (casual mode): after a game was started online once, it can be played without a connection; unlocks are kept and sent with their real time when the connection is back (Settings → RetroAchievements → Offline achievements).
-- The shared framework is now called GBFrame (github.com/mindspot7/GBFrame, git submodule libs/gbframe).
-- Generic parts moved to the shared UI kit (hotkeys, games folder access, OpenGL ES presenter, CPU tuning, PGO and device-test tools); the games folder also understands GDI track lists.
-- Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option (CPU rendering shown without OpenGL) is gone, since CPU (OpenGL) renders the same and adds filters and shaders. Existing Software users move to CPU (OpenGL); the plain output is still used automatically if OpenGL ES can't start.
-- Recommended settings per game: heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices (built-in list, starting with Virtua Fighter 2, Panzer Dragoon Saga, Burning Rangers and NiGHTS on low-end chips). Changes made during a game are remembered for that game. Can be turned off in Settings.
-- Presets: Mid is CPU (OpenGL) with Scanlines, Low is CPU (OpenGL) without shader and with frame skip.
-- Threaded audio has a new Auto mode (default): when a game runs below full speed, GBSat tries the other mode for a few seconds, keeps the faster one and remembers it per game (some games need the sound thread, others the free core for the video renderer, e.g. on the Unisoc T618). On and Off are still available.
-- The performance log records how long the emulation waits for the sound and video threads.
-- Frame skip on interlaced hi-res screens skips both fields together, so moving objects no longer leave a trail (e.g. Virtua Fighter 2).
-- Software renderer: faster background drawing (each 8-dot character cell is looked up once instead of for every dot), with identical output.
+
+## 1.3.3
+- Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option is gone, since CPU (OpenGL) renders the same and adds filters and shaders (existing Software users move to CPU (OpenGL); a plain output is used automatically if OpenGL ES can't start).
+- Recommended settings per game: heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices (Virtua Fighter 2, Panzer Dragoon Saga, Burning Rangers and NiGHTS on low-end chips). Changes made during a game are remembered for that game. Can be turned off in Settings.
+- Threaded audio Auto mode (default): when a game runs below full speed, GBSat tries the other mode, keeps the faster one and remembers it per game.
+- Faster CPU renderer: quicker background drawing (same output) and the background render thread on a fast core; Virtua Fighter 2, Panzer Dragoon Saga, Burning Rangers and NiGHTS run much faster on low-end chips such as the Unisoc T618.
+- Frame skip: gentler and steadier (only when clearly below full speed, never more than 1 frame in a row), and no more trails on interlaced hi-res screens (e.g. Virtua Fighter 2).
+- Fast forward no longer slows down heavy games.
+- Offline RetroAchievements (casual mode): after a game was started online once, it can be played without a connection; unlocks are sent with their real time when the connection is back.
+- Auto load continues from the game's latest save state in any slot (also with Auto save off), and Auto save is also written when you leave GBSat during a game.
 - The library reopens in the layout you used last (all games or recent save states).
-- Auto load continues from the game's latest save state, whichever slot it is in (auto, quick or a numbered slot), so it also works with Auto save off.
-- Auto save is also written when you leave GBSat during a game (Home, recent apps), so Auto load works even if Android closes the app in the background.
-- Software renderer: the VDP2 render thread (backgrounds) now runs on a fast core next to the sound thread instead of the slower cores (heavy and hi-res games such as Virtua Fighter 2 and Burning Rangers).
-- Fast forward no longer slows down heavy games: it shows about 20 frames per second (at most 1 of every 3 frames) and spends the rest emulating.
-- Automatic frame skip is gentler and steadier: it starts when the game is clearly below full speed and stays on until it keeps up again, and never more than 1 frame in a row (2 on hi-res screens); the automatic pause added in 1.3.2 is removed.
-- Performance log for tests: Android/media/app.gbsat.android/perf-log.csv (tools/perf-log.bat) records fps with the renderer, frame skip and fast forward settings.
+- Presets: the setup wizard recommends one for your device; Mid is CPU (OpenGL) with Scanlines, Low is CPU (OpenGL) with frame skip.
+- Performance log for device tests (Android/media/app.gbsat.android/perf-log.csv, tools/perf-log.bat).
+- The shared framework is now GBFrame (github.com/mindspot7/GBFrame); hotkeys, games folder access (now also GDI track lists), the OpenGL ES presenter, CPU tuning and test tools moved there.
 
 ## 1.3.2
 - Faster emulation: native code optimized with a profile recorded while playing (PGO); lower CPU use and less heat on every renderer.
