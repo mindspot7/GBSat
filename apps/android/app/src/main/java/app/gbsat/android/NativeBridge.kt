@@ -42,7 +42,7 @@ object NativeBridge {
     @JvmStatic external fun nativeRaHashFile(path: String): String?
     @JvmStatic external fun nativeGetGpuName(): String
     @JvmStatic external fun nativeSetThreadedScsp(on: Boolean)
-    @JvmStatic external fun nativeFastCoreCount(): Int
+
     @JvmStatic external fun nativeSetScspMode(mode: Int)
     @JvmStatic external fun nativeGetThreadedScsp(): Boolean
     @JvmStatic external fun nativeScspModeKnown()

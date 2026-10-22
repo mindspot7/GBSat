@@ -31,9 +31,13 @@ fun SetupWizard(onFinish: () -> Unit) {
         uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs(); message = null }
     }
     val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
-    // Recommended preset for this device: Low on chips with 2 fast cores or fewer (e.g. Unisoc T618), High otherwise
-    val recommended = if (gb.frame.GameProfiles.deviceClass(Emulator.fastCores) == gb.frame.GameProfiles.DeviceClass.Low)
-        Emulator.Preset.Low else Emulator.Preset.High
+    // Recommended preset by device class: High needs a strong GPU (e.g. Snapdragon 865), Mid a fast CPU (e.g. Unisoc
+    // T820), Low for the rest (e.g. Unisoc T618, Rockchip RK3566)
+    val recommended = when (Emulator.device.tier) {
+        gb.frame.DeviceTier.Tier.High -> Emulator.Preset.High
+        gb.frame.DeviceTier.Tier.Mid -> Emulator.Preset.Mid
+        else -> Emulator.Preset.Low
+    }
     LaunchedEffect(Unit) { if (!Emulator.setupDone && Emulator.currentPreset == null) Emulator.applyPreset(recommended) }
     val descriptions = mapOf(
         Emulator.Preset.High to "GPU (Vulkan) at the screen's native resolution, Scanlines shader. For powerful devices.",

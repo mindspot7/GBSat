@@ -374,6 +374,8 @@ private fun AboutPage() {
             Spacer(Modifier.height(4.dp))
             Text("Version $versionName", color = Gold, style = MaterialTheme.typography.labelLarge)
         }
+        SettingsDivider()
+        InfoRow("This device", Emulator.device.summary)
     }
     SettingsGroup("Credits", Icons.Default.Favorite) {
         InfoRow("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)")

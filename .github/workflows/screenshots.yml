@@ -30,7 +30,7 @@ jobs:
         working-directory: apps/android
         run: |
           set +e
-          gradle --no-daemon :app:testDebugUnitTest --tests '*ReadmeScreenshots*' > t.log 2>&1; rc=$?
+          gradle --no-daemon :app:testDebugUnitTest --tests '*ReadmeScreenshots*' --tests '*DeviceScreens*' > t.log 2>&1; rc=$?
           msg=$( (grep -E "^e: |FAILED|Exception|What went wrong" -A2 t.log | head -60) | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           [ -n "$msg" ] && echo "::warning title=Test log::$msg"
           tail -40 t.log; ls -la ../../docs/screenshots || true
@@ -42,6 +42,7 @@ jobs:
           name: screenshots
           path: |
             docs/screenshots/*.png
+            apps/android/app/build/device-screens/*.png
             apps/android/app/build/reports/tests/
       - name: Commit screenshots
         run: |

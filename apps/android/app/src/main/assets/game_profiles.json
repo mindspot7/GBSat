@@ -1,5 +1,5 @@
 {
-  "about": "Recommended settings per game and device class (gb.frame.GameProfiles). low = 2 fast cores or fewer (e.g. Unisoc T618 / Mali-G52), high = 3 or more. Keys: renderer (cpu | gpu), threadedAudio (true | false), frameSkip (true | false). Values come from performance logs on real devices; add a game only with measurements.",
+  "about": "Recommended settings per game and device class (gb.frame.GameProfiles / DeviceTier): entry = little cores only (e.g. Rockchip RK3566), low = 2 fast cores or fewer (e.g. Unisoc T618 / Mali-G52), mid = 3+ fast cores with a modest GPU (e.g. Unisoc T820 / Mali-G57), high = 3+ fast cores with a strong GPU (e.g. Snapdragon 865 / Adreno 650). Only \"all\" and the device's own class apply. Keys: renderer (cpu | gpu), threadedAudio (true | false), frameSkip (true | false). Values come from performance logs on real devices; add a game only with measurements.",
   "games": [
     {
       "titles": ["VIRTUA FIGHTER 2"],

@@ -100,11 +100,14 @@ object Emulator {
     fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
     var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
     var resScale by mutableStateOf(1) // GPU (Vulkan) internal resolution scale (1x..4x); 0 = Native (matches the screen)
-    /** Scale used for "Native": the screen's short side divided by the Saturn's ~224 lines, rounded (1x..6x). */
+    /**
+     * Scale used for "Native": the screen's short side divided by the Saturn's ~224 lines, rounded, at most what the GPU
+     * handles (4x on Adreno 730+, 3x on Adreno 640-7xx / Mali-G710+, 1x on weaker GPUs).
+     */
     val nativeScale: Int
         get() {
             val m = appContext.resources.displayMetrics
-            return Math.round(minOf(m.widthPixels, m.heightPixels) / 224f).coerceIn(1, 6)
+            return Math.round(minOf(m.widthPixels, m.heightPixels) / 224f).coerceIn(1, device.gpuMaxScale.coerceIn(1, 4))
         }
     val effectiveScale get() = if (resScale == 0) nativeScale else resScale
     val resScaleLabel get() = if (resScale == 0) "Native (${nativeScale}x)" else "${resScale}x"
@@ -371,6 +374,7 @@ object Emulator {
         appContext = context.applicationContext
         prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
         Storage.init(appContext)
+        Thread { gb.frame.DeviceTier.detect() }.start() // GPU name from a throwaway OpenGL ES context, off the main thread
         // Data lives in the app's storage. Older versions could keep it in a folder of the user's choice, which needed
         // the all-files permission; that data can be brought back with Settings → System → Import data.
         val oldDir = prefs.getString("dataDir", null)
@@ -509,8 +513,8 @@ object Emulator {
         err
     }
 
-    /** Fast CPU cores (big/prime): picks the device class for presets and game profiles (4 without the native library). */
-    val fastCores by lazy { runCatching { NativeBridge.nativeFastCoreCount() }.getOrDefault(4) }
+    /** Device class (CPU cores and GPU): recommended preset, game profiles, Native resolution cap. */
+    val device get() = gb.frame.DeviceTier.detect()
 
     /** Most recent save state of a game (auto, quick or slot), or null. */
     fun latestState(path: String): RecentState? = recentStates().firstOrNull { it.gamePath == path }
@@ -574,11 +578,11 @@ object Emulator {
         val header = NativeBridge.nativeGetDiscHeader().orEmpty()
         val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
-        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, gb.frame.GameProfiles.deviceClass(fastCores)) else emptyMap()
+        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, device.tier) else emptyMap()
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
         // Auto threaded audio starts on with 3+ fast cores; with 2 (e.g. Unisoc T618) the second one is usually worth more
         // to the background renderer
-        var startThreaded = fastCores >= 3
+        var startThreaded = device.fastCores >= 3
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }

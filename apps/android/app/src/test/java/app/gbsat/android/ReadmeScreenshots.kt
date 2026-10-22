@@ -29,9 +29,9 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [29], application = android.app.Application::class, qualifiers = "w853dp-h480dp-land-xhdpi")
-class ReadmeScreenshots {
+abstract class ScreenTest {
     @get:Rule val rule = createComposeRule()
-    private val out = System.getProperty("screenshotDir") ?: "build/screenshots"
+    protected open val out: String = System.getProperty("screenshotDir") ?: "build/screenshots"
 
     private fun setField(name: String, value: Any?) {
         val f = Emulator::class.java.getDeclaredField(name); f.isAccessible = true; f.set(Emulator, value)
@@ -63,13 +63,16 @@ class ReadmeScreenshots {
         Emulator.renderer = 4; Emulator.resScale = 4; Emulator.shader = 1; Emulator.filter = 1; Emulator.sh2Cache = true
     }
 
-    private fun shot(name: String, content: @androidx.compose.runtime.Composable () -> Unit, action: (() -> Unit)? = null) {
+    protected fun shot(name: String, content: @androidx.compose.runtime.Composable () -> Unit, action: (() -> Unit)? = null) {
         rule.setContent { GBSatTheme { content() } }
         rule.waitForIdle(); Thread.sleep(300); rule.mainClock.advanceTimeBy(1500); rule.waitForIdle()
         action?.let { it(); rule.mainClock.advanceTimeBy(1000); rule.waitForIdle() }
         rule.onRoot().captureRoboImage("$out/$name.png")
     }
+}
 
+/** README screenshots (docs/screenshots). */
+class ReadmeScreenshots : ScreenTest() {
     @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}) })
     @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     @Test fun wizard() = shot("setup", { SetupWizard({}) }) {
@@ -82,4 +85,39 @@ class ReadmeScreenshots {
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, SettingsPage.Controls) })
     @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, SettingsPage.Performance) })
     @Test fun extras() = shot("settings-extras", { SettingsScreen({}, {}, SettingsPage.Extras) })
+}
+
+/**
+ * Layout check on the screens of the most common handhelds (not committed: uploaded as the "device-screens" artifact).
+ * Densities are estimates; 640x480 is checked at both mdpi and hdpi, its worst case.
+ */
+class DeviceScreens : ScreenTest() {
+    override val out = "build/device-screens"
+
+    private fun library(d: String) = shot("$d-library", { LibraryScreen({}, {}, {}, {}) })
+    private fun menu(d: String) = shot("$d-menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
+    private fun video(d: String) = shot("$d-video", { SettingsScreen({}, {}, SettingsPage.Video) })
+    private fun setup(d: String) = shot("$d-setup", { SetupWizard({}) }) {
+        while (rule.onAllNodesWithText("Next").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300); rule.waitForIdle()
+        }
+    }
+
+    // Rockchip RK3566 handhelds: 640x480 (mdpi and hdpi)
+    @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun s640mLibrary() = library("640x480-mdpi")
+    @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun s640mMenu() = menu("640x480-mdpi")
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun s640hLibrary() = library("640x480-hdpi")
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun s640hMenu() = menu("640x480-hdpi")
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun s640hVideo() = video("640x480-hdpi")
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun s640hSetup() = setup("640x480-hdpi")
+    // 3:4 portrait 720x960 (Unisoc T820 handhelds)
+    @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Library() = library("720x960")
+    @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Menu() = menu("720x960")
+    @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Video() = video("720x960")
+    @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Setup() = setup("720x960")
+    // Near-square 1240x1080 and 1920x1080
+    @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqLibrary() = library("1240x1080")
+    @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqMenu() = menu("1240x1080")
+    @Test @Config(qualifiers = "w731dp-h411dp-land-420dpi") fun fhdLibrary() = library("1920x1080")
+    @Test @Config(qualifiers = "w731dp-h411dp-land-420dpi") fun fhdMenu() = menu("1920x1080")
 }

@@ -1152,12 +1152,6 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
     }
 }
 // SCSP (sound) and its MC68EC000 CPU on their own thread, off the emulation thread that runs the two SH-2s
-// Threaded audio needs a fast core of its own: on chips with only 2 fast cores (e.g. Unisoc T618) the second one is
-// better used by the VDP2 render thread, so the app turns threaded audio off by default there.
-JNI_FN(jint, nativeFastCoreCount)(JNIEnv *, jclass) {
-    return cputune::FastCoreCount();
-}
-
 JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {
