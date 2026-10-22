@@ -82,7 +82,8 @@ fun GameScreen(onQuitApp: () -> Unit) {
         val videoMod = if (Emulator.aspect == 1) Modifier.fillMaxSize() else Modifier.aspectRatio(ratio)
 
         if (landscape) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // Top: on screens narrower than the picture (e.g. 5:4, or 16:9 mode on 4:3) the bars all go below it
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 VideoSurface(videoMod.fillMaxHeight())
             }
             if (touch) TouchControls(Modifier.fillMaxSize().safeDrawingPadding(), landscape = true)
@@ -237,10 +238,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                             }
                             MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
                             MenuPage.Video -> {
-                                MenuItem(Icons.Default.AutoAwesome, "Preset", value = Emulator.currentPreset?.label ?: "Custom") {
-                                    val all = Emulator.Preset.entries
-                                    Emulator.applyPreset(all[((Emulator.currentPreset?.ordinal ?: -1) + 1) % all.size])
-                                }
                                 MenuItem(Icons.Default.AspectRatio, "Display", value = listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
                                     Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
                                     Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }

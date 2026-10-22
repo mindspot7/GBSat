@@ -189,6 +189,9 @@ private fun VideoPage() {
             else "Saturn graphics emulated on the CPU, shown with OpenGL ES (filters and shaders); best on most devices",
             listOf("CPU (OpenGL)", "GPU (Vulkan)"), if (Emulator.renderer == 4) 1 else 0,
             ch { Emulator.renderer = if (it == 1) 4 else 1 })
+        SettingsDivider()
+        ToggleRow(Icons.Default.Tune, "Recommended settings per game", "Heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices. Changes you make during a game are kept for that game",
+            Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
         if (Emulator.renderer == 4) {
             SettingsDivider()
             ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
@@ -269,8 +272,7 @@ private fun PerformancePage() {
     SettingsGroup("This device", Icons.Default.PhoneAndroid) {
         InfoRow("Device class", Emulator.device.summary)
         SettingsDivider()
-        InfoRow("Recommended preset", "${Emulator.recommendedPreset.label}, applied on first run. Heavy games also start with the settings that tested " +
-            "best on this class of device; changes made during a game are kept for that game.")
+        InfoRow("Recommended preset", "${Emulator.recommendedPreset.label}, applied on first run")
     }
     SettingsGroup("Speed", Icons.Default.Speed) {
         ToggleRow(Icons.Default.SkipNext, "Frame skip (auto)", "Skips rendering frames only while the game runs below full speed",

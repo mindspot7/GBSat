@@ -1,7 +1,8 @@
 # Changelog
 
 ## Unreleased
-- The setup wizard no longer asks for a preset: GBSat picks it for the detected device (Settings → Performance shows the device class and the recommended preset). The "Recommended settings per game" switch was removed; they always apply, and your own changes for a game still win.
+- The setup wizard no longer asks for a preset: GBSat picks it for the detected device (Settings → Performance shows the device class and the recommended preset). The Preset item was removed from the in-game Video menu (presets stay in Settings → Video).
+- The game picture sits at the top of the screen when the screen is narrower than the picture (e.g. 5:4 screens, 16:9 mode on 4:3): the black bars go below it.
 - Touch controls hide automatically while a controller is connected (built-in controls of handhelds included).
 - Bigger covers on square and 5:4 screens.
 - Small screens: the setup wizard is compact on short screens (e.g. 640x480); on portrait screens the game shelf sits higher.
