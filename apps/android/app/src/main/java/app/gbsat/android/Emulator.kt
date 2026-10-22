@@ -1,5 +1,7 @@
 package app.gbsat.android
 
+import gb.ui.HotkeyAction
+import gb.ui.Hotkeys
 import gb.ui.RetroAchievements
 import android.content.Context
 import android.content.SharedPreferences
@@ -385,6 +387,7 @@ object Emulator {
         gb.ui.PlayTime.init(prefs)
         gb.ui.LibraryView.init(prefs)
         gb.ui.GameProfiles.init(context)
+        Hotkeys.configure(bindings = { hotkeys }, run = { a, down -> runHotkey(a, down) })
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
         gamesDir = prefs.getString("gamesDir", "") ?: ""
@@ -610,7 +613,7 @@ object Emulator {
         openDisc?.close(); openDisc = null
     }
     /** Files of the running disc (kept open while the game runs). */
-    private var openDisc: Storage.OpenDisc? = null
+    private var openDisc: gb.ui.OpenDisc? = null
 
     // ---- Input merging: touch + gamepad each own a mask; native sees the OR. ----
     private var touchMask = 0

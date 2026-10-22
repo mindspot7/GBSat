@@ -41,7 +41,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gbsat.android.Emulator
-import app.gbsat.android.HotkeyAction
+import gb.ui.HotkeyAction
+import gb.ui.keyName
 import app.gbsat.android.NativeBridge
 import app.gbsat.android.R
 import app.gbsat.android.SaturnButton

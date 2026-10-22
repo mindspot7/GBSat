@@ -878,6 +878,9 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
         }
     }
 
+    // Helper threads: the sound thread and the VDP2 render thread share the next fast core(s); the other VDP threads
+    // (VDP1, deinterlacer) may use every core except the emulation thread's
+    cputune::SetThreadRoles({"SCSP", "VDP2"}, {"VDP"});
     OpenAudio();
     g->running = true;
     g->emuThread = std::thread(EmuLoop);

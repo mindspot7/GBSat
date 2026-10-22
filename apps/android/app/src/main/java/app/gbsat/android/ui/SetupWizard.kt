@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import app.gbsat.android.Emulator
+import app.gbsat.android.NativeBridge
 import app.gbsat.android.Storage
 import gb.ui.PresetOption
 import gb.ui.PresetPicker
@@ -31,8 +32,12 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
         uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs(); message = null }
     }
     val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
+    // Recommended preset for this device: Low on chips with 2 fast cores or fewer (e.g. Unisoc T618), High otherwise
+    val recommended = if (gb.ui.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount()) == gb.ui.GameProfiles.DeviceClass.Low)
+        Emulator.Preset.Low else Emulator.Preset.High
+    LaunchedEffect(Unit) { if (!Emulator.setupDone && Emulator.currentPreset == null) Emulator.applyPreset(recommended) }
     val descriptions = mapOf(
-        Emulator.Preset.High to "Vulkan GPU at the screen's native resolution, Scanlines shader. For powerful devices.",
+        Emulator.Preset.High to "GPU (Vulkan) at the screen's native resolution, Scanlines shader. For powerful devices.",
         Emulator.Preset.Mid to "CPU renderer (OpenGL) with Scanlines shader. For mid-range devices.",
         Emulator.Preset.Low to "CPU renderer (OpenGL), no shader, frame skip. For modest devices.",
     )
@@ -52,7 +57,7 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
             },
             WizardStep(Icons.Default.AutoAwesome, "Preset", listOf(Color(0xFFFFD25A), Color(0xFFE8A13A)),
                 "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.") {
-                PresetPicker(presets.map { PresetOption(it.label, descriptions.getValue(it)) }, presets.indexOf(Emulator.currentPreset)) {
+                PresetPicker(presets.map { PresetOption(if (it == recommended) "${it.label} (recommended for this device)" else it.label, descriptions.getValue(it)) }, presets.indexOf(Emulator.currentPreset)) {
                     Emulator.applyPreset(presets[it])
                 }
             },

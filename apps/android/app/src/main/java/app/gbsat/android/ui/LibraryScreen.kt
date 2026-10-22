@@ -321,7 +321,7 @@ private fun Library(
     onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit,
     open: (String) -> Unit, launchState: (Emulator.RecentState) -> Unit,
 ) {
-    var games by remember { mutableStateOf<List<Storage.Game>>(emptyList()) }
+    var games by remember { mutableStateOf<List<gb.ui.Game>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
     val hasAccess = Storage.hasAllFilesAccess()
@@ -351,7 +351,7 @@ private fun Library(
         else -> {
             val ctx = LocalContext.current
             val scope = rememberCoroutineScope()
-            var gameMenu by remember { mutableStateOf<Storage.Game?>(null) }
+            var gameMenu by remember { mutableStateOf<gb.ui.Game?>(null) }
             var achievementsFor by remember { mutableStateOf<String?>(null) }
             achievementsFor?.let { path ->
                 androidx.activity.compose.BackHandler { achievementsFor = null }
@@ -402,7 +402,7 @@ private fun Library(
 
             val first = remember { FocusRequester() }
             LaunchedEffect(games.firstOrNull()?.path) { runCatching { first.requestFocus() } }
-            var selected by remember { mutableStateOf<Storage.Game?>(null) }
+            var selected by remember { mutableStateOf<gb.ui.Game?>(null) }
             var withStates by remember { mutableStateOf<Set<String>>(emptySet()) }
             LaunchedEffect(games) { withStates = withContext(Dispatchers.IO) { Emulator.gamesWithStates() } }
             // Game shelf: details of the selected game on top, one horizontal row of box art below
@@ -487,7 +487,7 @@ private fun HelpBar(recentMode: Boolean) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GameCard(
-    g: Storage.Game, version: Int, cardW: androidx.compose.ui.unit.Dp, cardH: androidx.compose.ui.unit.Dp, modifier: Modifier,
+    g: gb.ui.Game, version: Int, cardW: androidx.compose.ui.unit.Dp, cardH: androidx.compose.ui.unit.Dp, modifier: Modifier,
     onClick: () -> Unit, onOptions: () -> Unit, onSelected: (ImageBitmap?) -> Unit,
 ) {
     var cover by remember(g.title, version) { mutableStateOf<ImageBitmap?>(null) }
