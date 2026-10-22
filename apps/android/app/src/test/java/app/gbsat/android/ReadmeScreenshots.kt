@@ -47,7 +47,8 @@ class ReadmeScreenshots {
         setField("prefs", ctx.getSharedPreferences("gbsat", Context.MODE_PRIVATE))
         val data = File(ctx.filesDir, "data").apply { mkdirs() }
         setField("dataDir", data)
-        Covers.init(data)
+        gb.frame.Covers.init(data, "Sega - Saturn")
+        Storage.init(ctx)
         val games = File(ctx.filesDir, "games").apply { mkdirs() }
         File(javaClass.getResource("/covers")!!.toURI()).listFiles()!!.sorted().forEach { png ->
             val title = png.nameWithoutExtension
