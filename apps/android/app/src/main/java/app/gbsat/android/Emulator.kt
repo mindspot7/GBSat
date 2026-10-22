@@ -389,6 +389,7 @@ object Emulator {
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)
         gb.frame.LibraryView.init(prefs)
+        gb.frame.HomeTheme.init(prefs)
         gb.frame.GameProfiles.init(context)
         Hotkeys.configure(bindings = { hotkeys }, run = { a, down -> runHotkey(a, down) })
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()

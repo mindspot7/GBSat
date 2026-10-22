@@ -364,7 +364,10 @@ private fun ControlsPage() {
 }
 
 @Composable
-private fun ExtrasPage() = RetroAchievementsSettings("GBSat")
+private fun ExtrasPage() {
+    HomeThemeSettings()
+    RetroAchievementsSettings("GBSat")
+}
 
 @Composable
 private fun AboutPage() {
