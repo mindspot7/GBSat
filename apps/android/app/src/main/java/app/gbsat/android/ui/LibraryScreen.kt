@@ -70,8 +70,12 @@ fun LibraryScreen(
     val menuFocus = remember { FocusRequester() }
     val hasPad = rememberHasGamepad()
     // Menu opened: focus its entry; closed: the focus goes back to the library
+    // Focus moves programmatically only while the controller is in use: a focus request after a tap made the next tap
+    // only take the focus (two taps needed). With touch, the first controller key puts the focus in place (MainActivity).
     LaunchedEffect(menuOpen) {
-        if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
+        if (MenuState.keyInput) {
+            if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
+        }
     }
     LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen) runCatching { menuFocus.requestFocus() } }
     // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
@@ -165,7 +169,10 @@ fun LibraryScreen(
     }) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The top bar opens the main menu
-            HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = { menuOpen = !menuOpen }, menuOpen = menuOpen)
+            HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = {
+                if (!menuOpen) MenuState.selected = null // a fresh menu starts on its first entry (System)
+                menuOpen = !menuOpen
+            }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty, refocus = MenuState.refocus.intValue)
                 achievementsFor?.let { path ->
@@ -232,6 +239,8 @@ internal object MenuState {
     val refocus = mutableIntStateOf(0)
     /** Something inside the open main menu has the focus (opened with a tap, the focus can stay on the library behind). */
     @Volatile var menuHasFocus = false
+    /** The last input was a controller/keyboard key (false after a touch): programmatic focus moves only then. */
+    @Volatile var keyInput = false
     /** Bumped to put the focus back on the open menu. */
     val menuRefocus = mutableIntStateOf(0)
 }

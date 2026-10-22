@@ -5,6 +5,11 @@ on:
     branches: [ main, master, android, android-port ]
     paths: [ 'apps/android/**', 'libs/**', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
   workflow_dispatch:
+    inputs:
+      bundle:
+        description: Also build the App Bundle (.aab) for Google Play
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -68,13 +73,27 @@ jobs:
             echo "::warning title=Signing::GBSAT_KEYSTORE_BASE64 secret not set; APK signed with the cached debug key"
           fi
 
+      # The App Bundle (.aab, Google Play) is only built for a release (a VERSION without a GitHub release yet) or when
+      # asked for in a manual run; everyday builds make the APK only
+      - name: Bundle needed?
+        id: aab
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(tr -d '[:space:]' < apps/android/VERSION)
+          if [ "${{ inputs.bundle }}" = "true" ] || ! gh release view "v${VER}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "tasks=assembleRelease bundleRelease" >> "$GITHUB_OUTPUT"; echo "::notice title=App Bundle::building the .aab too"
+          else
+            echo "tasks=assembleRelease" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build release APK
         working-directory: apps/android
         env:
           GBSAT_KEYSTORE_PASSWORD: ${{ secrets.GBSAT_KEYSTORE_PASSWORD }}
         run: |
           set +e
-          gradle --no-daemon assembleRelease bundleRelease --stacktrace > build.log 2>&1
+          gradle --no-daemon ${{ steps.aab.outputs.tasks }} --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
@@ -90,7 +109,7 @@ jobs:
           NAME="GBSat-v${VER}-build${GITHUB_RUN_NUMBER}"
           cd apps/android/app/build/outputs/apk/release
           mv *.apk "${NAME}.apk"
-          mv ../../bundle/release/*.aab "${NAME}.aab"
+          if ls ../../bundle/release/*.aab >/dev/null 2>&1; then mv ../../bundle/release/*.aab "${NAME}.aab"; fi
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "::notice title=APK::${NAME}.apk"
 

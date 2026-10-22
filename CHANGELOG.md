@@ -1,8 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Holding left/right on the Showcase and All in One shelves now glides through the covers smoothly.
+- Grid: no All games / Recent buttons (use the menu or Select), the selected cover grows again (no frame), more room between rows and at the top and bottom.
+- Main menu: opens on System; a tap on the top bar opens it at once, and the next tap works right away (no double tap).
 - Showcase: covers sized to the room under the game details (the selected cover no longer touches the buttons on square screens), fixed reflection, and holding left/right moves through the shelf at a steady pace without stutter.
-- Grid: covers no longer zoom (they were cut by their neighbours) and no names under them.
+- Grid: no names under the covers.
 - Fixed: with the main menu opened by touch, the D-pad didn't move in it.
 - Fixed: X (menu) and the D-pad stopped working in the library after a tap or after closing a menu.
 - New main menu: a panel that slides in from the left (X on a controller, or a tap on the top bar) with the library view (All games / Recent, with counts), the settings as large icon tiles and Quit.

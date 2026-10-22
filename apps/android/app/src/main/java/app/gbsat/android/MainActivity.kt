@@ -66,7 +66,13 @@ class MainActivity : ComponentActivity() {
     private var l2Key = false
     private var r2Key = false
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) app.gbsat.android.ui.MenuState.keyInput = false
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) app.gbsat.android.ui.MenuState.keyInput = true
         // Library: Select switches between all games and recent save states. Handled here because right after start or
         // after closing a game nothing may be focused yet, and Compose key handlers only see events while focused.
         if (!Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
@@ -82,7 +88,10 @@ class MainActivity : ComponentActivity() {
         val menu = app.gbsat.android.ui.MenuState
         if (!Emulator.running && menu.libraryShown && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && !menu.quitOpen.value) {
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_X) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) menu.open.value = !menu.open.value
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    if (!menu.open.value) menu.selected = null // a fresh menu starts on its first entry (System)
+                    menu.open.value = !menu.open.value
+                }
                 return true
             }
             val focusLost = if (menu.open.value) !menu.menuHasFocus else !menu.hasFocus
