@@ -188,6 +188,7 @@ struct Context {
     std::atomic<float> fps{0.0f};
     std::atomic<uint32_t> presented{0}; // frames sent to the screen (performance log)
     bool scspAuto = true;               // automatic threaded audio (emulation thread)
+    int pinInFrames = 0;                // re-pin threads after this many frames (thread layout changed)
     struct {
         int phase = 0, secs = 0;
         float sum = 0, baseFps = 0;
@@ -561,6 +562,7 @@ void ScspAutoTune(float fps) {
             if (++t.secs >= 3) {
                 t.baseFps = t.sum / t.secs;
                 threaded = !threaded.Get();
+                g->pinInFrames = 3;
                 t.phase = 1;
                 t.secs = 0;
                 t.sum = 0;
@@ -571,8 +573,11 @@ void ScspAutoTune(float fps) {
             t.sum = 0;
         }
         break;
-    case 1: // settling after the switch
-        t.phase = 2;
+    case 1: // settling after the switch (threads created and pinned)
+        if (++t.secs >= 2) {
+            t.phase = 2;
+            t.secs = 0;
+        }
         break;
     case 2: // measuring
         t.sum += fps;
@@ -580,6 +585,7 @@ void ScspAutoTune(float fps) {
             const float trial = t.sum / t.secs;
             if (trial < t.baseFps + 1.5f) {
                 threaded = !threaded.Get(); // not better: back to the previous mode
+                g->pinInFrames = 3;
             }
             LOGI("Auto threaded audio: %.1f fps vs %.1f, keeping threaded audio %s", trial, t.baseFps,
                  threaded.Get() ? "on" : "off");
@@ -737,6 +743,12 @@ void EmuLoop() {
             cputune::ReportFrameWork(ns);
             const int64_t prev = g->frameTimeUs.load(std::memory_order_relaxed);
             g->frameTimeUs.store(prev == 0 ? ns / 1000 : (prev * 7 + ns / 1000) / 8, std::memory_order_relaxed);
+        }
+        // Threads (re)created by option changes inherit the emulation thread's single-core affinity and halve the speed
+        // until they are moved: pin a few frames after such a change instead of waiting for the periodic pass
+        if (g->pinInFrames > 0 && --g->pinInFrames == 0) {
+            lastPin = now;
+            cputune::PinEmulationThreads();
         }
         if (now - lastPin >= seconds(3)) { // render threads are recreated when the renderer changes
             lastPin = now;
@@ -1128,6 +1140,7 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {
             g->saturn->configuration.swRenderer.threadedVDP1 = on;
+            g->pinInFrames = 3;
             g->saturn->configuration.swRenderer.threadedVDP2 = on;
             g->saturn->configuration.swRenderer.threadedDeinterlacer = on;
         });
@@ -1142,7 +1155,10 @@ JNI_FN(jint, nativeFastCoreCount)(JNIEnv *, jclass) {
 
 JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
-        Post([on] { g->saturn->configuration.audio.threadedSCSP = on; });
+        Post([on] {
+            g->saturn->configuration.audio.threadedSCSP = on;
+            g->pinInFrames = 3;
+        });
     }
 }
 
@@ -1154,6 +1170,7 @@ JNI_FN(void, nativeSetScspMode)(JNIEnv *, jclass, jint mode) {
             g->scspAuto = mode == 0;
             if (mode != 0) {
                 g->saturn->configuration.audio.threadedSCSP = mode == 1;
+                g->pinInFrames = 3;
             }
         });
     }
