@@ -509,6 +509,9 @@ object Emulator {
         err
     }
 
+    /** Fast CPU cores (big/prime): picks the device class for presets and game profiles (4 without the native library). */
+    val fastCores by lazy { runCatching { NativeBridge.nativeFastCoreCount() }.getOrDefault(4) }
+
     /** Most recent save state of a game (auto, quick or slot), or null. */
     fun latestState(path: String): RecentState? = recentStates().firstOrNull { it.gamePath == path }
 
@@ -571,11 +574,11 @@ object Emulator {
         val header = NativeBridge.nativeGetDiscHeader().orEmpty()
         val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
-        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, gb.frame.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount())) else emptyMap()
+        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, gb.frame.GameProfiles.deviceClass(fastCores)) else emptyMap()
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
         // Auto threaded audio starts on with 3+ fast cores; with 2 (e.g. Unisoc T618) the second one is usually worth more
         // to the background renderer
-        var startThreaded = NativeBridge.nativeFastCoreCount() >= 3
+        var startThreaded = fastCores >= 3
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }

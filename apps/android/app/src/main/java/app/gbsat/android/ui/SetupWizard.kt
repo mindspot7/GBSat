@@ -11,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import app.gbsat.android.Emulator
-import app.gbsat.android.NativeBridge
 import app.gbsat.android.Storage
 import gb.frame.PresetOption
 import gb.frame.PresetPicker
@@ -33,7 +32,7 @@ fun SetupWizard(onFinish: () -> Unit) {
     }
     val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
     // Recommended preset for this device: Low on chips with 2 fast cores or fewer (e.g. Unisoc T618), High otherwise
-    val recommended = if (gb.frame.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount()) == gb.frame.GameProfiles.DeviceClass.Low)
+    val recommended = if (gb.frame.GameProfiles.deviceClass(Emulator.fastCores) == gb.frame.GameProfiles.DeviceClass.Low)
         Emulator.Preset.Low else Emulator.Preset.High
     LaunchedEffect(Unit) { if (!Emulator.setupDone && Emulator.currentPreset == null) Emulator.applyPreset(recommended) }
     val descriptions = mapOf(
