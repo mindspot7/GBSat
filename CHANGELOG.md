@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Showcase: the first and last covers (and screenshots in Recent) line up with the game title instead of starting further in.
 - The selection highlight on the home screen and in the main menu only appears when a physical controller is detected; with a controller, opening the menu by touch selects System at once.
 - Settings → Extras → Layout: new "Button help" switch to show or hide the controller button bar on the home screen.
 - Changing the home layout now returns straight to the library.
