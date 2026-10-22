@@ -598,6 +598,9 @@ void ScspAutoTune(float fps) {
     }
 }
 
+// Total RunFrame time of the profiled frames (the parts are added up by the core)
+std::atomic<uint64_t> g_profileFrameTicks{0};
+
 // Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
 // Android/media/app.gbsat.android/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
 void WritePerfLog(float fps, float presentedFps) {
@@ -615,14 +618,23 @@ void WritePerfLog(float fps, float presentedFps) {
     }
     std::error_code ec;
     const auto size = std::filesystem::file_size(kPath, ec);
-    const bool fresh = ec || size > 2u * 1024 * 1024;
+    bool fresh = ec || size > 2u * 1024 * 1024;
+    if (!fresh) { // a log from an older version (fewer columns) starts over
+        char head[512] = {};
+        if (FILE *h = fopen(kPath, "r")) {
+            fgets(head, sizeof(head), h);
+            fclose(h);
+        }
+        fresh = strstr(head, "other_ms") == nullptr;
+    }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
         return;
     }
     if (fresh) {
         fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
-                   "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms\n");
+                   "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms,"
+                   "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sound_cd_ms,other_ms\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -635,11 +647,25 @@ void WritePerfLog(float fps, float presentedFps) {
     for (int i = 0; i < util::waitstats::Count; ++i) {
         waitMs[i] = util::waitstats::g_waitNs[i].exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps);
     }
-    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f\n", ts, title.c_str(), renderer,
+    // Where the emulation thread spent a frame (average of the profiled frames): master and slave SH-2, SCU, VDP (with
+    // VDP2 drawing when it is not threaded), the scheduler (sound and CD when they run on this thread) and the rest
+    namespace ws = util::waitstats;
+    const uint32_t profFrames = ws::g_profiledFrames.exchange(0, std::memory_order_relaxed);
+    const double tickMs = 1000.0 / ws::TicksPerSecond() / std::max<uint32_t>(1, profFrames);
+    double partMs[ws::PartCount];
+    double partSum = 0;
+    for (int i = 0; i < ws::PartCount; ++i) {
+        partMs[i] = ws::g_partTicks[i].exchange(0, std::memory_order_relaxed) * tickMs;
+        partSum += partMs[i];
+    }
+    const double frameMs = g_profileFrameTicks.exchange(0, std::memory_order_relaxed) * tickMs;
+    const double otherMs = profFrames ? std::max(0.0, frameMs - partSum) : 0.0;
+    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", ts, title.c_str(), renderer,
             mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
             presentedFps, g->frameTimeUs.load() / 1000.0,
-            waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2]);
+            waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2],
+            partMs[ws::PartMSH2], partMs[ws::PartSSH2], partMs[ws::PartSCU], partMs[ws::PartVDP], partMs[ws::PartSched], otherMs);
     fclose(f);
 }
 
@@ -715,7 +741,20 @@ void EmuLoop() {
             g->skipPresent = skip;
         }
         const auto workStart = steady_clock::now();
+        // Frame profile for the performance log: one frame in 8 is timed per component
+        static uint32_t profileTick = 0;
+        const bool profiled = (++profileTick & 7) == 0;
+        uint64_t profStart = 0;
+        if (profiled) {
+            util::waitstats::g_profile.store(true, std::memory_order_relaxed);
+            profStart = util::waitstats::Ticks();
+        }
         g->saturn->RunFrame();
+        if (profiled) {
+            util::waitstats::g_profile.store(false, std::memory_order_relaxed);
+            g_profileFrameTicks.fetch_add(util::waitstats::Ticks() - profStart, std::memory_order_relaxed);
+            util::waitstats::g_profiledFrames.fetch_add(1, std::memory_order_relaxed);
+        }
         g->palMode.store(g->saturn->GetVideoStandard() == ymir::core::config::sys::VideoStandard::PAL, std::memory_order_relaxed);
         bool skipNext = false;
         const bool cheatsAllowed = !ra::IsHardcore();

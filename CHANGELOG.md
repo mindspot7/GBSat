@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Performance log (perf-log.csv): new columns with the time per frame of each part of the emulation (master and slave SH-2, SCU, VDP, sound and CD, the rest), measured on one frame in 8.
 
 ## 1.3.4
 - Showcase: the first and last covers (and screenshots in Recent) line up with the game title instead of starting further in.

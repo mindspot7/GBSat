@@ -1,4 +1,5 @@
 #include <ymir/sys/saturn.hpp>
+#include <ymir/util/wait_stats.hpp>
 
 #include <ymir/db/game_db.hpp>
 
@@ -515,11 +516,25 @@ bool Saturn::Run() {
 
     const uint64 cycles = static_config::max_timing_granularity ? 1 : std::max<sint64>(m_scheduler.RemainingCount(), 0);
 
+    // Frame profile (performance log): time per component, only on the sampled frames
+    namespace ws = util::waitstats;
+    const bool prof = ws::g_profile.load(std::memory_order_relaxed);
+    uint64 pt[ws::PartCount]{};
+    uint64 t0 = prof ? ws::Ticks() : 0;
+    const auto lap = [&](ws::Part part) {
+        if (prof) {
+            const uint64 t1 = ws::Ticks();
+            pt[part] += t1 - t0;
+            t0 = t1;
+        }
+    };
+
     uint64 execCycles;
     if (SCU.IsDMAActive()) {
         // Stall both SH2 CPUs and only run the SCU and other stuff
         execCycles = cycles;
         SCU.Advance<debug>(execCycles);
+        lap(ws::PartSCU);
     } else {
         execCycles = m_msh2SpilloverCycles;
         m_msh2SpilloverCycles = 0;
@@ -529,8 +544,11 @@ bool Saturn::Run() {
                 const uint64 prevExecCycles = execCycles;
                 const uint64 targetCycles = std::min(execCycles + kSH2SyncMaxStep, cycles);
                 execCycles = masterSH2.Advance<debug, enableSH2Cache>(targetCycles, execCycles);
+                lap(ws::PartMSH2);
                 slaveCycles = slaveSH2.Advance<debug, enableSH2Cache>(execCycles, slaveCycles);
+                lap(ws::PartSSH2);
                 SCU.Advance<debug>(execCycles - prevExecCycles);
+                lap(ws::PartSCU);
                 if constexpr (debug) {
                     if (m_debugBreakMgr.IsDebugBreakRaised()) {
                         break;
@@ -553,7 +571,9 @@ bool Saturn::Run() {
                 const uint64 prevExecCycles = execCycles;
                 const uint64 targetCycles = std::min(execCycles + kSH2SyncMaxStep, cycles);
                 execCycles = masterSH2.Advance<debug, enableSH2Cache>(targetCycles, execCycles);
+                lap(ws::PartMSH2);
                 SCU.Advance<debug>(execCycles - prevExecCycles);
+                lap(ws::PartSCU);
                 if constexpr (debug) {
                     if (m_debugBreakMgr.IsDebugBreakRaised()) {
                         break;
@@ -563,6 +583,7 @@ bool Saturn::Run() {
         }
     }
     VDP.Advance(execCycles);
+    lap(ws::PartVDP);
 
     // SCSP+M68K and CD block are ticked by the scheduler
 
@@ -581,6 +602,12 @@ bool Saturn::Run() {
     }*/
 
     m_scheduler.Advance(execCycles);
+    lap(ws::PartSched);
+    if (prof) {
+        for (int i = 0; i < ws::PartCount; ++i) {
+            ws::g_partTicks[i].fetch_add(pt[i], std::memory_order_relaxed);
+        }
+    }
 
     if constexpr (debug) {
         if (m_debugBreakMgr.LowerDebugBreak()) {

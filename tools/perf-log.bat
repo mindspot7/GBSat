@@ -1,6 +1,7 @@
 @echo off
 rem Copies the app's performance log from the phone (USB debugging on). One line per second while a game runs:
 rem game, renderer, resolution scale, threaded options, frame skip, fast forward, emulated fps, shown fps, ms per frame.
+rem It also splits the emulation thread's frame time: master/slave SH-2, SCU, VDP, sound+CD and the rest (ms).
 rem Result: %NAME%-perf-log.csv in this folder - send it for analysis.
 setlocal
 rem ---- app settings (edit when copying to another app) ----
