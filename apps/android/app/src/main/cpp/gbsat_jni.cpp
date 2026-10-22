@@ -583,14 +583,17 @@ void ScspAutoTune(float fps) {
         t.sum += fps;
         if (++t.secs >= 3) {
             const float trial = t.sum / t.secs;
-            if (trial < t.baseFps + 1.5f) {
+            const bool better = trial >= t.baseFps + 1.5f;
+            if (!better) {
                 threaded = !threaded.Get(); // not better: back to the previous mode
                 g->pinInFrames = 3;
             }
             LOGI("Auto threaded audio: %.1f fps vs %.1f, keeping threaded audio %s", trial, t.baseFps,
                  threaded.Get() ? "on" : "off");
             t = {};
-            t.cooldownUntil = now + std::chrono::seconds(60);
+            // The current mode proved the better one: don't try again for a long while (each trial costs a few slow
+            // seconds). After a switch, check again sooner in case a later scene prefers the other mode.
+            t.cooldownUntil = now + std::chrono::seconds(better ? 60 : 600);
         }
         break;
     }
@@ -1173,6 +1176,13 @@ JNI_FN(void, nativeSetScspMode)(JNIEnv *, jclass, jint mode) {
                 g->pinInFrames = 3;
             }
         });
+    }
+}
+
+// Auto threaded audio: the starting mode is the one remembered for this game, so skip trials for a while
+JNI_FN(void, nativeScspModeKnown)(JNIEnv *, jclass) {
+    if (g) {
+        Post([] { g->scspTune.cooldownUntil = std::chrono::steady_clock::now() + std::chrono::seconds(600); });
     }
 }
 

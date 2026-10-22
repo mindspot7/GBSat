@@ -491,7 +491,10 @@ object Emulator {
         if (err == null) {
             currentGame = path; running = true; loadCheats()
             // Auto threaded audio: start from what worked best last time for this game (else the device default)
-            if (scspMode == 0) NativeBridge.nativeSetThreadedScsp(prefs.getBoolean("scsp:$path", threadedScsp))
+            if (scspMode == 0) {
+                NativeBridge.nativeSetThreadedScsp(prefs.getBoolean("scsp:$path", threadedScsp))
+                if (prefs.contains("scsp:$path")) NativeBridge.nativeScspModeKnown()
+            }
             // Auto load: continue from the game's most recent save state (auto, quick or a numbered slot)
             if (useAutoLoad && autoLoad) latestState(path)?.let { st -> loadState(st.slot)?.let { showToast(it) } }
             pause(false)
