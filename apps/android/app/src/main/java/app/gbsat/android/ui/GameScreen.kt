@@ -276,8 +276,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
                                     Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = if (Emulator.threadedScsp) "On" else "Off") {
-                                    Emulator.threadedScsp = !Emulator.threadedScsp; Emulator.savePrefs(); Emulator.applyOptions()
+                                MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
+                                    Emulator.scspMode = (Emulator.scspMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                             }
                             MenuPage.Overlays -> {

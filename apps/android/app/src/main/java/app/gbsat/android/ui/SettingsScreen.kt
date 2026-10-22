@@ -282,8 +282,8 @@ private fun PerformancePage() {
         ToggleRow(Icons.Default.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
             Emulator.threadedVdp, ch { Emulator.threadedVdp = it })
         SettingsDivider()
-        ToggleRow(Icons.Default.GraphicEq, "Threaded audio", "Run the sound chip and its 68000 CPU on a separate thread, leaving more time for the SH-2s",
-            Emulator.threadedScsp, ch { Emulator.threadedScsp = it })
+        ChoiceRow("Threaded audio", "Sound chip and its 68000 on a separate thread. Auto tries both while a game runs slow and remembers the faster one per game",
+            listOf("Auto", "On", "Off"), Emulator.scspMode, ch { Emulator.scspMode = it })
         SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
     }

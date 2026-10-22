@@ -34,7 +34,8 @@ object Emulator {
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
     var threadedVdp by mutableStateOf(true)
-    var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread
+    var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread (device default / auto start)
+    var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
     var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
@@ -379,6 +380,7 @@ object Emulator {
         val scspDefault = NativeBridge.nativeFastCoreCount() >= 3
         threadedScsp = if (prefs.contains("threadedScspDevice")) prefs.getBoolean("threadedScsp", scspDefault) else scspDefault
         prefs.edit().putBoolean("threadedScspDevice", true).putBoolean("threadedScsp", threadedScsp).apply()
+        scspMode = prefs.getInt("scspMode", 0)
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
@@ -447,7 +449,7 @@ object Emulator {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
-        NativeBridge.nativeSetThreadedScsp(threadedScsp)
+        NativeBridge.nativeSetScspMode(scspMode)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
@@ -460,7 +462,7 @@ object Emulator {
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putInt("scspMode", scspMode).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()
@@ -488,6 +490,8 @@ object Emulator {
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()
+            // Auto threaded audio: start from what worked best last time for this game (else the device default)
+            if (scspMode == 0) NativeBridge.nativeSetThreadedScsp(prefs.getBoolean("scsp:$path", threadedScsp))
             // Auto load: continue from the game's most recent save state (auto, quick or a numbered slot)
             if (useAutoLoad && autoLoad) latestState(path)?.let { st -> loadState(st.slot)?.let { showToast(it) } }
             pause(false)
@@ -511,6 +515,7 @@ object Emulator {
 
     /** Saves the auto save state without blocking (used when the app goes to the background during a game). */
     fun autoSaveInBackground() {
+        rememberScspMode()
         if (autoSave && running && currentGame != null) scope.launch { saveState(AUTO_SLOT) }
     }
 
@@ -519,7 +524,14 @@ object Emulator {
         if (autoSave && running && currentGame != null) kotlinx.coroutines.runBlocking { saveState(AUTO_SLOT) }
     }
 
+    /** Auto threaded audio: remembers the mode the tuner kept for this game. */
+    fun rememberScspMode() {
+        val game = currentGame ?: return
+        if (scspMode == 0 && running) prefs.edit().putBoolean("scsp:$game", NativeBridge.nativeGetThreadedScsp()).apply()
+    }
+
     private fun closeGame() {
+        rememberScspMode()
         pause(true); accountPlayTime(); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
         RetroAchievements.gameUnloaded()
         if (trayOpen) { trayOpen = false }

@@ -43,6 +43,8 @@ object NativeBridge {
     @JvmStatic external fun nativeGetGpuName(): String
     @JvmStatic external fun nativeSetThreadedScsp(on: Boolean)
     @JvmStatic external fun nativeFastCoreCount(): Int
+    @JvmStatic external fun nativeSetScspMode(mode: Int)
+    @JvmStatic external fun nativeGetThreadedScsp(): Boolean
     @JvmStatic external fun nativeTakeCartNotice(): String?
     @JvmStatic external fun nativeRaHttpResponse(id: Int, status: Int, body: ByteArray?)
 

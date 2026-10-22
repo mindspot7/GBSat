@@ -187,6 +187,12 @@ struct Context {
     std::string lastError;
     std::atomic<float> fps{0.0f};
     std::atomic<uint32_t> presented{0}; // frames sent to the screen (performance log)
+    bool scspAuto = true;               // automatic threaded audio (emulation thread)
+    struct {
+        int phase = 0, secs = 0;
+        float sum = 0, baseFps = 0;
+        std::chrono::steady_clock::time_point cooldownUntil{};
+    } scspTune;
     std::atomic<int64_t> frameTimeUs{0}; // emulation time per frame (smoothed)
 };
 
@@ -532,6 +538,58 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
+// Automatic threaded audio: whether the sound chip runs faster on its own thread depends on the game and the device
+// (on the T618 some games need the second fast core for the background renderer, others for the sound). When the game
+// stays below full speed, the other mode is tried for a few seconds and kept if it is clearly faster. Called once per
+// second by the emulation thread.
+void ScspAutoTune(float fps) {
+    auto &t = g->scspTune;
+    if (!g->scspAuto || g->fastForward.load()) {
+        t = {};
+        return;
+    }
+    auto &threaded = g->saturn->configuration.audio.threadedSCSP;
+    const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
+    const auto now = std::chrono::steady_clock::now();
+    switch (t.phase) {
+    case 0: // watching
+        if (now < t.cooldownUntil) {
+            return;
+        }
+        if (fps < target * 0.95f) {
+            t.sum += fps;
+            if (++t.secs >= 3) {
+                t.baseFps = t.sum / t.secs;
+                threaded = !threaded.Get();
+                t.phase = 1;
+                t.secs = 0;
+                t.sum = 0;
+                LOGI("Auto threaded audio: %.1f fps, trying threaded audio %s", t.baseFps, threaded.Get() ? "on" : "off");
+            }
+        } else {
+            t.secs = 0;
+            t.sum = 0;
+        }
+        break;
+    case 1: // settling after the switch
+        t.phase = 2;
+        break;
+    case 2: // measuring
+        t.sum += fps;
+        if (++t.secs >= 3) {
+            const float trial = t.sum / t.secs;
+            if (trial < t.baseFps + 1.5f) {
+                threaded = !threaded.Get(); // not better: back to the previous mode
+            }
+            LOGI("Auto threaded audio: %.1f fps vs %.1f, keeping threaded audio %s", trial, t.baseFps,
+                 threaded.Get() ? "on" : "off");
+            t = {};
+            t.cooldownUntil = now + std::chrono::seconds(60);
+        }
+        break;
+    }
+}
+
 // Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
 // Android/media/app.gbsat.android/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
 void WritePerfLog(float fps, float presentedFps) {
@@ -688,6 +746,7 @@ void EmuLoop() {
             const float secs = duration<float>(now - fpsWindowStart).count();
             g->fps = fpsFrames / secs;
             WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);
+            ScspAutoTune(g->fps);
             fpsFrames = 0;
             fpsWindowStart = now;
         }
@@ -989,6 +1048,7 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             g->cartType = want;
         }
         g->cartNotice = notice;
+        g->scspTune = {};
         g->saturn->LoadDisc(std::move(*disc));
         g->saturn->AutodetectRegion();
         g->saturn->Reset(true);
@@ -1084,6 +1144,23 @@ JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] { g->saturn->configuration.audio.threadedSCSP = on; });
     }
+}
+
+// Threaded audio mode: 0 = automatic (the emulation thread tries both and keeps the faster one, see ScspAutoTune),
+// 1 = on, 2 = off. In automatic mode the current state is kept (the app sets the starting state per game).
+JNI_FN(void, nativeSetScspMode)(JNIEnv *, jclass, jint mode) {
+    if (g) {
+        Post([mode] {
+            g->scspAuto = mode == 0;
+            if (mode != 0) {
+                g->saturn->configuration.audio.threadedSCSP = mode == 1;
+            }
+        });
+    }
+}
+
+JNI_FN(jboolean, nativeGetThreadedScsp)(JNIEnv *, jclass) {
+    return g && g->saturn->configuration.audio.threadedSCSP.Get();
 }
 
 // Stats: [fps*100, videoW, videoH]
