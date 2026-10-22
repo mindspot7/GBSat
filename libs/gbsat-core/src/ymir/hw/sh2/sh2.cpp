@@ -504,10 +504,12 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
         bool load = false;
         uint32 addr = 0;
     };
-    Op ops[5];
+    Op ops[24];
     int count = 0;
     uint16 allWr = 0;
-    for (uint32 pc = head; pc <= last; pc += 2) {
+    // Decodes one instruction into ops; false when it can't be part of an idle loop. Branches are allowed only in the
+    // loop itself: a called function must run straight to its rts.
+    const auto decode = [&](uint32 pc, bool inCall) -> bool {
         const uint16 op = PeekInstruction<emulateCache>(pc);
         const uint32 n = (op >> 8) & 15, m = (op >> 4) & 15, lo = op & 15;
         Op o;
@@ -574,7 +576,9 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
             case 0x4: o = {(uint16)(1 << m), 1, true, R[m] + lo}; break;      // mov.b @(disp,Rm),R0
             case 0x5: o = {(uint16)(1 << m), 1, true, R[m] + lo * 2u}; break; // mov.w @(disp,Rm),R0
             case 0x8: o.rd = 1; break;                                        // cmp/eq #imm,R0
-            case 0x9: case 0xB: case 0xD: case 0xF: break;                    // bt, bf, bt/s, bf/s
+            case 0x9: case 0xB: case 0xD: case 0xF:                           // bt, bf, bt/s, bf/s
+                if (inCall) return false;
+                break;
             default: return false;
             }
             break;
@@ -582,6 +586,7 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
             o.wr = 1 << n;
             break;
         case 0xA: // bra
+            if (inCall) return false;
             break;
         case 0xC:
             switch (n) {
@@ -602,8 +607,57 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
         if (o.load && !IsIdleSafeRead(o.addr)) {
             return false;
         }
+        if (count == 24) {
+            return false;
+        }
         ops[count++] = o;
         allWr |= o.wr;
+        return true;
+    };
+    for (uint32 pc = head; pc <= last; pc += 2) {
+        const uint16 op = PeekInstruction<emulateCache>(pc);
+        const bool jsr = (op & 0xF0FF) == 0x400B;
+        const bool bsr = (op >> 12) == 0xB;
+        if (jsr || bsr) {
+            // A call (e.g. a "read the frame counter" function): jsr @Rm / bsr, its delay slot, then the function up to
+            // its rts and that delay slot, all under the same rules
+            if (pc + 2 > last || count == 24) {
+                return false;
+            }
+            uint32 target;
+            if (jsr) {
+                const uint32 rm = (op >> 8) & 15;
+                ops[count++] = Op{(uint16)(1 << rm), 0};
+                target = R[rm];
+            } else {
+                const sint32 disp = static_cast<sint32>(static_cast<sint16>(static_cast<uint16>(op << 4))) >> 4;
+                target = pc + 4 + disp * 2;
+            }
+            if (!decode(pc + 2, true)) {
+                return false;
+            }
+            bool returned = false;
+            for (uint32 fpc = target, i = 0; i < 16; fpc += 2, ++i) {
+                if (PeekInstruction<emulateCache>(fpc) == 0x000B) { // rts
+                    if (!decode(fpc + 2, true)) {
+                        return false;
+                    }
+                    returned = true;
+                    break;
+                }
+                if (!decode(fpc, true)) {
+                    return false;
+                }
+            }
+            if (!returned) {
+                return false;
+            }
+            pc += 2; // the delay slot was decoded before the function
+            continue;
+        }
+        if (!decode(pc, false)) {
+            return false;
+        }
     }
     uint16 written = 0, used = 0;
     for (int i = 0; i < count; ++i) {
