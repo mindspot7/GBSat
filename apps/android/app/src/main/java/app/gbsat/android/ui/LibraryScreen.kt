@@ -48,9 +48,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Home screen: top bar (app icon, label, clock, battery), the game library in the theme chosen in Settings → Extras
- * (gb.frame.HomeLibrary: Showcase by default, Grid, List or Continue) and the settings menu, which drops down over the
- * library (the Grid theme shows it as an icon rail instead). Works with touch and with a controller: the D-pad moves the
+ * Home screen: top bar (app icon, name, clock, battery), the game library in the theme chosen in Settings → Extras
+ * (gb.frame.HomeLibrary: Showcase by default, Grid or Continue) and the main menu (gb.frame.HomeMenuPanel: library view,
+ * settings, quit), which slides in from the left (the Grid theme also shows the settings as an icon rail). Works with touch and with a controller: the D-pad moves the
  * selection, A opens, B goes back, X opens the menu, Y (or a long press) opens the game options, Select shows the recent
  * save states.
  */
@@ -67,17 +67,16 @@ fun LibraryScreen(
     var recentMode by MenuState.recent
     var menuOpen by MenuState.open
     val style by HomeTheme.style
-    val rail = style == HomeStyle.Grid // the menu is the icon rail beside the games
+    val rail = style == HomeStyle.Grid // settings also as an icon rail beside the games
     val menuFocus = remember { FocusRequester() }
+    val railFocus = remember { FocusRequester() } // Grid theme: its icon rail (reached with left)
     val focusManager = LocalFocusManager.current
     val hasPad = rememberHasGamepad()
     var railFocused by remember { mutableStateOf(false) }
     // Rail: coming back from a settings page focuses the entry that was opened
-    LaunchedEffect(Unit) { if (rail && MenuState.selected != null) { delay(150); runCatching { menuFocus.requestFocus() } } }
-    LaunchedEffect(menuOpen) { if (menuOpen && !rail) { delay(80); runCatching { menuFocus.requestFocus() } } }
+    LaunchedEffect(menuOpen) { if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } }
     var confirmQuit by MenuState.quitOpen
     MenuState.onQuit = onQuit
-    var headerPx by remember { mutableIntStateOf(0) }
 
     // ---- Data: games, save states, play time ----
     var games by remember { mutableStateOf<List<gb.frame.Game>>(emptyList()) }
@@ -124,7 +123,7 @@ fun LibraryScreen(
         when {
             confirmQuit -> confirmQuit = false
             achievementsFor != null -> achievementsFor = null
-            menuOpen && !rail -> menuOpen = false
+            menuOpen -> menuOpen = false
             rail && railFocused -> focusManager.moveFocus(FocusDirection.Right)
             recentMode -> recentMode = false
             else -> confirmQuit = true
@@ -137,7 +136,7 @@ fun LibraryScreen(
         fresh = { MenuState.selected = null; open(it.key) },
         options = { gameMenu = it },
         resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { MenuState.selected = null; launchState(it) } },
-        openMenu = { if (rail) runCatching { menuFocus.requestFocus() } else menuOpen = true },
+        openMenu = { menuOpen = true },
         showRecent = { recentMode = it },
     )
     val railItems = SettingsEntries.map { (icon, label, page) ->
@@ -167,21 +166,15 @@ fun LibraryScreen(
         }
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (e.key) {
-            Key.ButtonX -> { // X: menu (rail: switch between the rail and the games)
-                if (rail) { if (railFocused) focusManager.moveFocus(FocusDirection.Right) else runCatching { menuFocus.requestFocus() } }
-                else menuOpen = !menuOpen
-                true
-            }
+            Key.ButtonX -> { menuOpen = !menuOpen; true } // X: main menu
             else -> false
         }
     }) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // The top bar opens the menu, which drops down right below it
-            HomeTopBar(painterResource(R.mipmap.ic_launcher), "Saturn emulator",
-                onClick = { if (rail) runCatching { menuFocus.requestFocus() } else menuOpen = !menuOpen },
-                modifier = Modifier.onSizeChanged { headerPx = it.height })
+            // The top bar opens the main menu
+            HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = { menuOpen = !menuOpen }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, recentMode, actions, railItems, menuFocus, coverVersion, empty,
+                HomeLibrary(style, homeGames, entries, recentMode, actions, railItems, railFocus, coverVersion, empty,
                     onMenuFocus = { railFocused = it })
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
@@ -192,26 +185,18 @@ fun LibraryScreen(
             }
             if (hasPad) HelpBar(recentMode)
         }
-        // Menu and scrim drop down below the top bar, over the library and the button help bar
-        val headerDp = with(LocalDensity.current) { headerPx.toDp() }
-        if (!rail) Box(Modifier.fillMaxSize().safeDrawingPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp + headerDp + 8.dp)) {
-            if (menuOpen) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .35f))
-                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { menuOpen = false })
-            }
-            androidx.compose.animation.AnimatedVisibility(
-                menuOpen,
-                enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
-                modifier = Modifier.align(Alignment.TopStart).padding(bottom = 4.dp),
-            ) {
-                Box(Modifier.width(240.dp)) {
-                    // The menu stays open while a settings page is shown, so Back returns to it with that entry selected
-                    SideMenu(onOpenSettings = openPage, onQuit = onQuit, focus = menuFocus, recentMode = recentMode,
-                        onToggleRecent = { recentMode = !recentMode; menuOpen = false })
-                }
-            }
-        }
+        // Main menu: slides in from the left over everything (X, or a tap on the top bar). It stays open while a settings
+        // page is shown, so Back returns to it with that entry selected
+        HomeMenuPanel(
+            open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
+            appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
+            recent = recentMode, gamesCount = games.size, recentCount = entries.distinctBy { it.game }.size,
+            onShowRecent = { recentMode = it; menuOpen = false },
+            items = SettingsEntries.map { (icon, label, page) ->
+                HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
+            },
+            onQuit = onQuit, header = { RaUserHeader() },
+        )
         gameMenu?.let { g -> GameOptions(g, entries.firstOrNull { it.game == g.key },
             onDismiss = { gameMenu = null },
             onContinue = { e -> gameMenu = null; actions.resume(e) },
@@ -298,59 +283,6 @@ private fun GameOptions(
     )
 }
 
-@Composable
-private fun SideMenu(
-    onOpenSettings: (SettingsPage) -> Unit, onQuit: () -> Unit, focus: FocusRequester, recentMode: Boolean, onToggleRecent: () -> Unit,
-) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color(0xF21C1830), shadowElevation = 12.dp) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
-            RaUserHeader()
-            // Touch way to the recent save states (Select on a controller)
-            IconEntry(if (recentMode) Icons.Default.GridView else Icons.Default.History, if (recentMode) "All games" else "Recent save states", onToggleRecent)
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .12f))
-            Text("SETTINGS", style = MaterialTheme.typography.labelLarge, color = Gold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-            SettingsEntries.forEach { (icon, label, page) ->
-                val sel = (MenuState.selected ?: SettingsPage.System) == page
-                MenuEntry(icon, label, if (sel) Modifier.focusRequester(focus) else Modifier) { onOpenSettings(page) }
-            }
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = .12f))
-            MenuEntry(MenuIcon.Quit, "Quit", onClick = onQuit)
-        }
-    }
-}
-
-@Composable
-private fun MenuEntry(icon: MenuIcon, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Row(
-        modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (focused) Color.White.copy(alpha = .14f) else Color.Transparent)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        MenuIconView(icon)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
-    }
-}
-
-@Composable
-private fun IconEntry(icon: ImageVector, label: String, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (focused) Color.White.copy(alpha = .14f) else Color.Transparent)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Gold, modifier = Modifier.size(26.dp)) }
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
-    }
-}
-
 /** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
 @Composable
 private fun HelpBar(recentMode: Boolean) {
@@ -360,7 +292,7 @@ private fun HelpBar(recentMode: Boolean) {
     ) {
         ButtonHint("A", Color(0xFFE5483B), "Play")
         if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
-        ButtonHint("X", Color(0xFF3B7BE5), "Settings")
+        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
         ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
     }
 }

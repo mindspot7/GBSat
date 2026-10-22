@@ -75,7 +75,7 @@ abstract class ScreenTest {
 /** README screenshots (docs/screenshots). */
 class ReadmeScreenshots : ScreenTest() {
     @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}) })
-    @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("Saturn emulator").performClick() }
+    @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     @Test fun wizard() = shot("setup", { SetupWizard({}) }) {
         // Through to the last step (the preset picker)
         while (rule.onAllNodesWithText("Next").fetchSemanticsNodes().isNotEmpty()) {
@@ -96,7 +96,7 @@ class DeviceScreens : ScreenTest() {
     override val out = "build/device-screens"
 
     private fun library(d: String) = shot("$d-library", { LibraryScreen({}, {}, {}, {}) })
-    private fun menu(d: String) = shot("$d-menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("Saturn emulator").performClick() }
+    private fun menu(d: String) = shot("$d-menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     private fun theme(d: String, style: gb.frame.HomeStyle) {
         gb.frame.HomeTheme.style.value = style
         shot("$d-theme-${style.name.lowercase()}", { LibraryScreen({}, {}, {}, {}) })
@@ -110,19 +110,14 @@ class DeviceScreens : ScreenTest() {
 
     // Home themes (Showcase is the default "library" shot)
     @Test @Config(qualifiers = "w853dp-h480dp-land-xhdpi") fun t16X9Grid() = theme("16x9", gb.frame.HomeStyle.Grid)
-    @Test @Config(qualifiers = "w853dp-h480dp-land-xhdpi") fun t16X9List() = theme("16x9", gb.frame.HomeStyle.List)
     @Test @Config(qualifiers = "w853dp-h480dp-land-xhdpi") fun t16X9Continue() = theme("16x9", gb.frame.HomeStyle.Continue)
     @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun t640X480mdpiGrid() = theme("640x480-mdpi", gb.frame.HomeStyle.Grid)
-    @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun t640X480mdpiList() = theme("640x480-mdpi", gb.frame.HomeStyle.List)
     @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun t640X480mdpiContinue() = theme("640x480-mdpi", gb.frame.HomeStyle.Continue)
     @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun t640X480hdpiGrid() = theme("640x480-hdpi", gb.frame.HomeStyle.Grid)
-    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun t640X480hdpiList() = theme("640x480-hdpi", gb.frame.HomeStyle.List)
     @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun t640X480hdpiContinue() = theme("640x480-hdpi", gb.frame.HomeStyle.Continue)
     @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun t720X720XhdpiGrid() = theme("720x720-xhdpi", gb.frame.HomeStyle.Grid)
-    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun t720X720XhdpiList() = theme("720x720-xhdpi", gb.frame.HomeStyle.List)
     @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun t720X720XhdpiContinue() = theme("720x720-xhdpi", gb.frame.HomeStyle.Continue)
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun t1240X1080Grid() = theme("1240x1080", gb.frame.HomeStyle.Grid)
-    @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun t1240X1080List() = theme("1240x1080", gb.frame.HomeStyle.List)
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun t1240X1080Continue() = theme("1240x1080", gb.frame.HomeStyle.Continue)
     // Rockchip RK3566 handhelds: 640x480 (mdpi and hdpi)
     @Test @Config(qualifiers = "w640dp-h480dp-land-mdpi") fun s640mLibrary() = library("640x480-mdpi")
