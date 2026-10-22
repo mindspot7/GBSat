@@ -447,8 +447,8 @@ private fun ButtonBadge(b: SaturnButton) {
     val (text, icon) = when (b) {
         SaturnButton.Up -> null to Icons.Default.KeyboardArrowUp
         SaturnButton.Down -> null to Icons.Default.KeyboardArrowDown
-        SaturnButton.Left -> null to Icons.Default.KeyboardArrowLeft
-        SaturnButton.Right -> null to Icons.Default.KeyboardArrowRight
+        SaturnButton.Left -> null to Icons.AutoMirrored.Filled.KeyboardArrowLeft
+        SaturnButton.Right -> null to Icons.AutoMirrored.Filled.KeyboardArrowRight
         SaturnButton.Start -> "ST" to null
         else -> b.name to null
     }
@@ -479,8 +479,8 @@ private val SaturnPad = PadLayout(listOf(
     PadButton("R", "R", x = .77f, y = .14f, w = .20f, h = .13f, wOfWidth = true, shape = padRect(10), color = faceColor(SaturnButton.R)),
     PadButton("Up", icon = Icons.Default.KeyboardArrowUp, x = .23f, y = .33f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Up)),
     PadButton("Down", icon = Icons.Default.KeyboardArrowDown, x = .23f, y = .67f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Down)),
-    PadButton("Left", icon = Icons.Default.KeyboardArrowLeft, x = .15f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Left)),
-    PadButton("Right", icon = Icons.Default.KeyboardArrowRight, x = .31f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Right)),
+    PadButton("Left", icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft, x = .15f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Left)),
+    PadButton("Right", icon = Icons.AutoMirrored.Filled.KeyboardArrowRight, x = .31f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Right)),
     PadButton("Start", "START", x = .50f, y = .62f, w = .11f, h = .10f, wOfWidth = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = faceColor(SaturnButton.Start)),
     PadButton("X", "X", x = .66f, y = .38f, w = .18f, h = .18f, color = faceColor(SaturnButton.X)),
     PadButton("Y", "Y", x = .75f, y = .33f, w = .18f, h = .18f, color = faceColor(SaturnButton.Y)),
