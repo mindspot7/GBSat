@@ -67,7 +67,7 @@ private val Dim = Color.White.copy(alpha = 0.65f)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onRequestAllFiles: () -> Unit, toast: (String) -> Unit, page: SettingsPage? = null) {
+fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPage? = null) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val current = page ?: SettingsPage.System

@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 
 /** First-run setup (shared wizard from the UI kit): welcome, BIOS, games folder, preset. */
 @Composable
-fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
+fun SetupWizard(onFinish: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }

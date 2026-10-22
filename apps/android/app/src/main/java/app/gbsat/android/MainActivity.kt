@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { GBSatRoot(onRequestAllFiles = ::requestAllFiles, onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
+        setContent { GBSatRoot(onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
     }
 
     override fun onPause() {
@@ -52,9 +52,6 @@ class MainActivity : ComponentActivity() {
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid()) // emulator state lives in the process; start clean next time
     }
-
-    /** Games are read through the folder picker (no broad storage permission), so there is nothing to request. */
-    private fun requestAllFiles() {}
 
     private fun setImmersiveMode(on: Boolean) {
         val c = WindowInsetsControllerCompat(window, window.decorView)

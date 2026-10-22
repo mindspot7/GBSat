@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 private enum class Screen { Library, Settings }
 
 @Composable
-fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
+fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
     GBSatTheme {
         var screen by remember { mutableStateOf(Screen.Library) }
         var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
@@ -46,7 +46,7 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
             if (inGame) {
                 GameScreen(onQuitApp)
             } else if (!Emulator.setupDone) {
-                SetupWizard(onRequestAllFiles = onRequestAllFiles, onFinish = { Emulator.finishSetup() })
+                SetupWizard(onFinish = { Emulator.finishSetup() })
             } else {
                 BackHandler(screen == Screen.Settings) { screen = Screen.Library }
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
@@ -55,7 +55,6 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
                             Screen.Library -> LibraryScreen(
                                 onOpenSettings = { settingsPage = it; screen = Screen.Settings },
                                 onQuit = onQuitApp,
-                                onRequestAllFiles = onRequestAllFiles,
                                 launch = { path ->
                                     scope.launch {
                                         Emulator.launch(path)?.let { snackbar.showSnackbar(it) }
@@ -68,7 +67,6 @@ fun GBSatRoot(onRequestAllFiles: () -> Unit, onImmersive: (Boolean) -> Unit, onQ
                             )
                             Screen.Settings -> SettingsScreen(
                                 onBack = { screen = Screen.Library },
-                                onRequestAllFiles = onRequestAllFiles,
                                 toast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 page = settingsPage,
                             )

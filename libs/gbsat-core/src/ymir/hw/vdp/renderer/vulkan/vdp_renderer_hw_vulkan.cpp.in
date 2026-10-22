@@ -33,7 +33,6 @@
 #include <cassert>
 #include <concepts>
 #include <cstdlib>
-#include <chrono>
 #include <cstring>
 #include <functional>
 #include <span>
@@ -802,10 +801,7 @@ struct VulkanVDPRenderer::Impl {
 
     void WaitFrame(FrameContext &frameCtx) {
         if (frameCtx.submitted) {
-            const auto t0 = std::chrono::steady_clock::now();
             vkWaitForFences(device, 1, &frameCtx.fence, VK_TRUE, UINT64_MAX);
-            stats.waitUs += (uint32)std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::steady_clock::now() - t0).count();
             vkResetFences(device, 1, &frameCtx.fence);
             frameCtx.submitted = false;
         }
@@ -813,7 +809,6 @@ struct VulkanVDPRenderer::Impl {
 
     /// @brief Submits the commands recorded so far, waits for them and restarts recording in the same frame.
     void SubmitAndWait() {
-        ++stats.syncs;
         FrameContext &frameCtx = frames.GetCurrentFrame();
         SubmitCommands(frameCtx);
         WaitFrame(frameCtx);
@@ -1584,7 +1579,6 @@ struct VulkanVDPRenderer::Impl {
     }
 
     void VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
-        ++stats.vdp1Cmds;
         VDP1UpdateAction(VDP1Action::Draw);
 
         switch (control.command) {
@@ -2630,16 +2624,6 @@ struct VulkanVDPRenderer::Impl {
 
         const uint32 startY = vdp2.nextLayerRenderLine;
 
-        // Statistics: layer batches per frame and what triggered them
-        {
-            const FrameContext &fc = frames.GetCurrentFrame();
-            ++stats.batches;
-            if (vdp2.vramDirty) ++stats.vram;
-            if (vdp2.cramGeneration != fc.cramGeneration) ++stats.cram;
-            if (vdp2.layerRenderParamsGeneration != fc.layerRenderParamsGeneration) ++stats.layer;
-            if (vdp2.composeParamsGeneration != fc.composeParamsGeneration) ++stats.compose;
-        }
-
         // Determine how many lines to draw and update next scanline counter
         const uint32 baseNumLines = y - startY + 1;
         const uint32 numLines = baseNumLines << yShift;
@@ -2724,31 +2708,6 @@ struct VulkanVDPRenderer::Impl {
         }
     }
 
-    /// @brief Diagnostics: counts which parts of the layer parameters changed between scanlines.
-    void VDP2CountChangedParams(const VDP2LayerRenderParams &a, const VDP2LayerRenderParams &b) {
-        auto ne = [](const auto &x, const auto &y) { return std::memcmp(&x, &y, sizeof(x)) != 0; };
-        auto &c = stats.changed;
-        for (int i = 0; i < 4; ++i) {
-            const NBGParams &x = a.nbg[i], &y = b.nbg[i];
-            if (ne(x.base, y.base)) ++c[i * 4 + 0];
-            if (ne(x.scrollAmount, y.scrollAmount) || ne(x.scrollInc, y.scrollInc)) ++c[i * 4 + 1];
-            if (ne(x.pageBaseAddresses, y.pageBaseAddresses)) ++c[i * 4 + 2];
-            if (x.lineScrollTableAddress != y.lineScrollTableAddress || x.vcellScrollOffset != y.vcellScrollOffset ||
-                x.vcellScrollDelay != y.vcellScrollDelay || x.vcellScrollRepeat != y.vcellScrollRepeat ||
-                x.scrollYIncBase != y.scrollYIncBase || x.lineScrollInterval != y.lineScrollInterval ||
-                x.vcellScrollEnable != y.vcellScrollEnable || x.lineScrollXEnable != y.lineScrollXEnable ||
-                x.lineScrollYEnable != y.lineScrollYEnable || x.lineZoomEnable != y.lineZoomEnable) {
-                ++c[i * 4 + 3];
-            }
-        }
-        if (ne(a.rbg, b.rbg)) ++c[16];
-        if (ne(a.windows, b.windows) || ne(a.rotWindows, b.rotWindows)) ++c[17];
-        if (ne(a.lineScreenParams, b.lineScreenParams) || ne(a.backScreenParams, b.backScreenParams) ||
-            a.specialFunctionCodes != b.specialFunctionCodes) {
-            ++c[18];
-        }
-    }
-
     /// @brief Computing the layer parameters without uploading them (see VDP2RenderLine).
     bool layerParamsDryRun = false;
 
@@ -2785,7 +2744,6 @@ struct VulkanVDPRenderer::Impl {
                 if (std::memcmp(&prev, &vdp2.cpuLayerRenderParams, sizeof(prev)) == 0) {
                     layerRenderParamsDirty = false; // unchanged: the generation is now in sync
                 } else {
-                    VDP2CountChangedParams(prev, vdp2.cpuLayerRenderParams);
                     vdp2.cpuLayerRenderParams = prev; // changed: render the previous lines first, then upload
                     frameCtx.layerRenderParamsGeneration = prevGen;
                     vdp2.resetNBGScrollY = prevResetNBGScrollY;
@@ -2825,9 +2783,6 @@ struct VulkanVDPRenderer::Impl {
                  vdp2.nbg23YIncBase[0], vdp2.nbg23YIncBase[1], 0u, 0u};
         }
     }
-
-    VulkanVDPRenderer::FrameStats stats{};
-    VulkanVDPRenderer::FrameStats lastStats{};
 
     void VDP2EndFrame() {
         const uint32 vShift = vdpState.regs2.TVMD.IsInterlaced() ? 1u : 0u;
@@ -2871,8 +2826,6 @@ struct VulkanVDPRenderer::Impl {
         if (nextCtx.readbackPending) {
             DeliverFrame(nextCtx);
         }
-        lastStats = stats;
-        stats = {};
         WaitFrame(nextCtx);
         BeginCommands(nextCtx);
     }
@@ -3125,10 +3078,6 @@ void VulkanVDPRenderer::VDP2BeginFrame() {
 
 void VulkanVDPRenderer::VDP2RenderLine(uint32 y) {
     m_impl->VDP2RenderLine(y);
-}
-
-VulkanVDPRenderer::FrameStats VulkanVDPRenderer::LastFrameStats() const {
-    return m_impl->lastStats;
 }
 
 uint32 VulkanVDPRenderer::DeliveredFrameScale() const {

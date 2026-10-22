@@ -2,7 +2,6 @@
 // renderer and with the Vulkan renderer, then compares the resulting frames. No BIOS needed: the SH-2 spins in a loop
 // while the VDPs are programmed through side-effect-free bus writes.
 #include <ymir/ymir.hpp>
-#include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -234,68 +233,6 @@ static void SetupScene(Saturn &s, int scene) {
     Poke16(s, kVDP1Regs + 0x04, 0x0002);              // PTMR: draw automatically every frame
 }
 
-
-// Software renderer: all frames of a scene with the given threading/synchronization mode (relaxed sync check).
-static std::vector<std::vector<uint32>> RunSoftwareFrames(int scene, bool threaded, bool relaxed, int frames = 20) {
-    vdp::g_swRelaxedSync = relaxed;
-    auto saturn = std::make_unique<Saturn>();
-    std::vector<uint8> ipl(sys::kIPLSize, 0);
-    const uint8 boot[] = {0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x40, 0x00};
-    std::memcpy(ipl.data(), boot, sizeof(boot));
-    ipl[0x100] = 0xAF;
-    ipl[0x101] = 0xFE;
-    ipl[0x102] = 0x00;
-    ipl[0x103] = 0x09;
-    saturn->LoadIPL(std::span<uint8, sys::kIPLSize>(ipl.data(), sys::kIPLSize));
-    saturn->configuration.swRenderer.threadedVDP1 = threaded;
-    saturn->configuration.swRenderer.threadedVDP2 = threaded;
-    saturn->configuration.swRenderer.threadedDeinterlacer = threaded;
-    saturn->Reset(true);
-    std::vector<std::vector<uint32>> out;
-    saturn->VDP.SetSoftwareRenderCallback({&out, [](uint32 *fb, uint32 w, uint32 h, void *ctx) {
-                                               static_cast<std::vector<std::vector<uint32>> *>(ctx)->emplace_back(
-                                                   fb, fb + (size_t)w * h);
-                                           }});
-    saturn->VDP.UseSoftwareRenderer();
-    SetupScene(*saturn, scene);
-    for (int i = 0; i < frames; ++i) {
-        const uint16 dx = (i * 7) % 120;
-        const uint32 cmd2 = kVDP1VRAM + 2 * 0x20, cmd6 = kVDP1VRAM + 6 * 0x20;
-        Poke16(*saturn, cmd2 + 0x0C, 20 + dx);
-        Poke16(*saturn, cmd2 + 0x10, 140 + dx);
-        Poke16(*saturn, cmd2 + 0x14, 140 + dx);
-        Poke16(*saturn, cmd2 + 0x18, 20 + dx);
-        Poke16(*saturn, cmd6 + 0x0C, 30 + dx);
-        Poke16(*saturn, kVDP2Regs + 0x070, (uint16)(16 + i * 3)); // scroll the background too
-        if (scene == 7) {
-            Poke16(*saturn, kVDP1Regs + 0x02, 0x0003);
-        }
-        saturn->RunFrame();
-    }
-    saturn.reset(); // joins the render threads (the last relaxed frame is delivered before they stop)
-    vdp::g_swRelaxedSync = false;
-    return out;
-}
-
-static int CheckRelaxedSync() {
-    int failures = 0;
-    for (int scene = 0; scene <= 8; ++scene) {
-        const auto ref = RunSoftwareFrames(scene, false, false);
-        const auto thr = RunSoftwareFrames(scene, true, false);
-        const auto rel = RunSoftwareFrames(scene, true, true);
-        const size_t n = std::min(ref.size(), rel.size());
-        size_t bad = 0, badThr = 0;
-        for (size_t i = 0; i < n; ++i) bad += ref[i] != rel[i];
-        for (size_t i = 0; i < std::min(ref.size(), thr.size()); ++i) badThr += ref[i] != thr[i];
-        std::printf("RELAXED SCENE %d: %zu reference frames, %zu relaxed frames, %zu differ (threaded without relaxed "
-                    "sync: %zu differ)\n",
-                    scene, ref.size(), rel.size(), bad, badThr);
-        if (bad || n + 1 < ref.size()) ++failures;
-    }
-    std::printf("RELAXED RESULT: %s\n", failures ? "MISMATCH" : "MATCH");
-    return failures ? 1 : 0;
-}
-
 std::string LoadDebugState(Saturn &saturn, const std::string &path);
 
 static bool Run(bool vulkan, int scene, Frame &out, std::string &err, const std::string &statePath = {},
@@ -468,9 +405,6 @@ static int CompareState(const std::string &path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc > 1 && std::string(argv[1]) == "--relaxed") {
-        return CheckRelaxedSync();
-    }
     if (argc > 1) {
         int rc = 0;
         for (int i = 1; i < argc; ++i) rc |= CompareState(argv[i]);

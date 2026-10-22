@@ -16,10 +16,10 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 
 | | |
 | --- | --- |
-| 🚀 **Vulkan GPU renderer** | Saturn VDP1/VDP2 graphics on the GPU with Vulkan compute shaders, internal resolution up to **4x**. Software and OpenGL ES renderers for every other device. |
+| 🚀 **Vulkan GPU renderer** | Saturn VDP1/VDP2 graphics on the GPU with Vulkan compute shaders, internal resolution up to **4x**. CPU (OpenGL) renderer for every other device. |
 | 🎮 **Built for handhelds** | The whole app works with a controller: D-pad, A/B/X/Y, Select for recent games, full remapping, hotkeys and an analog 3D Control Pad mode. Touch controls too. |
 | 💾 **Save states** | Slots with screenshot previews, quick save/load, **auto save and auto load**, and a "Recent" view to jump straight back into any state. |
-| 🏆 **RetroAchievements** | Login, hardcore mode, unlock notifications and achievement list. |
+| 🏆 **RetroAchievements** | Login, hardcore mode, unlock notifications, achievement list and offline play in casual mode. |
 | 🖼️ **Game library** | Box art downloaded automatically (with fuzzy title matching), custom covers, play time per game. |
 | 📺 **Display** | 4:3, Fullscreen or 16:9 with **built-in widescreen hacks** for ~20 games; CRT, Dots, LCD3x and Scanlines shaders. |
 | ⚡ **Quick presets** | High / Mid / Low tune the renderer, resolution, shader and frame skip in one tap. |
@@ -47,10 +47,10 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 ## All features
 
 **Emulation and video**
-- Renderers: Software (CPU), OpenGL ES, and Vulkan GPU (compute shaders, 1x–4x internal resolution)
+- Renderers: CPU (OpenGL ES presentation) and GPU (Vulkan compute shaders, 1x–4x internal resolution)
 - Filters (Nearest, Bilinear) and shaders (CRT, Dots, LCD3x, Scanlines)
 - 4:3, Fullscreen and 16:9 display modes; widescreen hacks applied automatically
-- Frame skip, CD read speed up to 16x, fast boot (skips the BIOS setup screens), 4 MiB RAM cartridge, NTSC/PAL
+- Automatic frame skip (only while below full speed), threaded audio Auto/On/Off (Auto measures and remembers the faster mode per game), CD read speed up to 16x, fast boot (skips the BIOS setup screens), 4 MiB RAM cartridge, NTSC/PAL
 - Overlays: FPS, speed, renderer, resolution, on-screen fast-forward button
 
 **Audio**
@@ -61,11 +61,12 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 - Save states with slots and previews, quick slot, auto save/load, recent states view
 - Built-in cheat database (libretro-database), Action Replay and raw codes, `.cht` import
 - Game options: Continue from the latest state, Open fresh, choose a custom cover
+- Recommended per-game settings for slower devices; renderer, frame skip and threaded audio changed in a game are remembered for that game
 
 **Controls and interface**
 - Controller navigation everywhere, including the in-game quick menu (save/load, video, audio, overlays, cheats, disc tray, reset)
 - Button remapping (including L3/R3), hotkeys for quick save/load, fast-forward (hold or toggle) and the menu
-- First-run setup wizard, configurable data folder, crash reports with automatic fallback to the Software renderer
+- First-run setup wizard, configurable data folder, crash reports with automatic fallback to the CPU renderer
 
 ## Requirements
 

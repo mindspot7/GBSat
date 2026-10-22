@@ -344,8 +344,7 @@ void DrainCommands() {
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     // Frame skipping: this frame was not rendered. The Vulkan renderer delivers its frames one frame late, so gating
     // them with the current frame's skip flag dropped the rendered ones too (frozen picture); it's not gated.
-    // (relaxed sync: the software renderer delivers frames from its own thread, a frame late, and never skipped ones)
-    if (g->skipPresent.load(std::memory_order_relaxed) && !ymir::vdp::g_swRelaxedSync &&
+    if (g->skipPresent.load(std::memory_order_relaxed) &&
         !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
         return;
     }

@@ -76,7 +76,6 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LibraryScreen(
     onOpenSettings: (SettingsPage?) -> Unit,
-    onRequestAllFiles: () -> Unit,
     launch: (String) -> Unit,
     launchState: (Emulator.RecentState) -> Unit,
     onQuit: () -> Unit,
@@ -143,7 +142,7 @@ fun LibraryScreen(
                 if (recentMode) {
                     RecentStates(launchState = launchState, onSelected = {})
                 } else {
-                    Library(edgePad = if (docked) 4.dp else 20.dp, onOpenSettings = { onOpenSettings(SettingsPage.System) }, onRequestAllFiles = onRequestAllFiles,
+                    Library(edgePad = if (docked) 4.dp else 20.dp, onOpenSettings = { onOpenSettings(SettingsPage.System) },
                         launch = { MenuState.selected = null; launch(it) }, onSelected = {}, open = { MenuState.selected = null; open(it) },
                         launchState = { MenuState.selected = null; launchState(it) })
                 }
@@ -318,17 +317,16 @@ private fun MenuEntry(icon: MenuIcon, label: String, modifier: Modifier = Modifi
 @Composable
 private fun Library(
     edgePad: androidx.compose.ui.unit.Dp,
-    onOpenSettings: () -> Unit, onRequestAllFiles: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit,
+    onOpenSettings: () -> Unit, launch: (String) -> Unit, onSelected: (ImageBitmap?) -> Unit,
     open: (String) -> Unit, launchState: (Emulator.RecentState) -> Unit,
 ) {
     var games by remember { mutableStateOf<List<gb.frame.Game>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
-    val hasAccess = Storage.hasAllFilesAccess()
 
     LifecycleResumeEffect(Unit) { refreshKey++; onPauseOrDispose { } }
-    LaunchedEffect(Emulator.gamesDir, refreshKey, hasAccess) {
-        if (Emulator.gamesDir.isBlank() || !hasAccess) { games = emptyList(); return@LaunchedEffect }
+    LaunchedEffect(Emulator.gamesDir, refreshKey) {
+        if (Emulator.gamesDir.isBlank()) { games = emptyList(); return@LaunchedEffect }
         loading = games.isEmpty()
         games = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir) }
         loading = false
@@ -337,9 +335,6 @@ private fun Library(
     when {
         !Emulator.iplLoaded -> Panel(Modifier.fillMaxSize()) {
             EmptyState(Icons.Default.Memory, "Add a Saturn BIOS", "GBSat needs your own Saturn IPL ROM (512 KiB) to boot games.", "Open System options", onOpenSettings)
-        }
-        !hasAccess -> Panel(Modifier.fillMaxSize()) {
-            EmptyState(Icons.Default.FolderOff, "Allow file access", "Disc images (CUE/BIN, CHD, ISO, MDS, CCD) are read directly from storage.", "Grant access", onRequestAllFiles)
         }
         Emulator.gamesDir.isBlank() -> Panel(Modifier.fillMaxSize()) {
             EmptyState(Icons.Default.Folder, "Choose your games folder", "Pick the folder that holds your Saturn disc images.", "Open System options", onOpenSettings)

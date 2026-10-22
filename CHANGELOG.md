@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Threaded audio Auto: the mode found for a game is also remembered when GBSat is closed during the game.
+- Removed leftovers of the old "Allow file access" screen and of the experimental relaxed frame sync.
 
 ## 1.3.3
 - Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option is gone, since CPU (OpenGL) renders the same and adds filters and shaders (existing Software users move to CPU (OpenGL); a plain output is used automatically if OpenGL ES can't start).

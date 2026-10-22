@@ -119,17 +119,6 @@ public:
     /// @brief Internal resolution scale of the frame passed to the frame ready callback (call from the callback).
     uint32 DeliveredFrameScale() const;
 
-    /// @brief VDP2 layer render batches of the last frame and what triggered them (diagnostics).
-    struct FrameStats {
-        uint32 batches = 0, vram = 0, cram = 0, layer = 0, compose = 0;
-        // Changed layer parameters: NBG0-3 x (base, scroll, pages, line/cell scroll), RBGs, windows, line/back/SFC
-        std::array<uint32, 19> changed{};
-        uint32 syncs = 0;    // mid-frame submit-and-wait (e.g. CPU reads of the VDP1 framebuffer)
-        uint32 waitUs = 0;   // time spent waiting for the GPU
-        uint32 vdp1Cmds = 0; // VDP1 commands executed
-    };
-    FrameStats LastFrameStats() const;
-
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

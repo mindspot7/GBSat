@@ -68,13 +68,13 @@ class ReadmeScreenshots {
         rule.onRoot().captureRoboImage("$out/$name.png")
     }
 
-    @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}, {}) })
-    @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
-    @Test fun wizard() = shot("setup", { SetupWizard({}, {}) }) {
+    @Test fun library() = shot("library", { LibraryScreen({}, {}, {}, {}) })
+    @Test fun menu() = shot("menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
+    @Test fun wizard() = shot("setup", { SetupWizard({}) }) {
         repeat(5) { rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300) }
     }
-    @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, {}, SettingsPage.Video) })
-    @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, {}, SettingsPage.Controls) })
-    @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, {}, SettingsPage.Performance) })
-    @Test fun extras() = shot("settings-extras", { SettingsScreen({}, {}, {}, SettingsPage.Extras) })
+    @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, SettingsPage.Video) })
+    @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, SettingsPage.Controls) })
+    @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, SettingsPage.Performance) })
+    @Test fun extras() = shot("settings-extras", { SettingsScreen({}, {}, SettingsPage.Extras) })
 }
