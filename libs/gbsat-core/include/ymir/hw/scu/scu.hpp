@@ -93,6 +93,11 @@ public:
         return m_activeDMAChannelLevel < m_dmaChannels.size() || m_dsp.dmaRun;
     }
 
+    // Nothing here can write memory while the SH-2s run (no DMA, the DSP stopped): used by idle-loop skipping
+    bool IsQuiet() const {
+        return !IsDMAActive() && !(m_dsp.programExecuting && !m_dsp.programPaused);
+    }
+
     // -------------------------------------------------------------------------
     // Cartridge slot
 

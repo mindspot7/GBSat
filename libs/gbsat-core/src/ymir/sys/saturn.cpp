@@ -529,6 +529,10 @@ bool Saturn::Run() {
         }
     };
 
+    // A new window: devices and timers ran since the CPUs' last iteration, so the polled memory may have changed
+    masterSH2.ClearParked();
+    slaveSH2.ClearParked();
+
     uint64 execCycles;
     if (SCU.IsDMAActive()) {
         // Stall both SH2 CPUs and only run the SCU and other stuff
@@ -541,6 +545,22 @@ bool Saturn::Run() {
         if (slaveSH2Enabled) {
             uint64 slaveCycles = m_ssh2SpilloverCycles;
             do {
+                // Both CPUs parked in idle loops and the SCU quiet: nothing can write the memory they poll until the
+                // end of this window (timers and devices advance after it), so both skip there at once, by whole
+                // iterations of their loops (exact)
+                if constexpr (!debug) {
+                    uint64 masterTo, slaveTo;
+                    if (SCU.IsQuiet() && masterSH2.ParkedIdleReach(cycles, execCycles, masterTo) &&
+                        slaveSH2.ParkedIdleReach(masterTo, slaveCycles, slaveTo)) {
+                        masterSH2.ApplyParkedIdle(execCycles, masterTo);
+                        slaveSH2.ApplyParkedIdle(slaveCycles, slaveTo);
+                        SCU.Advance<debug>(masterTo - execCycles);
+                        execCycles = masterTo;
+                        slaveCycles = slaveTo;
+                        lap(ws::PartMSH2);
+                        break;
+                    }
+                }
                 const uint64 prevExecCycles = execCycles;
                 const uint64 targetCycles = std::min(execCycles + kSH2SyncMaxStep, cycles);
                 execCycles = masterSH2.Advance<debug, enableSH2Cache>(targetCycles, execCycles);
@@ -568,6 +588,16 @@ bool Saturn::Run() {
             }
         } else {
             do {
+                if constexpr (!debug) {
+                    uint64 masterTo;
+                    if (SCU.IsQuiet() && masterSH2.ParkedIdleReach(cycles, execCycles, masterTo)) {
+                        masterSH2.ApplyParkedIdle(execCycles, masterTo);
+                        SCU.Advance<debug>(masterTo - execCycles);
+                        execCycles = masterTo;
+                        lap(ws::PartMSH2);
+                        break;
+                    }
+                }
                 const uint64 prevExecCycles = execCycles;
                 const uint64 targetCycles = std::min(execCycles + kSH2SyncMaxStep, cycles);
                 execCycles = masterSH2.Advance<debug, enableSH2Cache>(targetCycles, execCycles);

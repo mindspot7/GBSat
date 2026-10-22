@@ -432,6 +432,42 @@ void SH2::DumpCacheAddressTag(std::ostream &out) const {
     }
 }
 
+bool SH2::ParkedIdleReach(uint64 target, uint64 current, uint64 &reach) const {
+    if (!m_parked || !m_idleSkip || PC != m_parkHead || m_intrFlags.pending || m_delaySlot || m_sleep ||
+        IsDMATransferActive(m_dmaChannels[0]) || IsDMATransferActive(m_dmaChannels[1])) {
+        return false;
+    }
+    if (target <= current) {
+        reach = current;
+        return true;
+    }
+    const uint64 k = (target - current + m_parkIter - 1) / m_parkIter;
+    if (m_parkInfo.dtReg >= 0) {
+        const uint32 left = R[m_parkInfo.dtReg];
+        if (left == 0 || k > left - 1) {
+            return false; // the delay ends before the target: let the interpreter run it
+        }
+    }
+    reach = current + k * m_parkIter;
+    return true;
+}
+
+void SH2::ApplyParkedIdle(uint64 current, uint64 reach) {
+    const uint64 k = (reach - current) / m_parkIter;
+    if (k == 0) {
+        return;
+    }
+    if (m_parkInfo.dtReg >= 0) {
+        R[m_parkInfo.dtReg] -= (uint32)k;
+    }
+    for (int a = 0; a < 2; ++a) {
+        if (m_parkInfo.accReg[a] >= 0) R[m_parkInfo.accReg[a]] += (uint32)(k * (uint64)(sint64)m_parkInfo.accImm[a]);
+    }
+    if (util::waitstats::g_profile.load(std::memory_order_relaxed)) {
+        util::waitstats::g_shSkip[IsMaster() ? 0 : 1] += k * m_parkIter;
+    }
+}
+
 // Memory a polling loop may read without side effects: work RAM, SMPC, sound RAM, VDP1/VDP2/SCU registers (not the CD
 // block, whose data port pops a FIFO, nor the on-chip modules). Only the cached and cache-through areas.
 FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
@@ -594,6 +630,7 @@ template <bool debug, bool emulateCache>
 FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     m_cyclesExecuted = spilloverCycles;
     m_idleHead = 0; // iteration costs are measured within one call
+    m_parked = false;
     AdvanceWDT<false>();
     AdvanceFRT<false>();
 
@@ -658,11 +695,18 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
                     } else if (iter == 0 || !IsIdleLoop<emulateCache>(PC, prevPC, info)) {
                         v = {PC, prevPC, 1024};
                     } else {
-                        uint64 k = (cycles - m_cyclesExecuted) / iter;
+                        // Whole iterations up to the end of the slice (the last one may overshoot it, like any instruction:
+                        // the slice then ends parked at the loop head)
+                        uint64 k = (cycles - m_cyclesExecuted + iter - 1) / iter;
+                        bool parked = true;
                         if (info.dtReg >= 0) {
                             // Keep the iteration where dt reaches zero (it leaves the loop) for the interpreter
                             const uint32 left = R[info.dtReg];
-                            k = std::min<uint64>(k, left > 0 ? left - 1 : 0);
+                            const uint64 maxK = left > 0 ? left - 1 : 0;
+                            if (k > maxK) {
+                                k = maxK;
+                                parked = false;
+                            }
                             R[info.dtReg] -= (uint32)k;
                         }
                         for (int a = 0; a < 2; ++a) {
@@ -671,6 +715,12 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
                         m_cyclesExecuted += k * iter;
                         if (prof) {
                             ws::g_shSkip[cpu] += k * iter;
+                        }
+                        if (parked && m_cyclesExecuted >= cycles) {
+                            m_parked = true;
+                            m_parkHead = PC;
+                            m_parkIter = iter;
+                            m_parkInfo = info;
                         }
                     }
                 }

@@ -106,6 +106,20 @@ public:
     /// interpreting the same iterations. Nothing else runs during the slice, so the result is the same.
     void SetIdleLoopSkip(bool enable) {
         m_idleSkip = enable;
+        m_parked = false;
+    }
+
+    /// @brief Idle-loop skipping across a whole time window. The CPU is parked when its last time slice ended at the
+    /// head of a verified idle loop. ParkedIdleReach tells how far whole iterations from @p current reach to cover
+    /// @p target (false: not parked, an interrupt or DMA pending, or a delay counter ending sooner); ApplyParkedIdle
+    /// applies them (counters). Only valid while nothing else can write the polled memory (the caller checks that the
+    /// other CPU is parked too and the SCU is quiet).
+    bool ParkedIdleReach(uint64 target, uint64 current, uint64 &reach) const;
+    void ApplyParkedIdle(uint64 current, uint64 reach);
+    /// @brief Devices and timers ran (a new window): the polled memory may have changed, so the next skip needs one
+    /// interpreted iteration first.
+    void ClearParked() {
+        m_parked = false;
     }
 
     bool GetNMI() const;
@@ -726,6 +740,11 @@ private:
         uint16 retry = 0;
     };
     std::array<IdleVerdict, 32> m_notIdle{};
+    // Parked: the last time slice ended at the head of a verified idle loop (cost per iteration and counters known)
+    bool m_parked = false;
+    uint32 m_parkHead = 0;
+    uint64 m_parkIter = 0;
+    IdleLoopInfo m_parkInfo;
     template <bool emulateCache>
     bool IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info);
 
