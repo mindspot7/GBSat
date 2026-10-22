@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port ]
-    # UI changes too, so a screen that breaks the screenshot test is caught on the same push
-    paths: [ 'apps/android/app/src/**', 'libs/gbframe', '.github/workflows/screenshots.yml' ]
+    # Only on a release (VERSION changes); run it by hand (Actions -> README screenshots) to refresh the images otherwise
+    paths: [ 'apps/android/VERSION' ]
 
 # A newer push makes the running render obsolete
 concurrency:
