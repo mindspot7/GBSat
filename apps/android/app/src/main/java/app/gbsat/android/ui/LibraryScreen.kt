@@ -188,7 +188,7 @@ fun LibraryScreen(
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
             extras = listOf(HomeMenuItem(MenuIcon.About, "About", selected = MenuState.selected == SettingsPage.About) { openPage(SettingsPage.About) }),
-            onQuit = onQuit, header = { RaUserHeader() },
+            onQuit = onQuit, header = { RaUserHeader() }, onFocusChanged = { MenuState.menuHasFocus = it },
         )
         gameMenu?.let { g -> GameOptions(g, entries.firstOrNull { it.game == g.key },
             onDismiss = { gameMenu = null },
@@ -230,6 +230,8 @@ internal object MenuState {
     @Volatile var hasFocus = false
     /** Bumped to put the focus back on the library. */
     val refocus = mutableIntStateOf(0)
+    /** Something inside the open main menu has the focus (opened with a tap, the focus can stay on the library behind). */
+    @Volatile var menuHasFocus = false
     /** Bumped to put the focus back on the open menu. */
     val menuRefocus = mutableIntStateOf(0)
 }

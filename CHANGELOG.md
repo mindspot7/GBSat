@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Showcase: covers sized to the room under the game details (the selected cover no longer touches the buttons on square screens), fixed reflection, and holding left/right moves through the shelf at a steady pace without stutter.
+- Grid: covers no longer zoom (they were cut by their neighbours) and no names under them.
+- Fixed: with the main menu opened by touch, the D-pad didn't move in it.
 - Fixed: X (menu) and the D-pad stopped working in the library after a tap or after closing a menu.
 - New main menu: a panel that slides in from the left (X on a controller, or a tap on the top bar) with the library view (All games / Recent, with counts), the settings as large icon tiles and Quit.
 - The Quality preset row was removed from Settings → Video; the preset for the device is still applied on first run and the individual options stay.
