@@ -279,9 +279,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = if (Emulator.threadedScsp) "On" else "Off") {
                                     Emulator.threadedScsp = !Emulator.threadedScsp; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.Default.Speed, "Relaxed frame sync", value = if (Emulator.relaxedSync) "On" else "Off") {
-                                    Emulator.relaxedSync = !Emulator.relaxedSync; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
                             }
                             MenuPage.Overlays -> {
                                 fun onOff(b: Boolean) = if (b) "On" else "Off"

@@ -556,7 +556,7 @@ void WritePerfLog(float fps, float presentedFps) {
     }
     if (fresh) {
         fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
-                   "emu_ms_per_frame,relaxed_sync,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms\n");
+                   "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "Vulkan" : mode == 1 ? "OpenGL ES" : "Software";
@@ -569,10 +569,10 @@ void WritePerfLog(float fps, float presentedFps) {
     for (int i = 0; i < util::waitstats::Count; ++i) {
         waitMs[i] = util::waitstats::g_waitNs[i].exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps);
     }
-    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%d,%.2f,%.2f,%.2f\n", ts, title.c_str(), renderer,
+    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f\n", ts, title.c_str(), renderer,
             mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
-            presentedFps, g->frameTimeUs.load() / 1000.0, ymir::vdp::g_swRelaxedSync ? 1 : 0,
+            presentedFps, g->frameTimeUs.load() / 1000.0,
             waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2]);
     fclose(f);
 }
@@ -1074,10 +1074,10 @@ JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
     }
 }
 // SCSP (sound) and its MC68EC000 CPU on their own thread, off the emulation thread that runs the two SH-2s
-JNI_FN(void, nativeSetRelaxedSync)(JNIEnv *, jclass, jboolean on) {
-    if (g) {
-        Post([on] { ymir::vdp::g_swRelaxedSync = on; }); // switched between frames, on the emulation thread
-    }
+// Threaded audio needs a fast core of its own: on chips with only 2 fast cores (e.g. Unisoc T618) the second one is
+// better used by the VDP2 render thread, so the app turns threaded audio off by default there.
+JNI_FN(jint, nativeFastCoreCount)(JNIEnv *, jclass) {
+    return cputune::FastCoreCount();
 }
 
 JNI_FN(void, nativeSetThreadedScsp)(JNIEnv *, jclass, jboolean on) {

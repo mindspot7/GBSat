@@ -101,6 +101,21 @@ void UpdateSession(std::vector<int32_t> tids) {
 
 } // namespace
 
+int FastCoreCount() {
+    const long n = sysconf(_SC_NPROCESSORS_CONF);
+    long maxCap = 0;
+    std::vector<long> caps;
+    for (long i = 0; i < n; i++) {
+        long cap = ReadLong("/sys/devices/system/cpu/cpu%ld/cpu_capacity", i);
+        if (cap <= 0) cap = ReadLong("/sys/devices/system/cpu/cpu%ld/cpufreq/cpuinfo_max_freq", i);
+        caps.push_back(cap);
+        maxCap = std::max(maxCap, cap);
+    }
+    int fast = 0;
+    for (long c : caps) fast += (maxCap > 0 && c * 10 >= maxCap * 6) ? 1 : 0; // within 60% of the fastest core
+    return fast > 0 ? fast : (int)n;
+}
+
 void PinEmulationThreads() {
     std::lock_guard lk(m);
     if (!maskReady) BuildMask();
@@ -137,10 +152,6 @@ void PinEmulationThreads() {
                     const bool big = strncmp(name, "SCSP", 4) == 0 || strncmp(name, "VDP2", 4) == 0;
                     const cpu_set_t *mask = big ? &vdp1Mask : &otherMask;
                     sched_setaffinity(tid, sizeof(cpu_set_t), mask);
-                    // The sound thread shares that core with the VDP2 thread: give it a higher priority so it runs as
-                    // soon as the emulation waits for it (the emulation stalls while it is preempted), while VDP2 uses
-                    // the rest of the core
-                    if (strncmp(name, "SCSP", 4) == 0) setpriority(PRIO_PROCESS, tid, -10);
                 }
                 tids.push_back(tid);
             }

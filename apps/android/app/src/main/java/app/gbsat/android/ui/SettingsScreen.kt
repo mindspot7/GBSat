@@ -285,9 +285,6 @@ private fun PerformancePage() {
         ToggleRow(Icons.Default.GraphicEq, "Threaded audio", "Run the sound chip and its 68000 CPU on a separate thread, leaving more time for the SH-2s",
             Emulator.threadedScsp, ch { Emulator.threadedScsp = it })
         SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "Relaxed frame sync (experimental)", "Software renderer: emulation and drawing overlap across frames instead of waiting for each other (needs Threaded VDP)",
-            Emulator.relaxedSync, ch { Emulator.relaxedSync = it })
-        SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {

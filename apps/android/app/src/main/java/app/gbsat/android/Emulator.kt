@@ -35,7 +35,6 @@ object Emulator {
     var sh2Cache by mutableStateOf(false)
     var threadedVdp by mutableStateOf(true)
     var threadedScsp by mutableStateOf(true) // sound (SCSP + 68000) on its own thread
-    var relaxedSync by mutableStateOf(false) // software renderer: relaxed frame synchronization (experimental)
     var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
@@ -375,8 +374,11 @@ object Emulator {
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
-        threadedScsp = prefs.getBoolean("threadedScsp", true)
-        relaxedSync = prefs.getBoolean("relaxedSync", false)
+        // Threaded audio: on by default only with 3+ fast cores (on 2-fast-core chips such as the Unisoc T618 the sound
+        // thread takes the core the background renderer needs). Applied once to existing installs too.
+        val scspDefault = NativeBridge.nativeFastCoreCount() >= 3
+        threadedScsp = if (prefs.contains("threadedScspDevice")) prefs.getBoolean("threadedScsp", scspDefault) else scspDefault
+        prefs.edit().putBoolean("threadedScspDevice", true).putBoolean("threadedScsp", threadedScsp).apply()
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
@@ -446,7 +448,6 @@ object Emulator {
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetThreadedScsp(threadedScsp)
-        NativeBridge.nativeSetRelaxedSync(relaxedSync)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetFrameSkip(frameSkip)
@@ -459,7 +460,7 @@ object Emulator {
 
     fun savePrefs() = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putBoolean("relaxedSync", relaxedSync).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putBoolean("threadedScsp", threadedScsp).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle).apply()

@@ -1,8 +1,8 @@
 # Changelog
 
 ## Unreleased
-- Sound thread runs at a higher priority on the core it shares with the background renderer, so the emulation no longer stalls waiting for it (Virtua Fighter 2, Panzer Dragoon Saga).
-- Experimental "Relaxed frame sync" option (Settings → Emulation): with the software renderer, emulation and drawing overlap across frames instead of waiting for each other at every frame; also in the in-game Performance menu. The performance log now records how long the emulation waits for the sound and video threads.
+- Threaded audio is now off by default on chips with only two fast cores (e.g. Unisoc T618), where the background renderer needs the second fast core: Virtua Fighter 2 and Panzer Dragoon Saga run much faster there. It can still be turned on in Settings.
+- The performance log records how long the emulation waits for the sound and video threads.
 - Frame skip on interlaced hi-res screens skips both fields together, so moving objects no longer leave a trail (e.g. Virtua Fighter 2).
 - Software renderer: faster background drawing (each 8-dot character cell is looked up once instead of for every dot), with identical output.
 - The library reopens in the layout you used last (all games or recent save states).
