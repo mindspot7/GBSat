@@ -712,9 +712,22 @@ private:
 
     // Idle-loop skipping (see SetIdleLoopSkip)
     bool m_idleSkip = true;
-    uint32 m_idleHead = 0; // last tight-loop head reached by a backward jump
+    uint32 m_idleHead = 0;   // last tight-loop head reached by a backward jump (in this Advance call)
+    uint64 m_idleHeadAt = 0; // m_cyclesExecuted at that moment (one iteration's cost is the difference to the next)
+    // What an idle loop changes from one iteration to the next: counters (add #imm,Rn) and a delay counter (dt Rn)
+    struct IdleLoopInfo {
+        int accReg[2] = {-1, -1};
+        sint32 accImm[2] = {0, 0};
+        int dtReg = -1;
+    };
+    // Loops found not to be idle, so they aren't analyzed again on every iteration (retried now and then)
+    struct IdleVerdict {
+        uint32 head = 0, last = 0;
+        uint16 retry = 0;
+    };
+    std::array<IdleVerdict, 32> m_notIdle{};
     template <bool emulateCache>
-    bool IsIdleLoop(uint32 head, uint32 last);
+    bool IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info);
 
     // Tight-loop measurement for the performance log (profiled frames only)
     uint64 m_loopClock = 0;  // cycles interpreted while profiling

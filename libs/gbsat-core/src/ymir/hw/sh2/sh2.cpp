@@ -435,6 +435,9 @@ void SH2::DumpCacheAddressTag(std::ostream &out) const {
 // Memory a polling loop may read without side effects: work RAM, SMPC, sound RAM, VDP1/VDP2/SCU registers (not the CD
 // block, whose data port pops a FIFO, nor the on-chip modules). Only the cached and cache-through areas.
 FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
+    if ((address & 0xFFFFFFF0) == 0xFFFFFE10) {
+        return true; // free-running timer registers (the slave waits for the master's signal on FTCSR's input capture)
+    }
     if ((address >> 29) > 1) {
         return false;
     }
@@ -451,9 +454,12 @@ FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
 // A tight loop (head..last, at most 5 instructions) is idle when every iteration is the same as the previous one unless
 // memory changes: only loads from side-effect-free memory, tests/compares and register-only operations, no stores, and
 // no register carried from one iteration to the next (each one read in the loop is either never written in it or
-// written before it is read).
+// written before it is read). Two kinds of carried registers are allowed because skipping N iterations can apply them
+// exactly: counters (add #imm,Rn) and one delay counter (dt Rn), when nothing else in the loop uses that register.
 template <bool emulateCache>
-bool SH2::IsIdleLoop(uint32 head, uint32 last) {
+bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
+    info = {};
+    int accCount = 0;
     if (last < head || last - head > 8 || ((last - head) & 1)) {
         return false;
     }
@@ -500,6 +506,10 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last) {
             break;
         case 0x4:
             switch (op & 0xFF) {
+            case 0x10: // dt Rn: the delay counter (checked below)
+                if (info.dtReg >= 0) return false;
+                info.dtReg = (int)n;
+                break;
             case 0x11: case 0x15: o.rd = 1 << n; break;                       // cmp/pz, cmp/pl
             case 0x00: case 0x01: case 0x08: case 0x09: case 0x18: case 0x19: // shll, shlr, shll2/8, shlr2/8
             case 0x28: case 0x29: o = {(uint16)(1 << n), (uint16)(1 << n)}; break; // shll16, shlr16
@@ -518,8 +528,10 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last) {
                 return false;
             }
             break;
-        case 0x7: // add #imm,Rn
-            o = {(uint16)(1 << n), (uint16)(1 << n)};
+        case 0x7: // add #imm,Rn: a counter (checked below)
+            if (accCount == 2) return false;
+            info.accReg[accCount] = (int)n;
+            info.accImm[accCount++] = (sint32)(sint8)(op & 0xFF);
             break;
         case 0x8:
             switch (n) {
@@ -557,12 +569,23 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last) {
         ops[count++] = o;
         allWr |= o.wr;
     }
-    uint16 written = 0;
+    uint16 written = 0, used = 0;
     for (int i = 0; i < count; ++i) {
         if (ops[i].rd & allWr & ~written) {
-            return false; // a value carried over from the previous iteration (a counter, a pointer...)
+            return false; // a value carried over from the previous iteration (a pointer...)
         }
         written |= ops[i].wr;
+        used |= ops[i].rd | ops[i].wr;
+    }
+    // Counters must be used by nothing else in the loop (not even each other)
+    uint16 carried = 0;
+    for (int k = 0; k < accCount; ++k) {
+        const uint16 bit = 1 << info.accReg[k];
+        if ((used | carried) & bit) return false;
+        carried |= bit;
+    }
+    if (info.dtReg >= 0 && ((used | carried) & (1 << info.dtReg))) {
+        return false;
     }
     return true;
 }
@@ -570,6 +593,7 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last) {
 template <bool debug, bool emulateCache>
 FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     m_cyclesExecuted = spilloverCycles;
+    m_idleHead = 0; // iteration costs are measured within one call
     AdvanceWDT<false>();
     AdvanceFRT<false>();
 
@@ -619,19 +643,39 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
                 m_loopStart = m_loopClock;
             }
         }
-        // Idle-loop skipping: the second time a tight loop jumps back to the same head, check that it only polls memory;
-        // if so, skip to the end of this time slice (the polled value can't change before the other components run)
+        // Idle-loop skipping: the second time a tight loop jumps back to the same head (one iteration measured), check that
+        // it only polls memory; if so, skip as many whole iterations as fit in this time slice, applying their counters.
+        // The polled value can't change before the other components run, so the result is exact.
         if constexpr (!debug) {
             if (PC < prevPC && prevPC - PC <= 8 && m_idleSkip) [[unlikely]] {
-                if (PC == m_idleHead && !m_delaySlot && !m_intrFlags.pending && m_cyclesExecuted < cycles &&
-                    IsIdleLoop<emulateCache>(PC, prevPC)) {
-                    if (prof) {
-                        ws::g_shSkip[cpu] += cycles - m_cyclesExecuted;
+                if (PC == m_idleHead && !m_delaySlot && !m_intrFlags.pending && m_cyclesExecuted < cycles) {
+                    const uint64 iter = m_cyclesExecuted - m_idleHeadAt;
+                    IdleVerdict &v = m_notIdle[(PC >> 1) & 31];
+                    const bool knownBad = v.head == PC && v.last == prevPC && v.retry > 0;
+                    IdleLoopInfo info;
+                    if (knownBad) {
+                        --v.retry;
+                    } else if (iter == 0 || !IsIdleLoop<emulateCache>(PC, prevPC, info)) {
+                        v = {PC, prevPC, 1024};
+                    } else {
+                        uint64 k = (cycles - m_cyclesExecuted) / iter;
+                        if (info.dtReg >= 0) {
+                            // Keep the iteration where dt reaches zero (it leaves the loop) for the interpreter
+                            const uint32 left = R[info.dtReg];
+                            k = std::min<uint64>(k, left > 0 ? left - 1 : 0);
+                            R[info.dtReg] -= (uint32)k;
+                        }
+                        for (int a = 0; a < 2; ++a) {
+                            if (info.accReg[a] >= 0) R[info.accReg[a]] += (uint32)(k * (uint64)(sint64)info.accImm[a]);
+                        }
+                        m_cyclesExecuted += k * iter;
+                        if (prof) {
+                            ws::g_shSkip[cpu] += k * iter;
+                        }
                     }
-                    m_cyclesExecuted = cycles;
-                    break;
                 }
                 m_idleHead = PC;
+                m_idleHeadAt = m_cyclesExecuted;
             }
         }
 
