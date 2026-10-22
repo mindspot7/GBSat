@@ -47,7 +47,6 @@ import app.gbsat.android.NativeBridge
 import app.gbsat.android.R
 import app.gbsat.android.SaturnButton
 import app.gbsat.android.Storage
-import app.gbsat.android.keyName
 import kotlinx.coroutines.launch
 
 /** Option pages opened from the side menu. */
