@@ -660,12 +660,12 @@ void WritePerfLog(float fps, float presentedFps) {
     const auto size = std::filesystem::file_size(kPath, ec);
     bool fresh = ec || size > 2u * 1024 * 1024;
     if (!fresh) { // a log from an older version (fewer columns) starts over
-        char head[512] = {};
+        char head[4096] = {}; // the header is long (it was cut at 512 and the log restarted every second)
         if (FILE *h = fopen(kPath, "r")) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "audio_min_fill") == nullptr;
+        fresh = strstr(head, "ssh2_hot_ops") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -679,7 +679,7 @@ void WritePerfLog(float fps, float presentedFps) {
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
                    "thermal_status,thermal_headroom,device,"
                    "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
-                   "audio_burst,audio_target,audio_min_fill,settings\n");
+                   "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -758,6 +758,7 @@ void WritePerfLog(float fps, float presentedFps) {
     // Share of each SH-2's interpreted time spent in tight loops (polling or delay loops), and its hottest loop as
     // address:percent (the candidates for idle-loop skipping)
     double loopPct[2], skipPct[2];
+    std::string hotOps[2];
     char hot[2][32];
     for (int c = 0; c < 2; ++c) {
         const uint64_t exec = ws::g_shExec[c];
@@ -769,8 +770,15 @@ void WritePerfLog(float fps, float presentedFps) {
         for (int i = 0; i < 64; ++i) {
             if (ws::g_hotCyc[c][i] && (best < 0 || ws::g_hotCyc[c][i] > ws::g_hotCyc[c][best])) best = i;
         }
+        hotOps[c].clear();
         if (best >= 0 && exec) {
             snprintf(hot[c], sizeof(hot[c]), "%08X:%.0f", ws::g_hotPc[c][best], 100.0 * ws::g_hotCyc[c][best] / exec);
+            // The loop's first 6 instructions, to see why it isn't skipped (stores, counters, memory with side effects)
+            for (uint32_t i = 0; i < 6; ++i) {
+                char op[8];
+                snprintf(op, sizeof(op), "%s%04X", i ? " " : "", g->saturn->mainBus.Peek<uint16_t>(ws::g_hotPc[c][best] + i * 2));
+                hotOps[c] += op;
+            }
         } else {
             snprintf(hot[c], sizeof(hot[c]), "-");
         }
@@ -788,14 +796,14 @@ void WritePerfLog(float fps, float presentedFps) {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
             probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], g->ring.burst.load(std::memory_order_relaxed),
-            g->targetFill.load(std::memory_order_relaxed), minFill, settings.c_str());
+            g->targetFill.load(std::memory_order_relaxed), minFill, hotOps[0].c_str(), hotOps[1].c_str(), settings.c_str());
     fclose(f);
 }
 
