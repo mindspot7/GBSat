@@ -295,6 +295,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
                                     Emulator.scspMode = (Emulator.scspMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
+                                MenuItem(Icons.Default.Speed, "Skip idle loops", value = if (Emulator.idleSkip) "On" else "Off") {
+                                    Emulator.idleSkip = !Emulator.idleSkip; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
                             }
                             MenuPage.Overlays -> {
                                 fun onOff(b: Boolean) = if (b) "On" else "Off"
