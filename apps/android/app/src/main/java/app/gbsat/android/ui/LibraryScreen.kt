@@ -192,9 +192,10 @@ fun LibraryScreen(
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
             recent = recentMode, gamesCount = games.size, recentCount = entries.distinctBy { it.game }.size,
             onShowRecent = { recentMode = it; menuOpen = false },
-            items = SettingsEntries.map { (icon, label, page) ->
+            items = SettingsEntries.filter { it.third != SettingsPage.About }.map { (icon, label, page) ->
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
+            extras = listOf(HomeMenuItem(MenuIcon.About, "About", selected = MenuState.selected == SettingsPage.About) { openPage(SettingsPage.About) }),
             onQuit = onQuit, header = { RaUserHeader() },
         )
         gameMenu?.let { g -> GameOptions(g, entries.firstOrNull { it.game == g.key },
