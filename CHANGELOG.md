@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Settings → Extras → Layout: new "Button help" switch to show or hide the controller button bar on the home screen.
+- Changing the home layout now returns straight to the library.
+- Fixed: after opening the main menu with a tap, the first D-pad press now selects System (Android stayed in touch mode, where the menu entries can't take the focus).
 - Grid: covers are drawn as 3D boxes (spine and front, with a light gloss).
 - Showcase: the blurred backdrop behind the selected game was removed for a cleaner look.
 - Fixed: the first D-pad press after a touch moves the focus (no more two presses), in the library and in the main menu.

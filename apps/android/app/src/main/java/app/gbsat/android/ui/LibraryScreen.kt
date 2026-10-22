@@ -74,7 +74,9 @@ fun LibraryScreen(
     LaunchedEffect(menuOpen) {
         if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
     }
-    LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen) runCatching { menuFocus.requestFocus() } }
+    LaunchedEffect(MenuState.menuRefocus.intValue) {
+        if (menuOpen && runCatching { menuFocus.requestFocus() }.isFailure) { delay(60); runCatching { menuFocus.requestFocus() } }
+    }
     // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
     DisposableEffect(Unit) { MenuState.libraryShown = true; onDispose { MenuState.libraryShown = false; MenuState.hasFocus = false } }
     var confirmQuit by MenuState.quitOpen
@@ -179,7 +181,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (hasPad) HelpBar(recentMode)
+            if (hasPad && HomeTheme.buttonHelp.value) HelpBar(recentMode)
         }
         // Main menu: slides in from the left over everything (X, or a tap on the top bar). It stays open while a settings
         // page is shown, so Back returns to it with that entry selected
