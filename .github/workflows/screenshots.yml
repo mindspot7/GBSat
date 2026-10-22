@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: UI kit submodule
-        run: git submodule update --init libs/ui_gb
+        run: git submodule update --init libs/gbframe
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: 17 }
       - name: Platform

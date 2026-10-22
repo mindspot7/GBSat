@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The shared framework is now called GBFrame (github.com/mindspot7/GBFrame, git submodule libs/gbframe).
 - Generic parts moved to the shared UI kit (hotkeys, games folder access, OpenGL ES presenter, CPU tuning, PGO and device-test tools); the games folder also understands GDI track lists.
 - Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option (CPU rendering shown without OpenGL) is gone, since CPU (OpenGL) renders the same and adds filters and shaders. Existing Software users move to CPU (OpenGL); the plain output is still used automatically if OpenGL ES can't start.
 - Recommended settings per game: heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices (built-in list, starting with Virtua Fighter 2, Panzer Dragoon Saga, Burning Rangers and NiGHTS on low-end chips). Changes made during a game are remembered for that game. Can be turned off in Settings.

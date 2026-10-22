@@ -1,6 +1,6 @@
 package app.gbsat.android.ui
 
-import gb.ui.*
+import gb.frame.*
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,8 +41,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gbsat.android.Emulator
-import gb.ui.HotkeyAction
-import gb.ui.keyName
+import gb.frame.HotkeyAction
+import gb.frame.keyName
 import app.gbsat.android.NativeBridge
 import app.gbsat.android.R
 import app.gbsat.android.SaturnButton

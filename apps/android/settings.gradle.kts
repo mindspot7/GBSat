@@ -14,6 +14,6 @@ dependencyResolutionManagement {
 }
 rootProject.name = "GBSat"
 include(":app")
-// Shared UI kit (git submodule, https://github.com/mindspot7/UI_GB)
-include(":uikit")
-project(":uikit").projectDir = file("../../libs/ui_gb/uikit")
+// Shared UI kit (git submodule, https://github.com/mindspot7/GBFrame)
+include(":gbframe")
+project(":gbframe").projectDir = file("../../libs/gbframe/gbframe")

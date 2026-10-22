@@ -1,5 +1,5 @@
 {
-  "about": "Recommended settings per game and device class (gb.ui.GameProfiles). low = 2 fast cores or fewer (e.g. Unisoc T618 / Mali-G52), high = 3 or more. Keys: renderer (cpu | gpu), threadedAudio (true | false), frameSkip (true | false). Values come from performance logs on real devices; add a game only with measurements.",
+  "about": "Recommended settings per game and device class (gb.frame.GameProfiles). low = 2 fast cores or fewer (e.g. Unisoc T618 / Mali-G52), high = 3 or more. Keys: renderer (cpu | gpu), threadedAudio (true | false), frameSkip (true | false). Values come from performance logs on real devices; add a game only with measurements.",
   "games": [
     {
       "titles": ["VIRTUA FIGHTER 2"],

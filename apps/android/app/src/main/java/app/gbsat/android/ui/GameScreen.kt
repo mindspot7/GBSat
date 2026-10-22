@@ -1,6 +1,6 @@
 package app.gbsat.android.ui
 
-import gb.ui.*
+import gb.frame.*
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -305,7 +305,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
                                 MenuItem(Icons.Default.Eject, "Disc tray", value = if (Emulator.trayOpen) "Open" else "Closed") { Emulator.toggleTray() }
                                 MenuItem(Icons.Default.Tune, "Cheats", sub = true) { cheatsOpen = true }
-                                if (gb.ui.RetroAchievements.enabled) {
+                                if (gb.frame.RetroAchievements.enabled) {
                                     MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
                                 }
                             }

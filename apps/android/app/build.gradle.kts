@@ -108,7 +108,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.documentfile:documentfile:1.0.1")
-    implementation(project(":uikit"))
+    implementation(project(":gbframe"))
 
     testImplementation(composeBom)
     testImplementation("junit:junit:4.13.2")

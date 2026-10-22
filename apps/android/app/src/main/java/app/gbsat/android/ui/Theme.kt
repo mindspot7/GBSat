@@ -1,8 +1,8 @@
 package app.gbsat.android.ui
 
 import androidx.compose.runtime.Composable
-import gb.ui.EmuPalettes
-import gb.ui.EmuTheme
+import gb.frame.EmuPalettes
+import gb.frame.EmuTheme
 
 /** GBSat's look: the shared UI kit theme with the violet palette. */
 @Composable

@@ -1,6 +1,6 @@
 package app.gbsat.android
 
-import gb.ui.RaBackend
+import gb.frame.RaBackend
 
 /** RetroAchievements for GBSat: the rcheevos client in the native library, game hashes from the disc images. */
 object GBSatRa : RaBackend {

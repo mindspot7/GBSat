@@ -1,8 +1,8 @@
 package app.gbsat.android
 
-import gb.ui.HotkeyAction
-import gb.ui.Hotkeys
-import gb.ui.RetroAchievements
+import gb.frame.HotkeyAction
+import gb.frame.Hotkeys
+import gb.frame.RetroAchievements
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
@@ -238,7 +238,7 @@ object Emulator {
     private val statesDir get() = File(dataDir, "states")
     /** Folder name for a game's save states: the disc image file name, without characters that folders can't hold. */
     private fun stateDirName(gamePath: String) =
-        gb.ui.SaveData.gameFolderName(gamePath)
+        gb.frame.SaveData.gameFolderName(gamePath)
 
     /** Older versions named the folders after the disc hash; they are renamed to the game name (once, when found). */
     private var statesMigrated = false
@@ -330,7 +330,7 @@ object Emulator {
 
     /** Copies saves and save states to a "GBSat backup" folder. */
     suspend fun exportData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        gb.ui.SaveData.export(appContext, dataDir, tree, "GBSat backup")
+        gb.frame.SaveData.export(appContext, dataDir, tree, "GBSat backup")
     }
 
     /**
@@ -338,7 +338,7 @@ object Emulator {
      * inside, or one level down). Existing files are replaced. Restart GBSat afterwards.
      */
     suspend fun importData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        gb.ui.SaveData.import(appContext, dataDir, tree, dataSubdirs + "carts").also { if (it == null) legacyDataDir = null }
+        gb.frame.SaveData.import(appContext, dataDir, tree, dataSubdirs + "carts").also { if (it == null) legacyDataDir = null }
     }
 
     /** Stores a ROM cartridge dump picked by the user (KOF95 or Ultraman), used automatically by the games that need it. */
@@ -365,8 +365,8 @@ object Emulator {
 
     // ---- Play time per game (seconds, keyed by file name) ----
     /** Seconds played (shared play time tracker of the UI kit). */
-    fun playTime(path: String): Long = gb.ui.PlayTime.of(path)
-    private fun accountPlayTime() = gb.ui.PlayTime.update(currentGame, running && !paused)
+    fun playTime(path: String): Long = gb.frame.PlayTime.of(path)
+    private fun accountPlayTime() = gb.frame.PlayTime.update(currentGame, running && !paused)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -384,9 +384,9 @@ object Emulator {
         }
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
-        gb.ui.PlayTime.init(prefs)
-        gb.ui.LibraryView.init(prefs)
-        gb.ui.GameProfiles.init(context)
+        gb.frame.PlayTime.init(prefs)
+        gb.frame.LibraryView.init(prefs)
+        gb.frame.GameProfiles.init(context)
         Hotkeys.configure(bindings = { hotkeys }, run = { a, down -> runHotkey(a, down) })
         achievementGames = prefs.getStringSet("achievementGames", emptySet())?.toSet() ?: emptySet()
         setupDone = prefs.getBoolean("setupDone", false) || File(dataDir, "bios/ipl.bin").exists()
@@ -576,7 +576,7 @@ object Emulator {
         val header = NativeBridge.nativeGetDiscHeader().orEmpty()
         val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
-        val profile = if (useGameProfiles) gb.ui.GameProfiles.lookup(title, id, gb.ui.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount())) else emptyMap()
+        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, gb.frame.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount())) else emptyMap()
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
         var startThreaded = threadedScsp
         var audioKnown = false
@@ -613,7 +613,7 @@ object Emulator {
         openDisc?.close(); openDisc = null
     }
     /** Files of the running disc (kept open while the game runs). */
-    private var openDisc: gb.ui.OpenDisc? = null
+    private var openDisc: gb.frame.OpenDisc? = null
 
     // ---- Input merging: touch + gamepad each own a mask; native sees the OR. ----
     private var touchMask = 0

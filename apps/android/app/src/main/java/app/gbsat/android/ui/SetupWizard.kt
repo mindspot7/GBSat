@@ -13,10 +13,10 @@ import androidx.compose.ui.platform.LocalContext
 import app.gbsat.android.Emulator
 import app.gbsat.android.NativeBridge
 import app.gbsat.android.Storage
-import gb.ui.PresetOption
-import gb.ui.PresetPicker
-import gb.ui.WizardStatus
-import gb.ui.WizardStep
+import gb.frame.PresetOption
+import gb.frame.PresetPicker
+import gb.frame.WizardStatus
+import gb.frame.WizardStep
 import kotlinx.coroutines.launch
 
 /** First-run setup (shared wizard from the UI kit): welcome, BIOS, games folder, preset. */
@@ -33,7 +33,7 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
     }
     val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
     // Recommended preset for this device: Low on chips with 2 fast cores or fewer (e.g. Unisoc T618), High otherwise
-    val recommended = if (gb.ui.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount()) == gb.ui.GameProfiles.DeviceClass.Low)
+    val recommended = if (gb.frame.GameProfiles.deviceClass(NativeBridge.nativeFastCoreCount()) == gb.frame.GameProfiles.DeviceClass.Low)
         Emulator.Preset.Low else Emulator.Preset.High
     LaunchedEffect(Unit) { if (!Emulator.setupDone && Emulator.currentPreset == null) Emulator.applyPreset(recommended) }
     val descriptions = mapOf(
@@ -41,7 +41,7 @@ fun SetupWizard(onRequestAllFiles: () -> Unit, onFinish: () -> Unit) {
         Emulator.Preset.Mid to "CPU renderer (OpenGL) with Scanlines shader. For mid-range devices.",
         Emulator.Preset.Low to "CPU renderer (OpenGL), no shader, frame skip. For modest devices.",
     )
-    gb.ui.SetupWizard(
+    gb.frame.SetupWizard(
         steps = listOf(
             WizardStep(Icons.Default.SportsEsports, "Welcome to GBSat", listOf(Color(0xFF8B7CFF), Color(0xFFE85CC4)),
                 "A Saturn emulator for Android. A few steps and you're ready to play."),
