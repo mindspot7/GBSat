@@ -41,7 +41,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 </tr>
 </table>
 
-<sub>Screenshots show sample games with placeholder covers. They are rendered from the app's UI code by
+<sub>Screenshots show fictional sample games with original covers drawn for GBSat (`tools/make_sample_covers.py`). They are rendered from the app's UI code by
 `ReadmeScreenshots.kt` (workflow "README screenshots").</sub>
 
 ## All features

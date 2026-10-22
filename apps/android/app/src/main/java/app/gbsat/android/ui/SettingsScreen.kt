@@ -175,14 +175,6 @@ private fun SystemPage(
 
 @Composable
 private fun VideoPage() {
-    val preset = Emulator.currentPreset
-    SettingsGroup("Preset", Icons.Default.AutoAwesome) {
-        ChoiceRow("Quality preset",
-            "High: GPU (Vulkan) Native + Scanlines · Mid: CPU (OpenGL) + Scanlines · Low: CPU (OpenGL) + frame skip. Recommended for this device: ${Emulator.recommendedPreset.label}. Changing an option below sets Custom.",
-            Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
-            preset?.ordinal ?: Emulator.Preset.entries.size,
-        ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
-    }
     SettingsGroup("Renderer", Icons.Default.Memory) {
         ChoiceRow("Renderer",
             if (Emulator.renderer == 4) "Saturn graphics emulated on the GPU with Vulkan; best on strong GPUs (falls back to the CPU if unsupported)"

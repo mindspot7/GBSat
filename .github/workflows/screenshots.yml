@@ -4,7 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port ]
-    paths: [ 'apps/android/app/src/test/**', '.github/workflows/screenshots.yml' ]
+    # UI changes too, so a screen that breaks the screenshot test is caught on the same push
+    paths: [ 'apps/android/app/src/**', 'libs/gbframe', '.github/workflows/screenshots.yml' ]
+
+# A newer push makes the running render obsolete
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -30,7 +36,7 @@ jobs:
         working-directory: apps/android
         run: |
           set +e
-          gradle --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest --tests '*ReadmeScreenshots*' --tests '*DeviceScreens*' > t.log 2>&1; rc=$?
+          gradle --no-daemon :app:testDebugUnitTest --tests '*ReadmeScreenshots*' --tests '*DeviceScreens*' > t.log 2>&1; rc=$?
           msg=$( (grep -E "^e: |FAILED|Exception|What went wrong" -A2 t.log | head -60) | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           [ -n "$msg" ] && echo "::warning title=Test log::$msg"
           tail -40 t.log; ls -la ../../docs/screenshots || true
