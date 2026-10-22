@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fixed: on some interlaced hi-res screens (e.g. Batsugun at 640x480) the picture could freeze after fast forward or a skipped frame.
 - Faster: the SH-2 CPUs skip idle loops (loops that only wait for a value to change), with the same result as running them; the performance log showed most games spending 60-100% of the SH-2 time in such loops. Settings → Performance → Skip idle loops (on by default) turns it off if a game misbehaves.
 - Audio: no more crackling when a game runs just below full speed: the sound now plays up to 5% slower while the buffer is low (dynamic rate control) instead of running dry.
 - Automatic frame skip skips only as often as needed: at least 2 frames are shown between skips at first, and the spacing adapts every second (before, it showed only every other frame, ~30 fps on screen, even when the game was close to full speed).

@@ -31,6 +31,7 @@ extern "C" {
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -74,7 +75,9 @@ struct AudioRing {
     uint32_t Fill() const {
         return head.load(std::memory_order_acquire) - tail.load(std::memory_order_acquire);
     }
-    std::atomic<uint32_t> underruns{0}; // callbacks that found too few samples (performance log)
+    std::atomic<uint32_t> underruns{0}; // callbacks that found too few samples while the game ran (performance log)
+    std::atomic<uint32_t> minFill{UINT32_MAX}; // lowest buffer level seen by a callback (frames, performance log)
+    std::atomic<uint32_t> burst{0};            // frames asked for by the last callback (performance log)
     int16_t lastL = 0, lastR = 0; // last samples played (consumer side), used to fade out on underruns
 
     void Push(int16_t l, int16_t r) {
@@ -89,9 +92,13 @@ struct AudioRing {
     // Consumer side (AAudio callback only): read position between two samples and the current playback rate
     double pos = 0.0, step = 1.0;
 
-    void Pop(int16_t *out, int32_t frames, uint32_t target) {
+    void Pop(int16_t *out, int32_t frames, uint32_t target, bool running) {
         uint32_t t = tail.load(std::memory_order_relaxed);
         const uint32_t avail = head.load(std::memory_order_acquire) - t;
+        if (running) {
+            burst.store((uint32_t)frames, std::memory_order_relaxed);
+            if (avail < minFill.load(std::memory_order_relaxed)) minFill.store(avail, std::memory_order_relaxed);
+        }
         // Dynamic rate control: when the buffer runs low (the game runs slightly slower than real time) the audio plays
         // up to 5% slower, interpolating between samples, instead of running dry: the pitch change is inaudible, the
         // clicks of underruns are not (the performance log showed ~30 underruns per second at 59.8 fps)
@@ -118,7 +125,7 @@ struct AudioRing {
             lastR = out[(n - 1) * 2 + 1];
         }
         if (n < (uint32_t)frames) {
-            underruns.fetch_add(1, std::memory_order_relaxed);
+            if (running) underruns.fetch_add(1, std::memory_order_relaxed);
             // Underrun (emulation behind): ramp from the last sample down to silence instead of cutting to zero,
             // which avoids audible clicks
             const uint32_t missing = frames - n;
@@ -180,6 +187,7 @@ struct Context {
     int skipRun = 0;                    // consecutive skipped frames
     bool skipActive = false; // automatic frame skip engaged (emulation thread only)
     bool pairSkip = false;   // skip decision for the current field pair
+    bool prevFirstField = false; // the previous frame was the first field of an interlaced pair
     int notBehindRun = 0;    // consecutive frames on time
     int renderRun = 0;       // consecutive rendered frames
     int minRenderRun = 2;    // frames shown between skips (adapted every second while skipping: 1..4)
@@ -428,7 +436,8 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
 
 aaudio_data_callback_result_t AudioDataCb(AAudioStream *, void *, void *audioData, int32_t numFrames) {
     auto *out = static_cast<int16_t *>(audioData);
-    g->ring.Pop(out, numFrames, g->targetFill.load(std::memory_order_relaxed));
+    g->ring.Pop(out, numFrames, g->targetFill.load(std::memory_order_relaxed),
+                g->running.load(std::memory_order_relaxed) && !g->paused.load(std::memory_order_relaxed));
     const float vol = g->volume.load(std::memory_order_relaxed);
     if (vol < 0.999f) {
         const int32_t v = (int32_t)(vol * 256.0f);
@@ -656,7 +665,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "msh2_skip_pct") == nullptr;
+        fresh = strstr(head, "audio_min_fill") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -669,7 +678,8 @@ void WritePerfLog(float fps, float presentedFps) {
                    "worst_frame_ms,slow_frames,vdp1_cmds_per_frame,resolution,sh2_cache,audio_underruns,audio_xruns,"
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
                    "thermal_status,thermal_headroom,device,"
-                   "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,settings\n");
+                   "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
+                   "audio_burst,audio_target,audio_min_fill,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -770,18 +780,22 @@ void WritePerfLog(float fps, float presentedFps) {
             ws::g_hotCyc[c][i] = 0;
         }
     }
+    // Audio buffer: frames per callback, the level the pacing keeps, the lowest level seen this second (-1: none)
+    const uint32_t minFillRaw = g->ring.minFill.exchange(UINT32_MAX, std::memory_order_relaxed);
+    const int minFill = minFillRaw == UINT32_MAX ? -1 : (int)minFillRaw;
     std::string settings;
     {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
-            probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], settings.c_str());
+            probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], g->ring.burst.load(std::memory_order_relaxed),
+            g->targetFill.load(std::memory_order_relaxed), minFill, settings.c_str());
     fclose(f);
 }
 
@@ -850,12 +864,15 @@ void EmuLoop() {
             // Interlaced (double-density) screens draw one field per frame: skipping single frames left the other
             // field stale, so moving objects showed a trail. Skip or render both fields of a pair together.
             // The pair follows the real field order (TVSTAT.ODD), so both fields of a rendered frame are fresh.
+            // Only when the field really alternates: with the bit stuck (Batsugun at 640x480) "the second field follows
+            // the first" kept a skip forever and the picture froze.
             if (g->videoH.load(std::memory_order_relaxed) >= 400) {
                 const bool secondField = (g->saturn->mainBus.Peek<uint16_t>(0x25F80004) >> 1) & 1;
-                if (secondField) {
+                if (secondField && g->prevFirstField) {
                     skip = g->pairSkip;
                 }
                 g->pairSkip = skip;
+                g->prevFirstField = !secondField;
             }
             g->skipRun = skip ? g->skipRun + 1 : 0;
             g->renderRun = skip ? 0 : g->renderRun + 1;
