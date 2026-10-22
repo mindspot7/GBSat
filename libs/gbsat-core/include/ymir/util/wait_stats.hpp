@@ -32,6 +32,9 @@ inline std::atomic<bool> g_profile{false};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 
+// VDP1 commands processed (all frames), a measure of how much the game draws with sprites/polygons
+inline std::atomic<uint32_t> g_vdp1Commands{0};
+
 // Cheap timestamp: the ARM generic timer on arm64 (no syscall, no vDSO), else steady_clock nanoseconds.
 inline uint64_t Ticks() {
 #if defined(__aarch64__)

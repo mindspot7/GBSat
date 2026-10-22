@@ -1,5 +1,6 @@
 #include <ymir/hw/vdp/vdp.hpp>
 
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/util/bit_ops.hpp>
 #include <ymir/util/dev_log.hpp>
 
@@ -1017,6 +1018,7 @@ uint64 VDP::VDP1ProcessCommand() {
     if (m_VDP1CtlState.inInfiniteLoop) {
         return 16;
     }
+    util::waitstats::g_vdp1Commands.fetch_add(1, std::memory_order_relaxed); // performance log
 
     // Every command costs 16 cycles to fetch, even if skipped
     uint64 cycles = 16;

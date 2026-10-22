@@ -53,7 +53,13 @@ fun GameScreen(onQuitApp: () -> Unit) {
 
     BackHandler(enabled = !menu) { menu = true; Emulator.pause(true) }
     LaunchedEffect(Unit) {
-        while (true) { stats = NativeBridge.nativeGetStats(); fps = stats[0] / 100f; delay(500) }
+        var logged = ""
+        while (true) {
+            stats = NativeBridge.nativeGetStats(); fps = stats[0] / 100f
+            // The options in use go into the performance log (also the ones changed in the in-game menu)
+            Emulator.logSettings().let { if (it != logged) { logged = it; NativeBridge.nativeSetLogSettings(it) } }
+            delay(500)
+        }
     }
     LaunchedEffect(Emulator.menuRequest) {
         if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }

@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Performance log (perf-log.csv): new columns with the time per frame of each part of the emulation (master and slave SH-2, SCU, VDP, sound and CD, the rest), measured on one frame in 8.
+- Performance log (perf-log.csv): new columns with the time per frame of each part of the emulation (master and slave SH-2, SCU, VDP, sound and CD, the rest, measured on one frame in 8), the slowest frame and frames over budget, VDP1 commands per frame, the game's resolution, audio underruns, CPU use per thread with the emulation core and its clock, the thermal status, the device, and all the Video/Performance options in use.
 
 ## 1.3.4
 - Showcase: the first and last covers (and screenshots in Recent) line up with the game title instead of starting further in.

@@ -21,6 +21,7 @@
 #include "gbsat_ra.hpp"
 #include "gl_renderer.hpp"
 #include "cpu_tuning.hpp"
+#include "perf_probe.hpp"
 
 extern "C" {
 #include <md5.h>
@@ -73,6 +74,7 @@ struct AudioRing {
     uint32_t Fill() const {
         return head.load(std::memory_order_acquire) - tail.load(std::memory_order_acquire);
     }
+    std::atomic<uint32_t> underruns{0}; // callbacks that found too few samples (performance log)
     int16_t lastL = 0, lastR = 0; // last samples played (consumer side), used to fade out on underruns
 
     void Push(int16_t l, int16_t r) {
@@ -97,6 +99,7 @@ struct AudioRing {
             lastR = out[(n - 1) * 2 + 1];
         }
         if (n < (uint32_t)frames) {
+            underruns.fetch_add(1, std::memory_order_relaxed);
             // Underrun (emulation behind): ramp from the last sample down to silence instead of cutting to zero,
             // which avoids audible clicks
             const uint32_t missing = frames - n;
@@ -600,6 +603,13 @@ void ScspAutoTune(float fps) {
 
 // Total RunFrame time of the profiled frames (the parts are added up by the core)
 std::atomic<uint64_t> g_profileFrameTicks{0};
+// Per second, for the performance log: the slowest frame, frames over the time budget, the emulation thread's id
+std::atomic<int64_t> g_worstFrameUs{0};
+std::atomic<uint32_t> g_slowFrames{0};
+std::atomic<pid_t> g_emuTid{0};
+// The app's options in use (set by the app, key=value;...), for the performance log
+std::mutex g_logSettingsMutex;
+std::string g_logSettings;
 
 // Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
 // Android/media/app.gbsat.android/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
@@ -625,7 +635,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "other_ms") == nullptr;
+        fresh = strstr(head, ",settings") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -634,7 +644,10 @@ void WritePerfLog(float fps, float presentedFps) {
     if (fresh) {
         fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
                    "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms,"
-                   "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sound_cd_ms,other_ms\n");
+                   "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sound_cd_ms,other_ms,"
+                   "worst_frame_ms,slow_frames,vdp1_cmds_per_frame,resolution,sh2_cache,audio_underruns,audio_xruns,"
+                   "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
+                   "thermal_status,thermal_headroom,device,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -660,16 +673,73 @@ void WritePerfLog(float fps, float presentedFps) {
     }
     const double frameMs = g_profileFrameTicks.exchange(0, std::memory_order_relaxed) * tickMs;
     const double otherMs = profFrames ? std::max(0.0, frameMs - partSum) : 0.0;
-    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", ts, title.c_str(), renderer,
+    fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", ts, title.c_str(), renderer,
             mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
             presentedFps, g->frameTimeUs.load() / 1000.0,
             waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2],
             partMs[ws::PartMSH2], partMs[ws::PartSSH2], partMs[ws::PartSCU], partMs[ws::PartVDP], partMs[ws::PartSched], otherMs);
+
+    // CPU use per thread (percent of one core) and where the emulation thread runs: the emulation thread, the VDP1/VDP2
+    // render threads, the sound thread, everything else together and the busiest other thread (e.g. the GPU driver)
+    const pid_t emuTid = g_emuTid.load(std::memory_order_relaxed);
+    double emuPct = 0, vdp1Pct = 0, vdp2Pct = 0, scspPct = 0, otherPct = 0, busiestPct = 0;
+    int emuCore = -1;
+    std::string busiest;
+    const perfprobe::Snapshot probe = perfprobe::Latest(); // sampled by a background thread
+    for (const auto &t : probe.threads) {
+        if (t.tid == emuTid) {
+            emuPct = t.cpuPct;
+            emuCore = t.core;
+        } else if (t.name.rfind("VDP1", 0) == 0) {
+            vdp1Pct += t.cpuPct;
+        } else if (t.name.rfind("VDP2", 0) == 0 || t.name.rfind("VDP deinterlace", 0) == 0) {
+            vdp2Pct += t.cpuPct;
+        } else if (t.name.rfind("SCSP", 0) == 0) {
+            scspPct += t.cpuPct;
+        } else {
+            otherPct += t.cpuPct;
+            if (t.cpuPct > busiestPct) {
+                busiestPct = t.cpuPct;
+                busiest = t.name;
+            }
+        }
+    }
+    for (char &c : busiest) {
+        if (c == ',' || c == '"' || (unsigned char)c < 32) c = ' ';
+    }
+    int32_t xruns = -1;
+    {
+        std::lock_guard lk(g->audioMutex);
+        if (g->stream) xruns = AAudioStream_getXRunCount(g->stream);
+    }
+    static int32_t lastXruns = 0;
+    const int32_t xrunDelta = xruns >= 0 ? std::max(0, xruns - lastXruns) : -1;
+    if (xruns >= 0) lastXruns = xruns;
+    static const std::string device = [] {
+        std::string d = perfprobe::DeviceName();
+        for (char &c : d) {
+            if (c == ',' || c == '"') c = ' ';
+        }
+        return d;
+    }();
+    std::string settings;
+    {
+        std::lock_guard lk(g_logSettingsMutex);
+        settings = g_logSettings;
+    }
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%s\n",
+            g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
+            ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
+            g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
+            cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
+            emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
+            probe.thermal, probe.headroom, device.c_str(), settings.c_str());
     fclose(f);
 }
 
 void EmuLoop() {
+    g_emuTid.store(gettid(), std::memory_order_relaxed);
     cputune::PinEmulationThreads();
     auto lastPin = steady_clock::now();
     auto nextFrame = steady_clock::now();
@@ -782,6 +852,9 @@ void EmuLoop() {
         {
             const int64_t ns = duration_cast<nanoseconds>(now - workStart).count();
             cputune::ReportFrameWork(ns);
+            // Slowest frame and frames over the time budget (the emulation alone can't keep full speed there)
+            if (ns / 1000 > g_worstFrameUs.load(std::memory_order_relaxed)) g_worstFrameUs.store(ns / 1000, std::memory_order_relaxed);
+            if (ns > (g->palMode.load(std::memory_order_relaxed) ? 20000000 : 16717000)) g_slowFrames.fetch_add(1, std::memory_order_relaxed);
             const int64_t prev = g->frameTimeUs.load(std::memory_order_relaxed);
             g->frameTimeUs.store(prev == 0 ? ns / 1000 : (prev * 7 + ns / 1000) / 8, std::memory_order_relaxed);
         }
@@ -1227,6 +1300,18 @@ JNI_FN(jboolean, nativeGlFailed)(JNIEnv *, jclass) {
 
 JNI_FN(jboolean, nativeGetThreadedScsp)(JNIEnv *, jclass) {
     return g && g->saturn->configuration.audio.threadedSCSP.Get();
+}
+
+// The app's options in use, written in each performance log line (key=value pairs separated by ';')
+JNI_FN(void, nativeSetLogSettings)(JNIEnv *env, jclass, jstring settings) {
+    const char *s = env->GetStringUTFChars(settings, nullptr);
+    std::string v = s ? s : "";
+    if (s) env->ReleaseStringUTFChars(settings, s);
+    for (char &c : v) {
+        if (c == ',' || c == '"' || (unsigned char)c < 32) c = ' ';
+    }
+    std::lock_guard lk(g_logSettingsMutex);
+    g_logSettings = std::move(v);
 }
 
 // Stats: [fps*100, videoW, videoH]

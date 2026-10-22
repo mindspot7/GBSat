@@ -28,6 +28,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetFrameSkip(on: Boolean)
     @JvmStatic external fun nativeSetAudio(volume: Int, ffMode: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
+    @JvmStatic external fun nativeSetLogSettings(settings: String)
     @JvmStatic external fun nativeSetRenderer(mode: Int)
     @JvmStatic external fun nativeGetGpuError(): String?
     @JvmStatic external fun nativeSetCrashFile(path: String)

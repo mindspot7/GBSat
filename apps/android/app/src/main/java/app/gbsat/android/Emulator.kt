@@ -88,6 +88,31 @@ object Emulator {
         Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
     }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
+    /** The options in use, for the performance log (key=value pairs separated by ';'). */
+    fun logSettings(): String {
+        fun on(b: Boolean) = if (b) "on" else "off"
+        return listOf(
+            "preset=${currentPreset?.label ?: "custom"}",
+            "renderer=$rendererLabel",
+            "scale=$resScaleLabel",
+            "filter=${if (filter == 0) "nearest" else "bilinear"}",
+            "shader=${listOf("none", "scanlines", "CRT", "LCD3x", "dot matrix").getOrElse(shader) { "$shader" }}",
+            "aspect=${listOf("4:3", "fill", "16:9").getOrElse(aspect) { "$aspect" }}",
+            "widescreen=${widescreenHack ?: "off"}",
+            "frameskip=${on(frameSkip)}",
+            "sh2_cache=${on(sh2Cache)}",
+            "threaded_vdp=${on(threadedVdp)}",
+            "threaded_audio=${listOf("auto", "on", "off").getOrElse(scspMode) { "$scspMode" }}",
+            "cd_speed=${cdSpeed}x",
+            "preload_disc=${on(preloadDisc)}",
+            "fast_boot=${on(fastBoot)}",
+            "game_profiles=${on(useGameProfiles)}",
+            "ff_audio=${listOf("default", "speed up", "mute").getOrElse(ffAudio) { "$ffAudio" }}",
+            "volume=$volume",
+            "analog_pad=${on(analogPad)}",
+        ).joinToString(";") { it.replace(",", " ") }
+    }
+
     val currentPreset: Preset?
         get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache, threadedVdp) }
     fun applyPreset(p: Preset) {
