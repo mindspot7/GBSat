@@ -1,3 +1,4 @@
+#include <sys/resource.h>
 #include "cpu_tuning.hpp"
 
 #include <android/log.h>
@@ -136,6 +137,10 @@ void PinEmulationThreads() {
                     const bool big = strncmp(name, "SCSP", 4) == 0 || strncmp(name, "VDP2", 4) == 0;
                     const cpu_set_t *mask = big ? &vdp1Mask : &otherMask;
                     sched_setaffinity(tid, sizeof(cpu_set_t), mask);
+                    // The sound thread shares that core with the VDP2 thread: give it a higher priority so it runs as
+                    // soon as the emulation waits for it (the emulation stalls while it is preempted), while VDP2 uses
+                    // the rest of the core
+                    if (strncmp(name, "SCSP", 4) == 0) setpriority(PRIO_PROCESS, tid, -10);
                 }
                 tids.push_back(tid);
             }
