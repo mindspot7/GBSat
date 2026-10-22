@@ -73,6 +73,9 @@ fun GameScreen(onQuitApp: () -> Unit) {
     // Resume when returning from background.
     LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
 
+    // Touch controls only without a physical controller (handhelds have built-in ones)
+    val hasPad = gb.frame.rememberHasGamepad()
+    val touch = Emulator.showTouchControls && !hasPad
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val landscape = maxWidth > maxHeight
         val ratio = if (Emulator.aspect == 2) 16f / 9f else 4f / 3f
@@ -82,7 +85,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 VideoSurface(videoMod.fillMaxHeight())
             }
-            if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxSize().safeDrawingPadding(), landscape = true)
+            if (touch) TouchControls(Modifier.fillMaxSize().safeDrawingPadding(), landscape = true)
         } else {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 // Fullscreen fills the whole area above the touch controls (or the whole screen when they are hidden)
@@ -90,7 +93,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
                 Box(Modifier.fillMaxWidth().weight(1f, fill = full), contentAlignment = Alignment.TopCenter) {
                     VideoSurface(if (full) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(ratio))
                 }
-                if (Emulator.showTouchControls) TouchControls(Modifier.fillMaxWidth().weight(1f), landscape = false)
+                if (touch) TouchControls(Modifier.fillMaxWidth().weight(1f), landscape = false)
             }
         }
 

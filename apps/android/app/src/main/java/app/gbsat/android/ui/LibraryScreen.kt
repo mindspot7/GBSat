@@ -404,8 +404,14 @@ private fun Library(
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 // Screen orientation, not the shelf area: the docked menu makes the shelf narrower in landscape
                 val scr = androidx.compose.ui.platform.LocalConfiguration.current
-                val portrait = scr.screenWidthDp < scr.screenHeightDp * 1.2f
-                val cardH = if (portrait) (maxHeight * 0.40f).coerceIn(130.dp, 240.dp) else (maxHeight * 0.58f).coerceIn(140.dp, 340.dp)
+                val portrait = scr.screenWidthDp < scr.screenHeightDp * 1.2f // portrait, square and 5:4: drop-down menu
+                val tall = scr.screenWidthDp < scr.screenHeightDp * 0.9f      // real portrait (e.g. 3:4)
+                // Square and 5:4 screens (e.g. 720x720, 1240x1080) have the height for bigger covers than portrait ones
+                val cardH = when {
+                    tall -> (maxHeight * 0.40f).coerceIn(130.dp, 240.dp)
+                    portrait -> (maxHeight * 0.50f).coerceIn(130.dp, 300.dp)
+                    else -> (maxHeight * 0.58f).coerceIn(140.dp, 340.dp)
+                }
                 val cardW = cardH * 0.72f
                 Column(Modifier.fillMaxSize()) {
                     // Selected game: name, play time and badges (only while a game is selected)
@@ -458,8 +464,8 @@ private fun Library(
                             )
                         }
                     }
-                    // Portrait (e.g. 3:4 handhelds): the shelf sits lower-middle instead of on the bottom edge
-                    if (portrait) Spacer(Modifier.weight(0.6f))
+                    // Portrait and square screens: the shelf sits lower-middle instead of on the bottom edge
+                    if (portrait) Spacer(Modifier.weight(if (tall) 0.6f else 0.35f))
                 }
             }
         }

@@ -12,8 +12,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import app.gbsat.android.Emulator
 import app.gbsat.android.Storage
-import gb.frame.PresetOption
-import gb.frame.PresetPicker
 import gb.frame.WizardStatus
 import gb.frame.WizardStep
 import kotlinx.coroutines.launch
@@ -30,20 +28,8 @@ fun SetupWizard(onFinish: () -> Unit) {
     val gamesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs(); message = null }
     }
-    val presets = listOf(Emulator.Preset.High, Emulator.Preset.Mid, Emulator.Preset.Low)
-    // Recommended preset by device class: High needs a strong GPU (e.g. Snapdragon 865), Mid a fast CPU (e.g. Unisoc
-    // T820), Low for the rest (e.g. Unisoc T618, Rockchip RK3566)
-    val recommended = when (Emulator.device.tier) {
-        gb.frame.DeviceTier.Tier.High -> Emulator.Preset.High
-        gb.frame.DeviceTier.Tier.Mid -> Emulator.Preset.Mid
-        else -> Emulator.Preset.Low
-    }
-    LaunchedEffect(Unit) { if (!Emulator.setupDone && Emulator.currentPreset == null) Emulator.applyPreset(recommended) }
-    val descriptions = mapOf(
-        Emulator.Preset.High to "GPU (Vulkan) at the screen's native resolution, Scanlines shader. For powerful devices.",
-        Emulator.Preset.Mid to "CPU renderer (OpenGL) with Scanlines shader. For mid-range devices.",
-        Emulator.Preset.Low to "CPU renderer (OpenGL), no shader, frame skip. For modest devices.",
-    )
+    // The video/performance preset is picked for the detected device (Settings → Performance shows which)
+    LaunchedEffect(Unit) { if (!Emulator.setupDone) Emulator.applyPreset(Emulator.recommendedPreset) }
     gb.frame.SetupWizard(
         steps = listOf(
             WizardStep(Icons.Default.SportsEsports, "Welcome to GBSat", listOf(Color(0xFF8B7CFF), Color(0xFFE85CC4)),
@@ -57,12 +43,6 @@ fun SetupWizard(onFinish: () -> Unit) {
                 "Pick the folder that holds your Saturn disc images (CUE/BIN, CHD, ISO, MDS, CCD). GBSat only reads that folder.") {
                 Button(onClick = { gamesPicker.launch(null) }) { Text("Choose folder") }
                 if (Emulator.gamesDir.isNotBlank()) WizardStatus(Storage.folderLabel(Emulator.gamesDir))
-            },
-            WizardStep(Icons.Default.AutoAwesome, "Preset", listOf(Color(0xFFFFD25A), Color(0xFFE8A13A)),
-                "Choose how GBSat balances image quality and speed. You can change it later in Settings or in the in-game menu.") {
-                PresetPicker(presets.map { PresetOption(if (it == recommended) "${it.label} (recommended for this device)" else it.label, descriptions.getValue(it)) }, presets.indexOf(Emulator.currentPreset)) {
-                    Emulator.applyPreset(presets[it])
-                }
             },
         ),
         onFinish = onFinish, message = message, onStepChange = { message = null },

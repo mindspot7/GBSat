@@ -63,7 +63,6 @@ object Emulator {
     val rendererLabel get() = when (displayRenderer) { 4 -> "GPU (Vulkan)"; 1 -> "CPU (OpenGL)"; else -> "CPU (plain)" }
 
     /** Use the built-in recommended settings per game (assets/game_profiles.json). */
-    var useGameProfiles by mutableStateOf(true)
     // Per-game settings while a game runs: renderer, frame skip and threaded audio start from the user's own choice for
     // that game, else the recommended profile, else the global settings. The global values are kept aside meanwhile.
     private data class GameOpts(val renderer: Int, val frameSkip: Boolean, val scspMode: Int)
@@ -398,7 +397,7 @@ object Emulator {
         sh2Cache = prefs.getBoolean("sh2Cache", false)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
         scspMode = prefs.getInt("scspMode", 0)
-        prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
+        prefs.edit().remove("threadedScsp").remove("threadedScspDevice").remove("gameProfiles").apply() // replaced by scspMode + per-game memory
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0)
@@ -413,7 +412,6 @@ object Emulator {
         fastBoot = prefs.getBoolean("fastBoot", true)
         // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
         renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
-        useGameProfiles = prefs.getBoolean("gameProfiles", true)
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
@@ -497,7 +495,7 @@ object Emulator {
 
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
-        .putBoolean("threadedVdp", threadedVdp).putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
+        .putBoolean("threadedVdp", threadedVdp).putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
@@ -515,6 +513,16 @@ object Emulator {
 
     /** Device class (CPU cores and GPU): recommended preset, game profiles, Native resolution cap. */
     val device get() = gb.frame.DeviceTier.detect()
+
+    /**
+     * Preset for this device, applied on first run: High needs a strong GPU (e.g. Snapdragon 865), Mid a fast CPU (e.g.
+     * Unisoc T820), Low for the rest (e.g. Unisoc T618, Rockchip RK3568). A GPU that isn't recognized never gets High.
+     */
+    val recommendedPreset get() = when (device.tier) {
+        gb.frame.DeviceTier.Tier.High -> Preset.High
+        gb.frame.DeviceTier.Tier.Mid -> Preset.Mid
+        else -> Preset.Low
+    }
 
     /** Most recent save state of a game (auto, quick or slot), or null. */
     fun latestState(path: String): RecentState? = recentStates().firstOrNull { it.gamePath == path }
@@ -578,7 +586,7 @@ object Emulator {
         val header = NativeBridge.nativeGetDiscHeader().orEmpty()
         val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
-        val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, device.tier) else emptyMap()
+        val profile = gb.frame.GameProfiles.lookup(title, id, device.tier)
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
         // Auto threaded audio starts on with 3+ fast cores; with 2 (e.g. Unisoc T618) the second one is usually worth more
         // to the background renderer

@@ -121,6 +121,9 @@ class DeviceScreens : ScreenTest() {
     @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Library() = library("720x720-xhdpi")
     @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Menu() = menu("720x720-xhdpi")
     @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Setup() = setup("720x720-xhdpi")
+    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Video() = video("720x720-xhdpi")
+    @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun s640hPerformance() =
+        shot("640x480-hdpi-performance", { SettingsScreen({}, {}, SettingsPage.Performance) })
     // Near-square 1240x1080 and 1920x1080
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqLibrary() = library("1240x1080")
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqMenu() = menu("1240x1080")

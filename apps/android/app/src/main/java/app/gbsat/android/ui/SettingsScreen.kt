@@ -178,7 +178,7 @@ private fun VideoPage() {
     val preset = Emulator.currentPreset
     SettingsGroup("Preset", Icons.Default.AutoAwesome) {
         ChoiceRow("Quality preset",
-            "High: GPU (Vulkan) Native + Scanlines · Mid: CPU (OpenGL) + Scanlines · Low: CPU (OpenGL) + frame skip. Changing an option below sets Custom.",
+            "High: GPU (Vulkan) Native + Scanlines · Mid: CPU (OpenGL) + Scanlines · Low: CPU (OpenGL) + frame skip. Recommended for this device: ${Emulator.recommendedPreset.label}. Changing an option below sets Custom.",
             Emulator.Preset.entries.map { it.label } + if (preset == null) listOf("Custom") else emptyList(),
             preset?.ordinal ?: Emulator.Preset.entries.size,
         ) { i -> Emulator.Preset.entries.getOrNull(i)?.let { Emulator.applyPreset(it) } }
@@ -189,9 +189,6 @@ private fun VideoPage() {
             else "Saturn graphics emulated on the CPU, shown with OpenGL ES (filters and shaders); best on most devices",
             listOf("CPU (OpenGL)", "GPU (Vulkan)"), if (Emulator.renderer == 4) 1 else 0,
             ch { Emulator.renderer = if (it == 1) 4 else 1 })
-        SettingsDivider()
-        ToggleRow(Icons.Default.Tune, "Recommended settings per game", "Heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices. Changes you make during a game are kept for that game",
-            Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
         if (Emulator.renderer == 4) {
             SettingsDivider()
             ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
@@ -269,6 +266,12 @@ private fun AudioPage() {
 
 @Composable
 private fun PerformancePage() {
+    SettingsGroup("This device", Icons.Default.PhoneAndroid) {
+        InfoRow("Device class", Emulator.device.summary)
+        SettingsDivider()
+        InfoRow("Recommended preset", "${Emulator.recommendedPreset.label}, applied on first run. Heavy games also start with the settings that tested " +
+            "best on this class of device; changes made during a game are kept for that game.")
+    }
     SettingsGroup("Speed", Icons.Default.Speed) {
         ToggleRow(Icons.Default.SkipNext, "Frame skip (auto)", "Skips rendering frames only while the game runs below full speed",
             Emulator.frameSkip, ch { Emulator.frameSkip = it })
@@ -351,7 +354,7 @@ private fun ControlsPage() {
         }
         else -> {
             SettingsGroup("On-screen controls", Icons.Default.TouchApp) {
-                ToggleRow(Icons.Default.TouchApp, "Show touch controls", "Hide them when playing with a controller or a handheld",
+                ToggleRow(Icons.Default.TouchApp, "Show touch controls", "Hidden automatically while a controller is connected (handhelds included)",
                     Emulator.showTouchControls, ch { Emulator.showTouchControls = it })
             }
         }
@@ -374,8 +377,6 @@ private fun AboutPage() {
             Spacer(Modifier.height(4.dp))
             Text("Version $versionName", color = Gold, style = MaterialTheme.typography.labelLarge)
         }
-        SettingsDivider()
-        InfoRow("This device", Emulator.device.summary)
     }
     SettingsGroup("Credits", Icons.Default.Favorite) {
         InfoRow("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)")
