@@ -586,7 +586,9 @@ object Emulator {
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }
-        (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
+        // The threaded audio choices were measured on chips with 2 fast cores, where sound and the background renderer compete
+        // for the second one; with 3+ (e.g. Snapdragon 662 in the Low class) both get a core and Auto decides
+        if (device.fastCores <= 2) (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
         // Auto threaded audio: what the tuner measured for this game on this device beats the profile
         if (prefs.contains("scsp:$path")) { startThreaded = prefs.getBoolean("scsp:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win

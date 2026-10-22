@@ -89,7 +89,7 @@ class ReadmeScreenshots : ScreenTest() {
 
 /**
  * Layout check on the screens of the most common handhelds (not committed: uploaded as the "device-screens" artifact).
- * Densities are estimates; 640x480 is checked at both mdpi and hdpi, its worst case.
+ * Densities are estimates; 640x480 is checked at mdpi (also 1280x960 at xhdpi) and hdpi.
  */
 class DeviceScreens : ScreenTest() {
     override val out = "build/device-screens"
@@ -115,6 +115,12 @@ class DeviceScreens : ScreenTest() {
     @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Menu() = menu("720x960")
     @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Video() = video("720x960")
     @Test @Config(qualifiers = "w360dp-h480dp-port-xhdpi") fun p34Setup() = setup("720x960")
+    // Square 720x720: 3.95" (hdpi) and 3.5" (xhdpi)
+    @Test @Config(qualifiers = "w480dp-h480dp-land-hdpi") fun sq480Library() = library("720x720-hdpi")
+    @Test @Config(qualifiers = "w480dp-h480dp-land-hdpi") fun sq480Menu() = menu("720x720-hdpi")
+    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Library() = library("720x720-xhdpi")
+    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Menu() = menu("720x720-xhdpi")
+    @Test @Config(qualifiers = "w360dp-h360dp-land-xhdpi") fun sq360Setup() = setup("720x720-xhdpi")
     // Near-square 1240x1080 and 1920x1080
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqLibrary() = library("1240x1080")
     @Test @Config(qualifiers = "w472dp-h411dp-land-xxhdpi") fun sqMenu() = menu("1240x1080")
