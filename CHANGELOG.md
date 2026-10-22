@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Offline RetroAchievements (casual mode): after a game was started online once, it can be played without a connection; unlocks are kept and sent with their real time when the connection is back (Settings → RetroAchievements → Offline achievements).
 - The shared framework is now called GBFrame (github.com/mindspot7/GBFrame, git submodule libs/gbframe).
 - Generic parts moved to the shared UI kit (hotkeys, games folder access, OpenGL ES presenter, CPU tuning, PGO and device-test tools); the games folder also understands GDI track lists.
 - Renderers simplified to CPU (OpenGL) and GPU (Vulkan): the former Software option (CPU rendering shown without OpenGL) is gone, since CPU (OpenGL) renders the same and adds filters and shaders. Existing Software users move to CPU (OpenGL); the plain output is still used automatically if OpenGL ES can't start.
