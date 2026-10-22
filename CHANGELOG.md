@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The selection highlight on the home screen and in the main menu only appears when a physical controller is detected; with a controller, opening the menu by touch selects System at once.
 - Settings → Extras → Layout: new "Button help" switch to show or hide the controller button bar on the home screen.
 - Changing the home layout now returns straight to the library.
 - Fixed: after opening the main menu with a tap, the first D-pad press now selects System (Android stayed in touch mode, where the menu entries can't take the focus).

@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -69,14 +70,21 @@ fun LibraryScreen(
     val style by HomeTheme.style
     val menuFocus = remember { FocusRequester() }
     val hasPad = rememberHasGamepad()
-    // Menu opened: focus its entry; closed: the focus goes back to the library
-    // Menu opened: focus its first entry (or the page just closed); closed: the focus goes back to the library
-    LaunchedEffect(menuOpen) {
-        if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
+    // Menu opened: with a controller its first entry (or the page just closed) is selected, even when it was opened by a
+    // tap (leave touch mode first: Compose won't focus clickable items there); closed: the focus goes back to the library
+    val composeView = LocalView.current
+    suspend fun focusMenu() {
+        repeat(5) {
+            if (MenuState.menuHasFocus) return
+            composeView.requestFocusFromTouch()
+            runCatching { menuFocus.requestFocus() }
+            delay(60)
+        }
     }
-    LaunchedEffect(MenuState.menuRefocus.intValue) {
-        if (menuOpen && runCatching { menuFocus.requestFocus() }.isFailure) { delay(60); runCatching { menuFocus.requestFocus() } }
+    LaunchedEffect(menuOpen, hasPad) {
+        if (menuOpen) { if (hasPad) { delay(120); focusMenu() } } else if (hasPad) MenuState.refocus.intValue++
     }
+    LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen && hasPad) focusMenu() }
     // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
     DisposableEffect(Unit) { MenuState.libraryShown = true; onDispose { MenuState.libraryShown = false; MenuState.hasFocus = false } }
     var confirmQuit by MenuState.quitOpen
