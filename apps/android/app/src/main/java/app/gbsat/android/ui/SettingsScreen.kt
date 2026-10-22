@@ -287,6 +287,9 @@ private fun PerformancePage() {
             listOf("Auto", "On", "Off"), Emulator.scspMode, ch { Emulator.scspMode = it })
         SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
+        SettingsDivider()
+        ToggleRow(Icons.Default.Speed, "Skip idle loops", "The SH-2 CPUs skip loops that only wait for a value to change. Much faster, same result; turn off if a game misbehaves",
+            Emulator.idleSkip, ch { Emulator.idleSkip = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
         ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })

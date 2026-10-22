@@ -35,6 +35,7 @@ object Emulator {
     var gamesDir by mutableStateOf("")
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
+    var idleSkip by mutableStateOf(true) // SH-2 idle-loop skipping
     var threadedVdp by mutableStateOf(true)
     var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
     var preloadDisc by mutableStateOf(false)
@@ -101,6 +102,7 @@ object Emulator {
             "widescreen=${widescreenHack ?: "off"}",
             "frameskip=${on(frameSkip)}",
             "sh2_cache=${on(sh2Cache)}",
+            "idle_skip=${on(idleSkip)}",
             "threaded_vdp=${on(threadedVdp)}",
             "threaded_audio=${listOf("auto", "on", "off").getOrElse(scspMode) { "$scspMode" }}",
             "cd_speed=${cdSpeed}x",
@@ -422,6 +424,7 @@ object Emulator {
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
+        idleSkip = prefs.getBoolean("idleSkip", true)
         threadedVdp = prefs.getBoolean("threadedVdp", true)
         scspMode = prefs.getInt("scspMode", 0)
         prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
@@ -493,6 +496,7 @@ object Emulator {
     fun applyOptions() {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
+        NativeBridge.nativeSetIdleSkip(idleSkip)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetScspMode(scspMode)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
@@ -522,7 +526,7 @@ object Emulator {
     }
 
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
-        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
+        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putBoolean("idleSkip", idleSkip)
         .putBoolean("threadedVdp", threadedVdp).putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)

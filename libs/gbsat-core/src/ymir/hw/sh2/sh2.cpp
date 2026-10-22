@@ -432,6 +432,141 @@ void SH2::DumpCacheAddressTag(std::ostream &out) const {
     }
 }
 
+// Memory a polling loop may read without side effects: work RAM, SMPC, sound RAM, VDP1/VDP2/SCU registers (not the CD
+// block, whose data port pops a FIFO, nor the on-chip modules). Only the cached and cache-through areas.
+FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
+    if ((address >> 29) > 1) {
+        return false;
+    }
+    const uint32 a = address & 0x07FFFFFF;
+    return (a >= 0x00200000 && a < 0x00300000) ||   // low work RAM
+           (a >= 0x06000000) ||                     // high work RAM (and mirrors)
+           (a >= 0x00100000 && a < 0x00100080) ||   // SMPC
+           (a >= 0x05A00000 && a < 0x05A80000) ||   // sound RAM
+           (a >= 0x05D00000 && a < 0x05D00018) ||   // VDP1 registers
+           (a >= 0x05F80000 && a < 0x05F80120) ||   // VDP2 registers
+           (a >= 0x05FE0000 && a < 0x05FE00D0);     // SCU registers
+}
+
+// A tight loop (head..last, at most 5 instructions) is idle when every iteration is the same as the previous one unless
+// memory changes: only loads from side-effect-free memory, tests/compares and register-only operations, no stores, and
+// no register carried from one iteration to the next (each one read in the loop is either never written in it or
+// written before it is read).
+template <bool emulateCache>
+bool SH2::IsIdleLoop(uint32 head, uint32 last) {
+    if (last < head || last - head > 8 || ((last - head) & 1)) {
+        return false;
+    }
+    struct Op {
+        uint16 rd = 0, wr = 0;
+        bool load = false;
+        uint32 addr = 0;
+    };
+    Op ops[5];
+    int count = 0;
+    uint16 allWr = 0;
+    for (uint32 pc = head; pc <= last; pc += 2) {
+        const uint16 op = PeekInstruction<emulateCache>(pc);
+        const uint32 n = (op >> 8) & 15, m = (op >> 4) & 15, lo = op & 15;
+        Op o;
+        switch (op >> 12) {
+        case 0x0:
+            if (op == 0x0009) { // nop
+            } else if ((op & 0xF0FF) == 0x0029) { // movt Rn
+                o.wr = 1 << n;
+            } else if (lo >= 0xC && lo <= 0xE) { // mov.x @(R0,Rm),Rn
+                o = {(uint16)(1 | (1 << m)), (uint16)(1 << n), true, R[0] + R[m]};
+            } else {
+                return false;
+            }
+            break;
+        case 0x2:
+            if (lo == 0x8) { // tst Rm,Rn
+                o.rd = (1 << m) | (1 << n);
+            } else if (lo >= 0x9 && lo <= 0xB) { // and/xor/or Rm,Rn
+                o = {(uint16)((1 << m) | (1 << n)), (uint16)(1 << n)};
+            } else {
+                return false;
+            }
+            break;
+        case 0x3:
+            if (lo == 0x0 || lo == 0x2 || lo == 0x3 || lo == 0x6 || lo == 0x7) { // cmp/eq, hs, ge, hi, gt
+                o.rd = (1 << m) | (1 << n);
+            } else if (lo == 0x8 || lo == 0xC) { // sub, add
+                o = {(uint16)((1 << m) | (1 << n)), (uint16)(1 << n)};
+            } else {
+                return false;
+            }
+            break;
+        case 0x4:
+            switch (op & 0xFF) {
+            case 0x11: case 0x15: o.rd = 1 << n; break;                       // cmp/pz, cmp/pl
+            case 0x00: case 0x01: case 0x08: case 0x09: case 0x18: case 0x19: // shll, shlr, shll2/8, shlr2/8
+            case 0x28: case 0x29: o = {(uint16)(1 << n), (uint16)(1 << n)}; break; // shll16, shlr16
+            default: return false;
+            }
+            break;
+        case 0x5: // mov.l @(disp,Rm),Rn
+            o = {(uint16)(1 << m), (uint16)(1 << n), true, R[m] + lo * 4u};
+            break;
+        case 0x6:
+            if (lo <= 0x2) { // mov.x @Rm,Rn
+                o = {(uint16)(1 << m), (uint16)(1 << n), true, R[m]};
+            } else if (lo == 0x3 || lo == 0x7 || lo == 0x8 || lo == 0x9 || lo == 0xB || lo >= 0xC) {
+                o = {(uint16)(1 << m), (uint16)(1 << n)}; // mov, not, swap.b/w, neg, extu/exts
+            } else {
+                return false;
+            }
+            break;
+        case 0x7: // add #imm,Rn
+            o = {(uint16)(1 << n), (uint16)(1 << n)};
+            break;
+        case 0x8:
+            switch (n) {
+            case 0x4: o = {(uint16)(1 << m), 1, true, R[m] + lo}; break;      // mov.b @(disp,Rm),R0
+            case 0x5: o = {(uint16)(1 << m), 1, true, R[m] + lo * 2u}; break; // mov.w @(disp,Rm),R0
+            case 0x8: o.rd = 1; break;                                        // cmp/eq #imm,R0
+            case 0x9: case 0xB: case 0xD: case 0xF: break;                    // bt, bf, bt/s, bf/s
+            default: return false;
+            }
+            break;
+        case 0x9: case 0xD: // mov.w/l @(disp,PC),Rn: constants
+            o.wr = 1 << n;
+            break;
+        case 0xA: // bra
+            break;
+        case 0xC:
+            switch (n) {
+            case 0x4: o = {0, 1, true, GBR + (op & 0xFF)}; break;      // mov.b @(disp,GBR),R0
+            case 0x5: o = {0, 1, true, GBR + (op & 0xFF) * 2u}; break; // mov.w @(disp,GBR),R0
+            case 0x6: o = {0, 1, true, GBR + (op & 0xFF) * 4u}; break; // mov.l @(disp,GBR),R0
+            case 0x7: o.wr = 1; break;                                 // mova
+            case 0x8: o.rd = 1; break;                                 // tst #imm,R0
+            case 0x9: case 0xA: case 0xB: o = {1, 1}; break;           // and/xor/or #imm,R0
+            default: return false;
+            }
+            break;
+        case 0xE: // mov #imm,Rn
+            o.wr = 1 << n;
+            break;
+        default: return false;
+        }
+        if (o.load && !IsIdleSafeRead(o.addr)) {
+            return false;
+        }
+        ops[count++] = o;
+        allWr |= o.wr;
+    }
+    uint16 written = 0;
+    for (int i = 0; i < count; ++i) {
+        if (ops[i].rd & allWr & ~written) {
+            return false; // a value carried over from the previous iteration (a counter, a pointer...)
+        }
+        written |= ops[i].wr;
+    }
+    return true;
+}
+
 template <bool debug, bool emulateCache>
 FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     m_cyclesExecuted = spilloverCycles;
@@ -482,6 +617,21 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
                 }
                 m_loopHead = PC;
                 m_loopStart = m_loopClock;
+            }
+        }
+        // Idle-loop skipping: the second time a tight loop jumps back to the same head, check that it only polls memory;
+        // if so, skip to the end of this time slice (the polled value can't change before the other components run)
+        if constexpr (!debug) {
+            if (PC < prevPC && prevPC - PC <= 8 && m_idleSkip) [[unlikely]] {
+                if (PC == m_idleHead && !m_delaySlot && !m_intrFlags.pending && m_cyclesExecuted < cycles &&
+                    IsIdleLoop<emulateCache>(PC, prevPC)) {
+                    if (prof) {
+                        ws::g_shSkip[cpu] += cycles - m_cyclesExecuted;
+                    }
+                    m_cyclesExecuted = cycles;
+                    break;
+                }
+                m_idleHead = PC;
             }
         }
 

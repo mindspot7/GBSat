@@ -656,7 +656,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "msh2_hot_loop") == nullptr;
+        fresh = strstr(head, "msh2_skip_pct") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -669,7 +669,7 @@ void WritePerfLog(float fps, float presentedFps) {
                    "worst_frame_ms,slow_frames,vdp1_cmds_per_frame,resolution,sh2_cache,audio_underruns,audio_xruns,"
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
                    "thermal_status,thermal_headroom,device,"
-                   "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,settings\n");
+                   "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -747,10 +747,13 @@ void WritePerfLog(float fps, float presentedFps) {
     }();
     // Share of each SH-2's interpreted time spent in tight loops (polling or delay loops), and its hottest loop as
     // address:percent (the candidates for idle-loop skipping)
-    double loopPct[2];
+    double loopPct[2], skipPct[2];
     char hot[2][32];
     for (int c = 0; c < 2; ++c) {
         const uint64_t exec = ws::g_shExec[c];
+        // Share of the CPU's emulated cycles that idle-loop skipping didn't have to interpret
+        skipPct[c] = exec + ws::g_shSkip[c] ? 100.0 * ws::g_shSkip[c] / (exec + ws::g_shSkip[c]) : 0.0;
+        ws::g_shSkip[c] = 0;
         loopPct[c] = exec ? 100.0 * ws::g_shLoop[c] / exec : 0.0;
         int best = -1;
         for (int i = 0; i < 64; ++i) {
@@ -772,13 +775,13 @@ void WritePerfLog(float fps, float presentedFps) {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
-            probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], settings.c_str());
+            probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], settings.c_str());
     fclose(f);
 }
 
@@ -1311,6 +1314,14 @@ JNI_FN(void, nativeSetPadType)(JNIEnv *, jclass, jboolean analog) {
 JNI_FN(void, nativeSetSH2Cache)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] { g->saturn->EnableSH2CacheEmulation(on); });
+    }
+}
+JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        Post([on] {
+            g->saturn->masterSH2.SetIdleLoopSkip(on);
+            g->saturn->slaveSH2.SetIdleLoopSkip(on);
+        });
     }
 }
 JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {

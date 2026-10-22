@@ -39,6 +39,8 @@ inline uint64_t g_shExec[2]{};
 inline uint64_t g_shLoop[2]{};
 inline uint32_t g_hotPc[2][64]{};
 inline uint64_t g_hotCyc[2][64]{};
+// Cycles skipped by idle-loop skipping (profiled frames)
+inline uint64_t g_shSkip[2]{};
 
 // VDP1 commands processed (all frames), a measure of how much the game draws with sprites/polygons
 inline std::atomic<uint32_t> g_vdp1Commands{0};

@@ -101,6 +101,13 @@ public:
         return !BCR1.MASTER;
     }
 
+    /// @brief Idle-loop skipping: when the CPU spins in a tight loop that only reads memory and tests the value (polling
+    /// a flag set by the other CPU, an interrupt handler or a device), it jumps to the end of its time slice instead of
+    /// interpreting the same iterations. Nothing else runs during the slice, so the result is the same.
+    void SetIdleLoopSkip(bool enable) {
+        m_idleSkip = enable;
+    }
+
     bool GetNMI() const;
     void SetNMI();
 
@@ -702,6 +709,12 @@ private:
 
     // Number of cycles executed in the current Advance invocation
     uint64 m_cyclesExecuted;
+
+    // Idle-loop skipping (see SetIdleLoopSkip)
+    bool m_idleSkip = true;
+    uint32 m_idleHead = 0; // last tight-loop head reached by a backward jump
+    template <bool emulateCache>
+    bool IsIdleLoop(uint32 head, uint32 last);
 
     // Tight-loop measurement for the performance log (profiled frames only)
     uint64 m_loopClock = 0;  // cycles interpreted while profiling
