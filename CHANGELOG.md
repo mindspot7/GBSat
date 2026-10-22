@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Audio: no more crackling when a game runs just below full speed: the sound now plays up to 5% slower while the buffer is low (dynamic rate control) instead of running dry.
+- Automatic frame skip skips only as often as needed: at least 2 frames are shown between skips at first, and the spacing adapts every second (before, it showed only every other frame, ~30 fps on screen, even when the game was close to full speed).
+- Performance log: share of each SH-2's time spent in tight loops (polling and delay loops) and the hottest loop of each.
 - Performance log (perf-log.csv): new columns with the time per frame of each part of the emulation (master and slave SH-2, SCU, VDP, sound and CD, the rest, measured on one frame in 8), the slowest frame and frames over budget, VDP1 commands per frame, the game's resolution, audio underruns, CPU use per thread with the emulation core and its clock, the thermal status, the device, and all the Video/Performance options in use.
 
 ## 1.3.4

@@ -703,6 +703,11 @@ private:
     // Number of cycles executed in the current Advance invocation
     uint64 m_cyclesExecuted;
 
+    // Tight-loop measurement for the performance log (profiled frames only)
+    uint64 m_loopClock = 0;  // cycles interpreted while profiling
+    uint64 m_loopStart = 0;  // m_loopClock when the current loop head was last reached
+    uint32 m_loopHead = 0;   // address of the current tight loop's first instruction
+
     // Retrieves the current absolute cycle count
     uint64 GetCurrentCycleCount() const;
 

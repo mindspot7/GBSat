@@ -86,14 +86,33 @@ struct AudioRing {
         data[(h & (kRingFrames - 1)) * 2 + 1] = r;
         head.store(h + 1, std::memory_order_release);
     }
-    void Pop(int16_t *out, int32_t frames) {
+    // Consumer side (AAudio callback only): read position between two samples and the current playback rate
+    double pos = 0.0, step = 1.0;
+
+    void Pop(int16_t *out, int32_t frames, uint32_t target) {
         uint32_t t = tail.load(std::memory_order_relaxed);
         const uint32_t avail = head.load(std::memory_order_acquire) - t;
-        const uint32_t n = std::min<uint32_t>(avail, frames);
-        for (uint32_t i = 0; i < n; ++i, ++t) {
-            out[i * 2] = data[(t & (kRingFrames - 1)) * 2];
-            out[i * 2 + 1] = data[(t & (kRingFrames - 1)) * 2 + 1];
+        // Dynamic rate control: when the buffer runs low (the game runs slightly slower than real time) the audio plays
+        // up to 5% slower, interpolating between samples, instead of running dry: the pitch change is inaudible, the
+        // clicks of underruns are not (the performance log showed ~30 underruns per second at 59.8 fps)
+        const double fillRatio = target ? (double)avail / target : 1.0;
+        const double want = std::clamp(1.0 + 0.05 * (fillRatio - 1.0), 0.95, 1.005);
+        step += (want - step) * 0.1;
+        uint32_t n = 0;
+        for (; n < (uint32_t)frames; ++n) {
+            const uint32_t k = (uint32_t)pos;
+            if (k + 1 >= avail) {
+                break;
+            }
+            const double f = pos - k;
+            const uint32_t a = ((t + k) & (kRingFrames - 1)) * 2, b = ((t + k + 1) & (kRingFrames - 1)) * 2;
+            out[n * 2] = (int16_t)(data[a] + (data[b] - data[a]) * f);
+            out[n * 2 + 1] = (int16_t)(data[a + 1] + (data[b + 1] - data[a + 1]) * f);
+            pos += step;
         }
+        const uint32_t used = std::min<uint32_t>((uint32_t)pos, avail);
+        pos -= used;
+        t += used;
         if (n > 0) {
             lastL = out[(n - 1) * 2];
             lastR = out[(n - 1) * 2 + 1];
@@ -162,6 +181,8 @@ struct Context {
     bool skipActive = false; // automatic frame skip engaged (emulation thread only)
     bool pairSkip = false;   // skip decision for the current field pair
     int notBehindRun = 0;    // consecutive frames on time
+    int renderRun = 0;       // consecutive rendered frames
+    int minRenderRun = 2;    // frames shown between skips (adapted every second while skipping: 1..4)
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -407,7 +428,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
 
 aaudio_data_callback_result_t AudioDataCb(AAudioStream *, void *, void *audioData, int32_t numFrames) {
     auto *out = static_cast<int16_t *>(audioData);
-    g->ring.Pop(out, numFrames);
+    g->ring.Pop(out, numFrames, g->targetFill.load(std::memory_order_relaxed));
     const float vol = g->volume.load(std::memory_order_relaxed);
     if (vol < 0.999f) {
         const int32_t v = (int32_t)(vol * 256.0f);
@@ -635,7 +656,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, ",settings") == nullptr;
+        fresh = strstr(head, "msh2_hot_loop") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -647,7 +668,8 @@ void WritePerfLog(float fps, float presentedFps) {
                    "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sound_cd_ms,other_ms,"
                    "worst_frame_ms,slow_frames,vdp1_cmds_per_frame,resolution,sh2_cache,audio_underruns,audio_xruns,"
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
-                   "thermal_status,thermal_headroom,device,settings\n");
+                   "thermal_status,thermal_headroom,device,"
+                   "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -723,18 +745,40 @@ void WritePerfLog(float fps, float presentedFps) {
         }
         return d;
     }();
+    // Share of each SH-2's interpreted time spent in tight loops (polling or delay loops), and its hottest loop as
+    // address:percent (the candidates for idle-loop skipping)
+    double loopPct[2];
+    char hot[2][32];
+    for (int c = 0; c < 2; ++c) {
+        const uint64_t exec = ws::g_shExec[c];
+        loopPct[c] = exec ? 100.0 * ws::g_shLoop[c] / exec : 0.0;
+        int best = -1;
+        for (int i = 0; i < 64; ++i) {
+            if (ws::g_hotCyc[c][i] && (best < 0 || ws::g_hotCyc[c][i] > ws::g_hotCyc[c][best])) best = i;
+        }
+        if (best >= 0 && exec) {
+            snprintf(hot[c], sizeof(hot[c]), "%08X:%.0f", ws::g_hotPc[c][best], 100.0 * ws::g_hotCyc[c][best] / exec);
+        } else {
+            snprintf(hot[c], sizeof(hot[c]), "-");
+        }
+        ws::g_shExec[c] = ws::g_shLoop[c] = 0;
+        for (int i = 0; i < 64; ++i) {
+            ws::g_hotPc[c][i] = 0;
+            ws::g_hotCyc[c][i] = 0;
+        }
+    }
     std::string settings;
     {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
-            probe.thermal, probe.headroom, device.c_str(), settings.c_str());
+            probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], settings.c_str());
     fclose(f);
 }
 
@@ -778,8 +822,10 @@ void EmuLoop() {
                 skip = (t - g->lastRendered < milliseconds(50) || g->skipRun < 2) && g->skipRun < 12;
             } else {
                 // Only skip when clearly behind (below ~92% speed over the last second): skipping 2 of 3 frames to
-                // recover a few percent made the picture much choppier than running slightly slow. At most 1 frame in a
-                // row (2 on hi-res screens), so at least half of the emulated frames are shown.
+                // recover a few percent made the picture much choppier than running slightly slow. One frame at a time
+                // (two on hi-res screens), with minRenderRun frames shown in between: skipping whenever behind showed
+                // only every other frame (~30 fps on screen while emulating 55-58, performance log); the spacing adapts
+                // every second so only as many frames as needed are skipped.
                 const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
                 // Hysteresis: skipping starts when clearly behind and stays on until the game keeps up without help
                 // (not behind for a whole second); deciding from the last second's fps alone made it switch on and
@@ -791,7 +837,9 @@ void EmuLoop() {
                 if (g->notBehindRun >= 60) {
                     g->skipActive = false;
                 }
-                skip = g->frameSkip.load() && g->skipActive && g->behind && g->skipRun < (hires ? 2 : 1);
+                const int unit = hires ? 2 : 1;
+                skip = g->frameSkip.load() && g->skipActive && g->behind &&
+                       (g->skipRun > 0 ? g->skipRun < unit : g->renderRun >= g->minRenderRun * unit);
             }
             if (!skip) {
                 g->lastRendered = t;
@@ -807,6 +855,7 @@ void EmuLoop() {
                 g->pairSkip = skip;
             }
             g->skipRun = skip ? g->skipRun + 1 : 0;
+            g->renderRun = skip ? 0 : g->renderRun + 1;
             g->saturn->VDP.SetSkipFrameRender(skip);
             g->skipPresent = skip;
         }
@@ -872,6 +921,17 @@ void EmuLoop() {
             const float secs = duration<float>(now - fpsWindowStart).count();
             g->fps = fpsFrames / secs;
             WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);
+            // Frame skip spacing: skip more often while still clearly slow, less often once at full speed
+            if (g->skipActive) {
+                const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
+                if (g->fps < target * 0.95f) {
+                    g->minRenderRun = std::max(1, g->minRenderRun - 1);
+                } else if (g->fps >= target * 0.985f) {
+                    g->minRenderRun = std::min(4, g->minRenderRun + 1);
+                }
+            } else {
+                g->minRenderRun = 2;
+            }
             ScspAutoTune(g->fps);
             fpsFrames = 0;
             fpsWindowStart = now;

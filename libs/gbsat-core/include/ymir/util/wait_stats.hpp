@@ -32,6 +32,14 @@ inline std::atomic<bool> g_profile{false};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 
+// Tight loops of the SH-2s (index 0 master, 1 slave), on the profiled frames: cycles interpreted, cycles spent in loops
+// that jump back over at most 4 instructions (polling a register or a delay loop: what idle-loop skipping would save)
+// and the hottest loop heads (direct-mapped by address). Only touched by the emulation thread.
+inline uint64_t g_shExec[2]{};
+inline uint64_t g_shLoop[2]{};
+inline uint32_t g_hotPc[2][64]{};
+inline uint64_t g_hotCyc[2][64]{};
+
 // VDP1 commands processed (all frames), a measure of how much the game draws with sprites/polygons
 inline std::atomic<uint32_t> g_vdp1Commands{0};
 

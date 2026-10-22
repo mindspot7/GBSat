@@ -1,5 +1,6 @@
 #include <ymir/hw/sh2/sh2.hpp>
 
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/util/bit_ops.hpp>
 #include <ymir/util/data_ops.hpp>
 #include <ymir/util/dev_assert.hpp>
@@ -454,11 +455,35 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
         }
     }
 
+    // Performance log: on profiled frames, find the time spent in tight loops (jumping back over at most 4
+    // instructions to the same place: polling a register or a delay loop)
+    namespace ws = util::waitstats;
+    const bool prof = ws::g_profile.load(std::memory_order_relaxed);
+    const int cpu = IsMaster() ? 0 : 1;
+
     while (m_cyclesExecuted < cycles) {
-        // [[maybe_unused]] const uint32 prevPC = PC; // debug aid
+        const uint32 prevPC = PC;
 
         // TODO: choose between interpreter (cached or uncached) and JIT recompiler
-        m_cyclesExecuted += InterpretNext<debug, emulateCache>();
+        const uint64 instrCycles = InterpretNext<debug, emulateCache>();
+        m_cyclesExecuted += instrCycles;
+        if (prof) [[unlikely]] {
+            m_loopClock += instrCycles;
+            ws::g_shExec[cpu] += instrCycles;
+            if (PC < prevPC && prevPC - PC <= 8) {
+                if (PC == m_loopHead) {
+                    const uint64 spent = m_loopClock - m_loopStart;
+                    ws::g_shLoop[cpu] += spent;
+                    const uint32 slot = (PC >> 1) & 63;
+                    if (ws::g_hotPc[cpu][slot] == PC || ws::g_hotCyc[cpu][slot] == 0) {
+                        ws::g_hotPc[cpu][slot] = PC;
+                        ws::g_hotCyc[cpu][slot] += spent;
+                    }
+                }
+                m_loopHead = PC;
+                m_loopStart = m_loopClock;
+            }
+        }
 
         // Check for breakpoints and watchpoints and validate PC in debug tracing mode
         if constexpr (debug) {
