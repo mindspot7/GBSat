@@ -11,7 +11,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import gb.frame.setControllerContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.core.view.WindowInsetsCompat
@@ -26,7 +26,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { GBSatRoot(onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
+        // The first D-pad press after a touch moves the focus right away (gb.frame.setControllerContent)
+        setControllerContent { GBSatRoot(onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
     }
 
     override fun onPause() {
@@ -66,13 +67,7 @@ class MainActivity : ComponentActivity() {
     private var l2Key = false
     private var r2Key = false
 
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) app.gbsat.android.ui.MenuState.keyInput = false
-        return super.dispatchTouchEvent(ev)
-    }
-
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) app.gbsat.android.ui.MenuState.keyInput = true
         // Library: Select switches between all games and recent save states. Handled here because right after start or
         // after closing a game nothing may be focused yet, and Compose key handlers only see events while focused.
         if (!Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {

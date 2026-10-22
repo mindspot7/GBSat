@@ -70,12 +70,9 @@ fun LibraryScreen(
     val menuFocus = remember { FocusRequester() }
     val hasPad = rememberHasGamepad()
     // Menu opened: focus its entry; closed: the focus goes back to the library
-    // Focus moves programmatically only while the controller is in use: a focus request after a tap made the next tap
-    // only take the focus (two taps needed). With touch, the first controller key puts the focus in place (MainActivity).
+    // Menu opened: focus its first entry (or the page just closed); closed: the focus goes back to the library
     LaunchedEffect(menuOpen) {
-        if (MenuState.keyInput) {
-            if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
-        }
+        if (menuOpen) { delay(120); runCatching { menuFocus.requestFocus() } } else MenuState.refocus.intValue++
     }
     LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen) runCatching { menuFocus.requestFocus() } }
     // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
@@ -239,8 +236,6 @@ internal object MenuState {
     val refocus = mutableIntStateOf(0)
     /** Something inside the open main menu has the focus (opened with a tap, the focus can stay on the library behind). */
     @Volatile var menuHasFocus = false
-    /** The last input was a controller/keyboard key (false after a touch): programmatic focus moves only then. */
-    @Volatile var keyInput = false
     /** Bumped to put the focus back on the open menu. */
     val menuRefocus = mutableIntStateOf(0)
 }

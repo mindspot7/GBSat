@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Grid: covers are drawn as 3D boxes (spine and front, with a light gloss).
+- Showcase: the blurred backdrop behind the selected game was removed for a cleaner look.
+- Fixed: the first D-pad press after a touch moves the focus (no more two presses), in the library and in the main menu.
 - Holding left/right on the Showcase and All in One shelves now glides through the covers smoothly.
 - Grid: no All games / Recent buttons (use the menu or Select), the selected cover grows again (no frame), more room between rows and at the top and bottom.
 - Main menu: opens on System; a tap on the top bar opens it at once, and the next tap works right away (no double tap).
