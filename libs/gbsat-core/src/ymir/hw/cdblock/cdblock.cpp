@@ -5,6 +5,7 @@
 #include <ymir/sys/clocks.hpp>
 
 #include <ymir/util/arith_ops.hpp>
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/util/dev_assert.hpp>
 
 #include <algorithm>
@@ -1014,6 +1015,9 @@ void CDBlock::ProcessDriveState() {
 
     switch (GetStatusCode(true)) {
     case kStatusCodeSeek:
+        if (m_status.controlADR == 0x41) {
+            util::waitstats::g_cdDataSeekTicks.fetch_add(1, std::memory_order_relaxed); // Skip Engine: loading
+        }
         // HACK: Extremely hacky way to make the status transition from Seek to Play
         if (m_seekTicks > 0) {
             --m_seekTicks;
@@ -1135,6 +1139,7 @@ void CDBlock::ProcessDriveStatePlay() {
                 buffer.size = mode2form2 ? std::max(2324u, m_getSectorLength) : m_getSectorLength;
                 buffer.frameAddress = frameAddress;
                 buffer.subheader.ReadFrom(buffer.data);
+                util::waitstats::g_cdDataSectors.fetch_add(1, std::memory_order_relaxed); // Skip Engine: loading
 
                 // Check against CD device filter and send data to the appropriate destination
                 uint8 filterNum = m_cdDeviceConnection;

@@ -123,6 +123,11 @@ fun GameScreen(onQuitApp: () -> Unit) {
                         contentColor = if (Emulator.fastForward) Color.Black else Color.White),
                 ) { Icon(Icons.Default.FastForward, "Fast-forward") }
             }
+            // Skip Engine running at maximum speed (a load, transition or save wait)
+            if (stats.getOrElse(6) { 0 } == 1L && !Emulator.fastForward) {
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.FastForward, "Skipping", tint = Color(0xFFE8C26A), modifier = Modifier.size(22.dp))
+            }
         }
 
         // Performance overlay, top right
@@ -291,6 +296,16 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 }
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
                                     Emulator.scspMode = (Emulator.scspMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                fun onOff(b: Boolean) = if (b) "On" else "Off"
+                                MenuItem(Icons.Default.FastForward, "Skip loading screens", value = onOff(Emulator.skipLoads)) {
+                                    Emulator.skipLoads = !Emulator.skipLoads; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.FastForward, "Skip transitions", value = onOff(Emulator.skipTransitions)) {
+                                    Emulator.skipTransitions = !Emulator.skipTransitions; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
+                                MenuItem(Icons.Default.FastForward, "Skip save waits", value = onOff(Emulator.skipSaves)) {
+                                    Emulator.skipSaves = !Emulator.skipSaves; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                             }
                             MenuPage.Overlays -> {

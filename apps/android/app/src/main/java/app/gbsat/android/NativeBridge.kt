@@ -28,6 +28,8 @@ object NativeBridge {
     @JvmStatic external fun nativeGetLastFrame(): IntArray?
     @JvmStatic external fun nativeSetCdReadSpeed(factor: Int)
     @JvmStatic external fun nativeSetFrameSkip(on: Boolean)
+    /** Skip Engine: maximum speed through CD loads, black transitions and save waits. */
+    @JvmStatic external fun nativeSetAutoSkip(loads: Boolean, transitions: Boolean, saves: Boolean)
     @JvmStatic external fun nativeSetAudio(volume: Int, ffMode: Int)
     @JvmStatic external fun nativeGetStats(): LongArray
     @JvmStatic external fun nativeSetLogSettings(settings: String)

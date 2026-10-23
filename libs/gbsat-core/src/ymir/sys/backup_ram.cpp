@@ -3,6 +3,7 @@
 #include <ymir/util/data_ops.hpp>
 #include <ymir/util/inline.hpp>
 #include <ymir/util/size_ops.hpp>
+#include <ymir/util/wait_stats.hpp>
 
 #include <fstream>
 #include <string_view>
@@ -28,14 +29,16 @@ static constexpr size_t kBlockSizes[] = {
 };
 
 void BackupMemory::MapMemory(sys::SH2Bus &bus, uint32 start, uint32 end) {
+    // Accesses are counted for the frontend's Skip Engine (save waits run at maximum speed)
+    static constexpr auto count = [] { util::waitstats::g_bupAccesses.fetch_add(1, std::memory_order_relaxed); };
     bus.MapBoth(
         start, end, this,
-        [](uint32 address, void *ctx) -> uint8 { return static_cast<BackupMemory *>(ctx)->ReadByte(address); },
-        [](uint32 address, void *ctx) -> uint16 { return static_cast<BackupMemory *>(ctx)->ReadWord(address); },
-        [](uint32 address, void *ctx) -> uint32 { return static_cast<BackupMemory *>(ctx)->ReadLong(address); },
-        [](uint32 address, uint8 value, void *ctx) { static_cast<BackupMemory *>(ctx)->WriteByte(address, value); },
-        [](uint32 address, uint16 value, void *ctx) { static_cast<BackupMemory *>(ctx)->WriteWord(address, value); },
-        [](uint32 address, uint32 value, void *ctx) { static_cast<BackupMemory *>(ctx)->WriteLong(address, value); });
+        [](uint32 address, void *ctx) -> uint8 { count(); return static_cast<BackupMemory *>(ctx)->ReadByte(address); },
+        [](uint32 address, void *ctx) -> uint16 { count(); return static_cast<BackupMemory *>(ctx)->ReadWord(address); },
+        [](uint32 address, void *ctx) -> uint32 { count(); return static_cast<BackupMemory *>(ctx)->ReadLong(address); },
+        [](uint32 address, uint8 value, void *ctx) { count(); static_cast<BackupMemory *>(ctx)->WriteByte(address, value); },
+        [](uint32 address, uint16 value, void *ctx) { count(); static_cast<BackupMemory *>(ctx)->WriteWord(address, value); },
+        [](uint32 address, uint32 value, void *ctx) { count(); static_cast<BackupMemory *>(ctx)->WriteLong(address, value); });
 }
 
 BackupMemoryImageLoadResult BackupMemory::LoadFrom(const std::filesystem::path &path, bool copyOnWrite,

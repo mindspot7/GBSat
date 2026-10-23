@@ -55,6 +55,12 @@ inline std::atomic<bool> g_vdp2TwoFB{true};
 inline std::atomic<bool> g_vdpBatch{true};
 // GPU time of the Vulkan renderer's command buffers (timestamp queries), for the overlay's GPU usage
 inline std::atomic<uint64_t> g_gpuBusyNs{0};
+// Skip Engine (frontend runs at maximum speed through loads, transitions and save waits): activity counters read once
+// per frame by the frontend. Data sectors the CD drive read, drive ticks spent seeking on a data track, and accesses to
+// the backup memory (internal or cartridge).
+inline std::atomic<uint32_t> g_cdDataSectors{0};
+inline std::atomic<uint32_t> g_cdDataSeekTicks{0};
+inline std::atomic<uint32_t> g_bupAccesses{0};
 inline std::atomic<bool> g_gpuTimed{false}; // the Vulkan renderer measures it (timestamps supported)
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};

@@ -112,6 +112,9 @@ object Emulator {
             "threaded_vdp=${on(threadedVdp)}",
             "threaded_audio=${listOf("auto", "on", "off").getOrElse(scspMode) { "$scspMode" }}",
             "cd_speed=${cdSpeed}x",
+            "skip_loads=${on(skipLoads)}",
+            "skip_transitions=${on(skipTransitions)}",
+            "skip_saves=${on(skipSaves)}",
             "preload_disc=${on(preloadDisc)}",
             "fast_boot=${on(fastBoot)}",
             "game_profiles=${on(useGameProfiles)}",
@@ -132,6 +135,11 @@ object Emulator {
     var setupDone by mutableStateOf(true)
     fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
     var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
+    // Skip Engine: maximum speed (sound muted) through CD loads behind a still silent screen, silent black transitions and
+    // backup memory (save) waits
+    var skipLoads by mutableStateOf(false)
+    var skipTransitions by mutableStateOf(false)
+    var skipSaves by mutableStateOf(false)
     var resScale by mutableStateOf(1) // GPU (Vulkan) internal resolution scale (1x..4x); 0 = Native (matches the screen)
     /**
      * Scale used for "Native": the screen's short side divided by the Saturn's ~224 lines, rounded, at most what the GPU
@@ -459,6 +467,9 @@ object Emulator {
         shader = prefs.getInt("shader", 0)
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
         cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
+        skipLoads = prefs.getBoolean("skipLoads", false)
+        skipTransitions = prefs.getBoolean("skipTransitions", false)
+        skipSaves = prefs.getBoolean("skipSaves", false)
         frameSkip = prefs.getBoolean("frameSkip", false)
         volume = prefs.getInt("volume", 100).coerceIn(0, 100)
         autoSave = prefs.getBoolean("autoSave", false)
@@ -514,6 +525,7 @@ object Emulator {
         NativeBridge.nativeSetScspMode(scspMode)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
+        NativeBridge.nativeSetAutoSkip(skipLoads, skipTransitions, skipSaves)
         NativeBridge.nativeSetFrameSkip(frameSkip)
         NativeBridge.nativeSetAudio(volume, ffAudio)
         NativeBridge.nativeSetRenderer(displayRenderer)
@@ -542,7 +554,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */

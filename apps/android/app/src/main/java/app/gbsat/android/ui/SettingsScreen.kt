@@ -277,6 +277,16 @@ private fun PerformancePage() {
         val cdSpeeds = listOf(2, 4, 8, 16)
         ChoiceRow("CD read speed", "Shorter loading screens; use Original if a game's videos or music go out of sync",
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
+        SettingsDivider()
+        // Skip Engine: maximum speed (sound muted) only while one of these is detected
+        ToggleRow(Icons.Default.FastForward, "Skip loading screens", "Maximum speed while the CD loads behind a still, silent screen",
+            Emulator.skipLoads, ch { Emulator.skipLoads = it })
+        SettingsDivider()
+        ToggleRow(Icons.Default.FastForward, "Skip transitions", "Maximum speed through silent black screens between scenes",
+            Emulator.skipTransitions, ch { Emulator.skipTransitions = it })
+        SettingsDivider()
+        ToggleRow(Icons.Default.FastForward, "Skip save waits", "Maximum speed while the game reads or writes its saves",
+            Emulator.skipSaves, ch { Emulator.skipSaves = it })
     }
     SettingsGroup("Emulation", Icons.Default.Memory) {
         ChoiceRow("Threaded audio", "Sound chip and its 68000 on a separate thread. Auto tries both while a game runs slow and remembers the faster one per game",
