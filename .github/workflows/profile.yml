@@ -5,6 +5,11 @@ name: Profiling build
 on:
   workflow_dispatch:
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -22,6 +27,16 @@ jobs:
           sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v5
         with: { gradle-version: 8.14.3 }
+      - name: Install ccache
+        run: sudo apt-get install -y -qq ccache
+
+      - name: Restore ccache (compiled objects from earlier builds)
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-${{ github.run_id }}
+          restore-keys: ccache-native-
+
       - name: Install DXC
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,7 +65,8 @@ jobs:
         run: |
           set +e
           export GITHUB_RUN_NUMBER=$BUILD_NUMBER
-          gradle --no-daemon assembleRelease -PgbsatProfile --stacktrace > build.log 2>&1; rc=$?
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
+          gradle --no-daemon assembleRelease -PgbsatProfile -PgbsatCcache --stacktrace > build.log 2>&1; rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log; grep -E "What went wrong" -A4 build.log) | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             echo "::error title=Build errors::$msg"

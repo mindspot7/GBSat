@@ -1,12 +1,10 @@
 name: Vulkan shader check
 
 # Development workflow for the Vulkan renderer: verifies that the VDP HLSL compute shaders compile to SPIR-V
-# and validate for Vulkan 1.1/1.2 on a Linux host. Run manually.
+# and validate for Vulkan 1.1/1.2 on a Linux host. Run manually (Actions tab), not on every push: the app uses the
+# CPU renderer and this check takes 3-15 minutes.
 on:
   workflow_dispatch:
-  push:
-    branches: [ android-port, vulkan, debug-states ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/gbsat-core/res/shaders/**', 'libs/gbsat-core/src/ymir/gpu/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/gbsat-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'apps/android/app/src/main/cpp/serdes/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/**', 'libs/gbsat-core/include/ymir/hw/vdp/**' ]
 
 jobs:
   shaders:

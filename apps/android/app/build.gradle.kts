@@ -39,6 +39,10 @@ android {
                 if (project.hasProperty("gbsatPgoGen")) arguments += "-DGBSAT_PGO_GEN=ON"
                 // Profiling build: line tables too, so simpleperf can split time by source line (--sort srcline)
                 if (project.hasProperty("gbsatProfile")) arguments += "-DGBSAT_LINE_TABLES=ON"
+                // CI: reuse compiled objects between builds (ccache), so a small change recompiles only what it touches
+                if (project.hasProperty("gbsatCcache")) {
+                    arguments += listOf("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
+                }
             }
         }
     }

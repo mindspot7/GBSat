@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# A newer push makes the build of the previous one pointless
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -37,6 +42,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.14.3
+
+      - name: Install ccache
+        run: sudo apt-get install -y -qq ccache
+
+      - name: Restore ccache (compiled objects from earlier builds)
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-${{ github.run_id }}
+          restore-keys: ccache-native-
 
       - name: Install DXC (HLSL to SPIR-V shader compiler)
         env:
@@ -93,13 +108,16 @@ jobs:
           GBSAT_KEYSTORE_PASSWORD: ${{ secrets.GBSAT_KEYSTORE_PASSWORD }}
         run: |
           set +e
-          gradle --no-daemon ${{ steps.aab.outputs.tasks }} --stacktrace > build.log 2>&1
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
+          ccache -z >/dev/null
+          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
             echo "::error title=Build errors::$msg"
           fi
           tail -60 build.log
+          ccache -s | head -8
           exit $rc
 
       - name: Name APK with version
