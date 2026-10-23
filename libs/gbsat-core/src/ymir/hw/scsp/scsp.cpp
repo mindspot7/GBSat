@@ -9,6 +9,11 @@
 #include <algorithm>
 #include <limits>
 #include <ostream>
+#if defined(__linux__)
+    #include <linux/futex.h>
+    #include <sys/syscall.h>
+    #include <unistd.h>
+#endif
 
 using namespace ymir::m68k;
 
@@ -1485,9 +1490,30 @@ void SCSP::SCSPThreadLoop() {
     }
 }
 
+#if defined(__linux__)
+// Direct futex wait/wake for the SCSP thread's work signal. std::atomic::wait in libc++ polls for up to ~64 us with
+// clock_gettime and sched_yield before sleeping, and the SCSP thread waits between sample ticks all the time: on the
+// T618 that polling was ~10% of a core (simpleperf: clock_gettime, sched_yield and kernel time on the SCSP thread),
+// taken from the cores the VDP render threads share. Here the thread spins briefly, then sleeps in the kernel.
+static void FutexWait(std::atomic<uint32> &word, uint32 expected) {
+    syscall(SYS_futex, reinterpret_cast<uint32 *>(&word), FUTEX_WAIT_PRIVATE, expected, nullptr, nullptr, 0);
+}
+static void FutexWakeOne(std::atomic<uint32> &word) {
+    syscall(SYS_futex, reinterpret_cast<uint32 *>(&word), FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
+}
+#endif
+
 void SCSP::WakeSCSPThread() {
+#if defined(__linux__)
+    // seq_cst pairs with the waiter's seq_cst store/recheck: either it sees the new sequence or this sees it sleeping
+    m_wakeSeq.fetch_add(1, std::memory_order_seq_cst);
+    if (m_scspSleeping.load(std::memory_order_seq_cst)) [[unlikely]] {
+        FutexWakeOne(m_wakeSeq);
+    }
+#else
     m_wakeSeq.fetch_add(1, std::memory_order_release);
     m_wakeSeq.notify_one();
+#endif
 }
 
 void SCSP::WaitForSCSPWork(uint32 seq) {
@@ -1506,7 +1532,15 @@ void SCSP::WaitForSCSPWork(uint32 seq) {
         std::this_thread::yield();
 #endif
     }
+#if defined(__linux__)
+    m_scspSleeping.store(1, std::memory_order_seq_cst);
+    while (m_wakeSeq.load(std::memory_order_seq_cst) == seq) {
+        FutexWait(m_wakeSeq, seq); // returns at once if the value already changed; spurious wake-ups loop
+    }
+    m_scspSleeping.store(0, std::memory_order_relaxed);
+#else
     m_wakeSeq.wait(seq, std::memory_order_acquire);
+#endif
 }
 
 void SCSP::SyncSCSPThread() {

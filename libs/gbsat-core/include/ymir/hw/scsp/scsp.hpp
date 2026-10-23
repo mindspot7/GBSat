@@ -1369,6 +1369,7 @@ private:
     // Written by the SCSP thread and read by the emulator thread
     alignas(64) std::atomic<uint64> m_eventsProcessed = 0;
     std::atomic<uint64> m_currSlotStep = 0;
+    std::atomic<uint32> m_scspSleeping = 0; // the SCSP thread is (about to be) blocked in a futex wait on m_wakeSeq
 
     moodycamel::ConcurrentQueue<ThreadEvent, ConcQueueTraits> m_threadEventQueue;
     moodycamel::ProducerToken m_ptokThreadEventQueue{m_threadEventQueue};
