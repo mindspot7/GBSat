@@ -2,6 +2,7 @@
 
 ## Unreleased
 - "Hi-res: one field": on 704x448 interlaced screens only one of the two fields is rendered and its lines are repeated, roughly halving the VDP2 work (Virtua Fighter 2). Logged as `one_field` in the performance log.
+- Threaded audio (Auto): the per-game choices remembered by earlier versions are cleared, since the VDP2 changes made them out of date (Burning Rangers on the RG Rotate kept threaded audio off at ~55 fps; with it, ~59 fps).
 - Faster with threaded VDP2 rendering: the VDP2 render thread takes its own copy of the VDP1 display framebuffer when it starts a frame, so the VDP1 framebuffer erase and swap at the end of a frame no longer wait for the whole frame to be drawn (~4 ms of every drawn frame on Virtua Fighter 2, RG Rotate).
 - Faster with threaded VDP2 rendering (on by default): at the end of a drawn frame the emulation no longer waits for the render thread; the frame is shown as soon as it is finished while the next frame is emulated. With "Hi-res: one field" this removes the ~4 ms wait of every drawn frame (Virtua Fighter 2 on the RG Rotate: drawn frames took ~22 ms against a 16.7 ms budget).
 - "Hi-res: one field", "Threaded VDP" and "Skip idle loops" are no longer options (removed from Settings and the in-game menu): they are always on, since turning them off was never faster in the performance logs. One field only acts with the CPU renderers: with GPU (Vulkan) it froze the picture and made the game slower (Virtua Fighter 2: ~38 fps instead of ~45), so it is never used there.
