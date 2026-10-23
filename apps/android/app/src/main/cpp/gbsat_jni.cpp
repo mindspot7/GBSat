@@ -1800,4 +1800,3 @@ JNI_FN(void, nativeSetFastBoot)(JNIEnv *, jclass, jboolean on) {
         });
     }
 }
-// touch for second build
