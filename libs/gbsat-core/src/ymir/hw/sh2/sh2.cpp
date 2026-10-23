@@ -807,18 +807,24 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
 
     while (m_cyclesExecuted < cycles) {
         uint32 prevPC = PC;
+        const uint64 startCycles = m_cyclesExecuted;
         bool chained = false;
         if constexpr (!debug && !devlog::debug_enabled<grp::exec_dump>) {
-            if (!prof && util::waitstats::g_sh2Chained.load(std::memory_order_relaxed)) [[likely]] {
+            // Also on profiled frames: RunChained returns after every short backward jump, so the loop statistics below
+            // see the same loop heads as with one instruction at a time. Running the plain interpreter there made the
+            // performance log time the old interpreter (msh2_ms/ssh2_ms) and slowed one frame in 7 in normal play.
+            if (util::waitstats::g_sh2Chained.load(std::memory_order_relaxed)) [[likely]] {
                 RunChained<emulateCache>(cycles, prevPC); // runs one or more instructions (see RunChained)
                 chained = true;
             }
         }
-        const uint64 instrCycles = chained ? 0 : InterpretNext<debug, emulateCache>();
-        m_cyclesExecuted += instrCycles;
+        if (!chained) {
+            m_cyclesExecuted += InterpretNext<debug, emulateCache>();
+        }
         if (prof) [[unlikely]] {
-            m_loopClock += instrCycles;
-            ws::g_shExec[cpu] += instrCycles;
+            const uint64 ranCycles = m_cyclesExecuted - startCycles;
+            m_loopClock += ranCycles;
+            ws::g_shExec[cpu] += ranCycles;
             if (PC < prevPC && prevPC - PC <= kIdleLoopSpan) {
                 if (PC == m_loopHead) {
                     const uint64 spent = m_loopClock - m_loopStart;
@@ -2642,7 +2648,7 @@ FORCE_INLINE uint64 SH2::EnterException(uint8 vectorNumber) {
 // -----------------------------------------------------------------------------
 // Instruction interpreters
 
-// Chained interpreter (non-debug, non-profiled slices): instructions run back to back and each one dispatches the next
+// Chained interpreter (non-debug slices, profiled frames included): instructions run back to back and each one dispatches the next
 // from its own indirect jump (computed goto), instead of all of them returning to one switch. With a single dispatch
 // point the CPU mispredicted most jumps: on the RG Rotate ~1/3 of the SH-2 time was that (simpleperf by source line,
 // Burning Rangers). Same work per instruction as InterpretNext + the Advance loop: stops (back to Advance) when the time
