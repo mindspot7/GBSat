@@ -638,6 +638,10 @@ std::atomic<uint64_t> g_profileFrameTicks{0};
 // Per second, for the performance log: the slowest frame, frames over the time budget, the emulation thread's id
 std::atomic<int64_t> g_worstFrameUs{0};
 std::atomic<uint32_t> g_slowFrames{0};
+// Emulation time of rendered and skipped frames, apart (emulation thread only): with "Hi-res: one field" or frame skip
+// the two alternate and the average hides that the rendered ones are over budget
+uint64_t g_renderedNs = 0, g_skippedNs = 0;
+uint32_t g_renderedFrames = 0, g_skippedFrames = 0;
 std::atomic<pid_t> g_emuTid{0};
 // The app's options in use (set by the app, key=value;...), for the performance log
 std::mutex g_logSettingsMutex;
@@ -667,7 +671,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "ssh2_idle_fail") == nullptr;
+        fresh = strstr(head, "skipped_frame_ms") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -676,12 +680,13 @@ void WritePerfLog(float fps, float presentedFps) {
     if (fresh) {
         fprintf(f, "time,game,renderer,scale,threaded_vdp,threaded_scsp,frameskip,fast_forward,emu_fps,shown_fps,"
                    "emu_ms_per_frame,wait_sound_ms,wait_vdp1_ms,wait_vdp2_ms,"
-                   "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sound_cd_ms,other_ms,"
+                   "msh2_ms,ssh2_ms,scu_ms,vdp_ms,sched_ms,other_ms,"
                    "worst_frame_ms,slow_frames,vdp1_cmds_per_frame,resolution,sh2_cache,audio_underruns,audio_xruns,"
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
                    "thermal_status,thermal_headroom,device,"
                    "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
-                   "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,settings\n");
+                   "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,"
+                   "sched_vdp_ms,sched_sound_ms,sched_cd_ms,sched_other_ms,rendered_frame_ms,skipped_frame_ms,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -707,6 +712,15 @@ void WritePerfLog(float fps, float presentedFps) {
     }
     const double frameMs = g_profileFrameTicks.exchange(0, std::memory_order_relaxed) * tickMs;
     const double otherMs = profFrames ? std::max(0.0, frameMs - partSum) : 0.0;
+    // The scheduler part split by event kind (VDP phases, sound, CD, the rest)
+    double schedMs[ws::SchedCount];
+    for (int i = 0; i < ws::SchedCount; ++i) {
+        schedMs[i] = ws::g_schedTicks[i] * tickMs;
+        ws::g_schedTicks[i] = 0;
+    }
+    // Average emulation time of rendered and skipped frames over the last second (0 when there were none)
+    const double renderedMs = g_renderedFrames ? g_renderedNs / 1e6 / g_renderedFrames : 0.0;
+    const double skippedMs = g_skippedFrames ? g_skippedNs / 1e6 / g_skippedFrames : 0.0;
     fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", ts, title.c_str(), renderer,
             mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
@@ -810,14 +824,18 @@ void WritePerfLog(float fps, float presentedFps) {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
             probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], g->ring.burst.load(std::memory_order_relaxed),
-            g->targetFill.load(std::memory_order_relaxed), minFill, hotOps[0].c_str(), hotOps[1].c_str(), fail[0], fail[1], settings.c_str());
+            g->targetFill.load(std::memory_order_relaxed), minFill, hotOps[0].c_str(), hotOps[1].c_str(), fail[0], fail[1],
+            schedMs[ws::SchedVDP], schedMs[ws::SchedSCSP], schedMs[ws::SchedCD], schedMs[ws::SchedOther], renderedMs, skippedMs,
+            settings.c_str());
+    g_renderedNs = g_skippedNs = 0;
+    g_renderedFrames = g_skippedFrames = 0;
     fclose(f);
 }
 
@@ -897,6 +915,8 @@ void EmuLoop() {
                 g->prevFirstField = !secondField;
                 // Option "Hi-res: one field": the second field is not rendered (the picture keeps the first one), halving the
                 // VDP2 work of 704x448 screens. Only when the field bit alternates (a stuck bit would freeze the picture).
+                // The bus reads TVSTAT.ODD inverted in interlaced modes, so "secondField" here is the even field inside the
+                // core; the renderer copies the rendered field's lines onto the skipped field's rows whichever it is.
                 const bool alternating = secondField != g->lastField;
                 g->lastField = secondField;
                 if (g->oneField.load(std::memory_order_relaxed) && alternating && secondField) {
@@ -909,9 +929,12 @@ void EmuLoop() {
             g->skipPresent = skip;
         }
         const auto workStart = steady_clock::now();
-        // Frame profile for the performance log: one frame in 8 is timed per component
+        // Frame profile for the performance log: one frame in 7 is timed per component. An odd stride: one in 8 always
+        // landed on the same field of interlaced screens, so with "Hi-res: one field" the profile showed only skipped or
+        // only rendered frames (and switched between them after a resolution change)
         static uint32_t profileTick = 0;
-        const bool profiled = (++profileTick & 7) == 0;
+        const bool profiled = (++profileTick % 7) == 0;
+        const bool skippedFrame = g->skipPresent.load(std::memory_order_relaxed);
         uint64_t profStart = 0;
         if (profiled) {
             util::waitstats::g_profile.store(true, std::memory_order_relaxed);
@@ -953,6 +976,13 @@ void EmuLoop() {
             // Slowest frame and frames over the time budget (the emulation alone can't keep full speed there)
             if (ns / 1000 > g_worstFrameUs.load(std::memory_order_relaxed)) g_worstFrameUs.store(ns / 1000, std::memory_order_relaxed);
             if (ns > (g->palMode.load(std::memory_order_relaxed) ? 20000000 : 16717000)) g_slowFrames.fetch_add(1, std::memory_order_relaxed);
+            if (skippedFrame) {
+                g_skippedNs += ns;
+                ++g_skippedFrames;
+            } else {
+                g_renderedNs += ns;
+                ++g_renderedFrames;
+            }
             const int64_t prev = g->frameTimeUs.load(std::memory_order_relaxed);
             g->frameTimeUs.store(prev == 0 ? ns / 1000 : (prev * 7 + ns / 1000) / 8, std::memory_order_relaxed);
         }

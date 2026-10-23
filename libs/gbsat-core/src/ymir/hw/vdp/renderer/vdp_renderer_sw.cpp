@@ -2537,12 +2537,16 @@ FORCE_INLINE void SoftwareVDPRenderer::VDP2FinishLine(uint32 y) {
     const VDP2Regs &regs2 = VDP2GetRegs();
     const bool doubleDensity = regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity;
 
-    // One-field mode: the first field's line (even row) is also the line below it, which the skipped field would draw
+    // One-field mode: the rendered field's line also fills its partner line (the other field's row of the pair), which
+    // the skipped field would draw. Whichever field is rendered: the frontend picks it from TVSTAT read over the bus,
+    // where ODD reads inverted in interlaced modes, so a fixed parity here never matched it (the copy never ran and the
+    // other field's rows kept an old picture: dark scanline-like rows and frozen images).
     if (util::waitstats::g_oneField.load(std::memory_order_relaxed) && regs2.TVMD.IsInterlaced() && !m_exclusiveMonitor &&
-        !m_enhancements.deinterlace && !regs2.TVSTAT.ODD) {
-        const uint32 row = y << 1;
-        if (row + 1 < m_VRes) {
-            std::copy_n(&m_framebuffer[row * m_HRes], m_HRes, &m_framebuffer[(row + 1) * m_HRes]);
+        !m_enhancements.deinterlace) {
+        const uint32 row = (y << 1) | regs2.TVSTAT.ODD;
+        const uint32 partner = row ^ 1u;
+        if (row < m_VRes && partner < m_VRes) {
+            std::copy_n(&m_framebuffer[row * m_HRes], m_HRes, &m_framebuffer[partner * m_HRes]);
         }
     }
 

@@ -35,6 +35,11 @@ inline std::atomic<bool> g_oneField{false};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 
+// The scheduler part split by event (profiled frames): VDP phases (line drawing hand-off to the VDP2 thread, waits for
+// the render threads at the end of a frame), sound sample ticks, CD block/drive, and the rest (SCU timer 1, SMPC)
+enum SchedKind { SchedVDP, SchedSCSP, SchedCD, SchedOther, SchedCount };
+inline uint64_t g_schedTicks[SchedCount]{}; // only touched by the emulation thread; read and reset after the frame
+
 // Tight loops of the SH-2s (index 0 master, 1 slave), on the profiled frames: cycles interpreted, cycles spent in loops
 // that jump back over at most 4 instructions (polling a register or a delay loop: what idle-loop skipping would save)
 // and the hottest loop heads (direct-mapped by address). Only touched by the emulation thread.

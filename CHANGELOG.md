@@ -2,6 +2,8 @@
 
 ## Unreleased
 - New option "Hi-res: one field" (Settings → Performance and in-game quick menu → Performance, off by default): on 704x448 interlaced screens only one of the two fields is rendered and its lines are repeated, roughly halving the VDP2 work (Virtua Fighter 2). Logged as `one_field` in the performance log.
+- Fixed: with "Hi-res: one field" the skipped field's lines kept an old picture (darker scanline-like rows on hi-res screens and frozen images when a game started); the rendered field's lines now fill them whichever field is rendered.
+- Performance log: the time per component is now measured on one frame in 7 (one in 8 always fell on the same field of interlaced screens, so with "Hi-res: one field" it showed only skipped or only rendered frames). The scheduler column (`sched_ms`, formerly `sound_cd_ms`) is split into VDP phases, sound, CD and the rest, and new columns show the average time of rendered and skipped frames.
 - Recommended settings: Virtua Fighter 2 and Panzer Dragoon Saga now use threaded audio on devices like the RG Rotate (measured faster: VF2 58.8 vs 53-54 fps, Panzer 56-59 vs 54).
 - Fixed: the performance log restarted every second (its header got longer than the version check read).
 - Fixed: on some interlaced hi-res screens (e.g. Batsugun at 640x480) the picture could freeze after fast forward or a skipped frame.

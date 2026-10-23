@@ -10,6 +10,7 @@
 #include <ymir/savestate/savestate_scheduler.hpp>
 
 #include <ymir/util/inline.hpp>
+#include <ymir/util/wait_stats.hpp>
 
 #include <array>
 #include <cassert>
@@ -316,6 +317,8 @@ private:
 
     /// @brief Executes all scheduled events up to the current count.
     FORCE_INLINE void Execute() {
+        // Performance log: time each event on the profiled frames, split by kind
+        const bool prof = ::util::waitstats::g_profile.load(std::memory_order_relaxed);
         while (m_currCount >= m_nextCount) {
             Event &event = m_events[m_nextEvent];
             assert(event.target != kNoDeadline);
@@ -328,7 +331,21 @@ private:
                 const EventCallback callback = event.callback;
                 void *const userContext = event.userContext;
                 EventContext eventContext;
-                callback(eventContext, userContext);
+                if (prof) [[unlikely]] {
+                    namespace ws = ::util::waitstats;
+                    // the callback may schedule events and move m_nextEvent: identify this one first
+                    const UserEventID uid = m_userIDs[m_nextEvent];
+                    const uint64 t0 = ws::Ticks();
+                    callback(eventContext, userContext);
+                    const ws::SchedKind kind = uid == events::VDPPhase     ? ws::SchedVDP
+                                               : uid == events::SCSPSample ? ws::SchedSCSP
+                                               : (uid >= events::CDBlockDriveState && uid <= events::CDBlockLLEDriveState)
+                                                   ? ws::SchedCD
+                                                   : ws::SchedOther;
+                    ws::g_schedTicks[kind] += ws::Ticks() - t0;
+                } else {
+                    callback(eventContext, userContext);
+                }
                 if (eventContext.reschedule) {
                     target += eventContext.interval;
                 } else {
