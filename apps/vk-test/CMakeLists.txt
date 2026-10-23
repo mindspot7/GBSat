@@ -22,5 +22,3 @@ target_include_directories(vdp_compare PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../and
 target_link_libraries(vdp_compare PRIVATE ymir::ymir-core cereal::cereal)
 add_executable(sw_fastpath_test sw_fastpath_test.cpp)
 target_link_libraries(sw_fastpath_test PRIVATE ymir::ymir-core)
-add_executable(sh2_chain_test sh2_chain_test.cpp)
-target_link_libraries(sh2_chain_test PRIVATE ymir::ymir-core)
