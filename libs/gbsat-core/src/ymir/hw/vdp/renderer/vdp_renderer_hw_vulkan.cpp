@@ -22,6 +22,7 @@
 #include <ymir/util/dev_log.hpp>
 #include <ymir/util/dirty_bitmap.hpp>
 #include <ymir/util/scope_guard.hpp>
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/util/string.hpp>
 
 #include <vulkan/vulkan.h>
@@ -436,6 +437,9 @@ struct VulkanVDPRenderer::Impl {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
         bool submitted = false;
+        // GPU time of the command buffer (timestamps at its start and end), read once its fence signaled
+        VkQueryPool timePool = VK_NULL_HANDLE;
+        bool timed = false;
 
         GpuBuffer uploadBuffer;
         VkDeviceSize uploadOffset = 0;
@@ -917,6 +921,10 @@ struct VulkanVDPRenderer::Impl {
         VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(frameCtx.cmd, &cbbi);
+        if (frameCtx.timePool) {
+            vkCmdResetQueryPool(frameCtx.cmd, frameCtx.timePool, 0, 2);
+            vkCmdWriteTimestamp(frameCtx.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameCtx.timePool, 0);
+        }
         frameCtx.uploadOffset = 0;
         pendingBarrier = true; // order against work from previous submissions
     }
@@ -928,6 +936,9 @@ struct VulkanVDPRenderer::Impl {
         mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
         vkCmdPipelineBarrier(frameCtx.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+        if (frameCtx.timePool) {
+            vkCmdWriteTimestamp(frameCtx.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frameCtx.timePool, 1);
+        }
         vkEndCommandBuffer(frameCtx.cmd);
 
         VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -939,6 +950,7 @@ struct VulkanVDPRenderer::Impl {
             return;
         }
         frameCtx.submitted = true;
+        frameCtx.timed = frameCtx.timePool != VK_NULL_HANDLE;
     }
 
     void WaitFrame(FrameContext &frameCtx) {
@@ -946,8 +958,23 @@ struct VulkanVDPRenderer::Impl {
             vkWaitForFences(device, 1, &frameCtx.fence, VK_TRUE, UINT64_MAX);
             vkResetFences(device, 1, &frameCtx.fence);
             frameCtx.submitted = false;
+            if (frameCtx.timed) {
+                frameCtx.timed = false;
+                uint64 ts[2] = {};
+                if (vkGetQueryPoolResults(device, frameCtx.timePool, 0, 2, sizeof(ts), ts, sizeof(uint64),
+                                          VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+                    const uint64 ticks = (ts[1] - ts[0]) & timestampMask;
+                    util::waitstats::g_gpuBusyNs.fetch_add(static_cast<uint64>(ticks * timestampPeriodNs),
+                                                           std::memory_order_relaxed);
+                }
+            }
         }
     }
+
+    // GPU timestamps (overlay's GPU usage): supported by the queue, tick length and valid bits
+    bool gpuTimestamps = false;
+    double timestampPeriodNs = 1.0;
+    uint64 timestampMask = ~0ull;
 
     /// @brief Submits the commands recorded so far, waits for them and restarts recording in the same frame.
     void SubmitAndWait() {
@@ -1183,9 +1210,29 @@ struct VulkanVDPRenderer::Impl {
         }
 
         Step("vk: command buffers");
+        {
+            uint32 qfCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(physDevice, &qfCount, nullptr);
+            std::vector<VkQueueFamilyProperties> qf(qfCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(physDevice, &qfCount, qf.data());
+            VkPhysicalDeviceProperties tprops;
+            vkGetPhysicalDeviceProperties(physDevice, &tprops);
+            const uint32 validBits = queueFamily < qfCount ? qf[queueFamily].timestampValidBits : 0;
+            gpuTimestamps = validBits > 0 && tprops.limits.timestampPeriod > 0.0f;
+            timestampPeriodNs = tprops.limits.timestampPeriod;
+            timestampMask = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
+        }
         // Command pools, command buffers and fences
         for (size_t i = 0; i < frames.Count(); ++i) {
             FrameContext &frameCtx = frames[i];
+            if (gpuTimestamps) {
+                VkQueryPoolCreateInfo qpci{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+                qpci.queryType = VK_QUERY_TYPE_TIMESTAMP;
+                qpci.queryCount = 2;
+                if (vkCreateQueryPool(device, &qpci, nullptr, &frameCtx.timePool) != VK_SUCCESS) {
+                    frameCtx.timePool = VK_NULL_HANDLE; // not timed
+                }
+            }
             VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
             cpci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
             cpci.queueFamilyIndex = queueFamily;
@@ -1204,6 +1251,7 @@ struct VulkanVDPRenderer::Impl {
                 return util::ErrorMessage{fmt::format("vkCreateFence failed ({})", (int)r)};
             }
         }
+        util::waitstats::g_gpuTimed = gpuTimestamps;
         BeginCommands(frames.GetCurrentFrame());
 
         // Descriptor pool
@@ -1445,6 +1493,7 @@ struct VulkanVDPRenderer::Impl {
         if (device == VK_NULL_HANDLE) {
             return;
         }
+        util::waitstats::g_gpuTimed = false;
         vkDeviceWaitIdle(device);
         for (GpuPipeline *p : ownedPipelines) {
             if (p->pipeline) vkDestroyPipeline(device, p->pipeline, nullptr);
@@ -1468,6 +1517,7 @@ struct VulkanVDPRenderer::Impl {
         for (size_t i = 0; i < frames.Count(); ++i) {
             FrameContext &f = frames[i];
             if (f.fence) vkDestroyFence(device, f.fence, nullptr);
+            if (f.timePool) vkDestroyQueryPool(device, f.timePool, nullptr);
             if (f.cmdPool) vkDestroyCommandPool(device, f.cmdPool, nullptr);
         }
         if (ownsDevice) {

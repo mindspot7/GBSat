@@ -1728,6 +1728,24 @@ JNI_FN(jstring, nativeGetGpuName)(JNIEnv *env, jclass) {
     return env->NewStringUTF(glr::GpuName().c_str());
 }
 
+// GPU usage for the overlay, in percent since the last call: the GPU time of this app's work (Vulkan renderer command
+// buffers + OpenGL presenter draws, measured with timestamp/timer queries) over the elapsed time, like DuckStation and
+// AetherSX2. -1 when nothing is measured (plain CPU output, or the driver has no timer queries).
+JNI_FN(jfloat, nativeGetGpuLoad)(JNIEnv *, jclass) {
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    const double elapsedNs = std::chrono::duration<double, std::nano>(now - last).count();
+    last = now;
+    const uint64_t ns = glr::TakeGpuNs() + util::waitstats::g_gpuBusyNs.exchange(0, std::memory_order_relaxed);
+    if (!glr::GpuTimed() && !util::waitstats::g_gpuTimed.load(std::memory_order_relaxed)) {
+        return -1.0f;
+    }
+    if (elapsedNs <= 0.0) {
+        return 0.0f;
+    }
+    return (jfloat)std::min(100.0, ns / elapsedNs * 100.0);
+}
+
 // RetroAchievements hash of a disc image that is not running (same rule as nativeLoadDisc), for the game's achievement list.
 JNI_FN(jstring, nativeRaHashFile)(JNIEnv *env, jclass, jstring path) {
     auto disc = std::make_shared<ymir::media::Disc>();

@@ -44,6 +44,8 @@ object NativeBridge {
     @JvmStatic external fun nativeRaAchievements(): ByteArray
     @JvmStatic external fun nativeRaHashFile(path: String): String?
     @JvmStatic external fun nativeGetGpuName(): String
+    /** GPU usage (%) of this app since the last call (timestamp queries); -1 when not measured. */
+    @JvmStatic external fun nativeGetGpuLoad(): Float
     @JvmStatic external fun nativeSetThreadedScsp(on: Boolean)
 
     @JvmStatic external fun nativeSetScspMode(mode: Int)

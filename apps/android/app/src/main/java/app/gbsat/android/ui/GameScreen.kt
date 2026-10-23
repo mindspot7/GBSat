@@ -134,6 +134,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
             renderer = Emulator.rendererLabel,
             width = stats.getOrElse(1) { 320 }.toInt(), height = stats.getOrElse(2) { 224 }.toInt(),
             frameMs = stats.getOrElse(5) { 0 } / 1000f, gpuName = { NativeBridge.nativeGetGpuName() },
+            gpuLoad = { NativeBridge.nativeGetGpuLoad() },
             modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp),
         )
 

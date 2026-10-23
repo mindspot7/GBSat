@@ -53,6 +53,9 @@ inline std::atomic<bool> g_sh2Chained{true};
 inline std::atomic<bool> g_vdp2TwoFB{true};
 // Threaded VDP: VDP1 draw commands and VDP2 lines sent to the render threads in batches; off only for diagnostics
 inline std::atomic<bool> g_vdpBatch{true};
+// GPU time of the Vulkan renderer's command buffers (timestamp queries), for the overlay's GPU usage
+inline std::atomic<uint64_t> g_gpuBusyNs{0};
+inline std::atomic<bool> g_gpuTimed{false}; // the Vulkan renderer measures it (timestamps supported)
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 
