@@ -21,6 +21,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetPadType(analog: Boolean)
     @JvmStatic external fun nativeSetSH2Cache(on: Boolean)
     @JvmStatic external fun nativeSetIdleSkip(on: Boolean)
+    @JvmStatic external fun nativeSetOneField(on: Boolean)
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetResolutionScale(scale: Int)
     @JvmStatic external fun nativeGetDiscHeader(): String?

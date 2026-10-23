@@ -290,6 +290,9 @@ private fun PerformancePage() {
         SettingsDivider()
         ToggleRow(Icons.Default.Speed, "Skip idle loops", "The SH-2 CPUs skip loops that only wait for a value to change. Much faster, same result; turn off if a game misbehaves",
             Emulator.idleSkip, ch { Emulator.idleSkip = it })
+        SettingsDivider()
+        ToggleRow(Icons.Default.Speed, "Hi-res: one field", "On 704x448 interlaced screens (Virtua Fighter 2, menus) draw only one of the two fields: much faster, but the picture refreshes at half the rate and loses some detail",
+            Emulator.oneField, ch { Emulator.oneField = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
         ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })

@@ -298,6 +298,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.Speed, "Skip idle loops", value = if (Emulator.idleSkip) "On" else "Off") {
                                     Emulator.idleSkip = !Emulator.idleSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
+                                MenuItem(Icons.Default.Speed, "Hi-res: one field", value = if (Emulator.oneField) "On" else "Off") {
+                                    Emulator.oneField = !Emulator.oneField; Emulator.savePrefs(); Emulator.applyOptions()
+                                }
                             }
                             MenuPage.Overlays -> {
                                 fun onOff(b: Boolean) = if (b) "On" else "Off"

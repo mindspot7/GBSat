@@ -187,6 +187,8 @@ struct Context {
     int skipRun = 0;                    // consecutive skipped frames
     bool skipActive = false; // automatic frame skip engaged (emulation thread only)
     bool pairSkip = false;   // skip decision for the current field pair
+    std::atomic<bool> oneField{false}; // hi-res interlaced screens: render only the first field of each pair
+    bool lastField = false;      // field bit seen on the previous frame
     bool prevFirstField = false; // the previous frame was the first field of an interlaced pair
     int notBehindRun = 0;    // consecutive frames on time
     int renderRun = 0;       // consecutive rendered frames
@@ -893,6 +895,13 @@ void EmuLoop() {
                 }
                 g->pairSkip = skip;
                 g->prevFirstField = !secondField;
+                // Option "Hi-res: one field": the second field is not rendered (the picture keeps the first one), halving the
+                // VDP2 work of 704x448 screens. Only when the field bit alternates (a stuck bit would freeze the picture).
+                const bool alternating = secondField != g->lastField;
+                g->lastField = secondField;
+                if (g->oneField.load(std::memory_order_relaxed) && alternating && secondField) {
+                    skip = true;
+                }
             }
             g->skipRun = skip ? g->skipRun + 1 : 0;
             g->renderRun = skip ? 0 : g->renderRun + 1;
@@ -1359,6 +1368,11 @@ JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {
             g->saturn->masterSH2.SetIdleLoopSkip(on);
             g->saturn->slaveSH2.SetIdleLoopSkip(on);
         });
+    }
+}
+JNI_FN(void, nativeSetOneField)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        g->oneField.store(on, std::memory_order_relaxed);
     }
 }
 JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
