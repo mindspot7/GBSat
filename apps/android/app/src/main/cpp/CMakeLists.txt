@@ -16,6 +16,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Profile-guided optimization: GBSAT_PGO_GEN=ON builds the instrumented training APK; otherwise the merged profile in
 # apps/android/pgo/gbsat.profdata (if present) optimizes the hot paths (SH-2 interpreter, renderers, sound).
 option(GBSAT_PGO_GEN "Build the PGO training (instrumented) version" OFF)
+option(GBSAT_LINE_TABLES "Profiling build: debug line tables for simpleperf --sort srcline" OFF)
+if(GBSAT_LINE_TABLES)
+    add_compile_options(-gline-tables-only)
+endif()
 set(GBSAT_PGO_PROFILE "${YMIR_ROOT}/apps/android/pgo/gbsat.profdata")
 if(GBSAT_PGO_GEN)
     add_compile_options(-fprofile-generate)

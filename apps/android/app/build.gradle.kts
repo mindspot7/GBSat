@@ -37,6 +37,8 @@ android {
                 )
                 // PGO training build (-PgbsatPgoGen): instrumented code that records which paths run most
                 if (project.hasProperty("gbsatPgoGen")) arguments += "-DGBSAT_PGO_GEN=ON"
+                // Profiling build: line tables too, so simpleperf can split time by source line (--sort srcline)
+                if (project.hasProperty("gbsatProfile")) arguments += "-DGBSAT_LINE_TABLES=ON"
             }
         }
     }
