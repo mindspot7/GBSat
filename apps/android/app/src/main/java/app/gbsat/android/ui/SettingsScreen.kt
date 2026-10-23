@@ -205,8 +205,8 @@ private fun VideoPage() {
             SettingsDivider()
             ChoiceRow("Texture filtering", null, listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), ch { Emulator.filter = it })
             SettingsDivider()
-            val shaderIds = listOf(0, 2, 4, 3, 1) // internal ids: 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dots
-            ChoiceRow("Shader", null, listOf("None", "CRT", "Dots", "LCD3x", "Scanlines"),
+            val shaderIds = Emulator.shaderOrder
+            ChoiceRow("Shader", null, shaderIds.map { Emulator.shaderNames[it] },
                 shaderIds.indexOf(Emulator.shader).coerceAtLeast(0), ch { Emulator.shader = shaderIds[it] })
         }
     }

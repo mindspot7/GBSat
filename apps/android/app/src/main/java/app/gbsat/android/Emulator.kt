@@ -102,7 +102,7 @@ object Emulator {
             "renderer=$rendererLabel",
             "scale=$resScaleLabel",
             "filter=${if (filter == 0) "nearest" else "bilinear"}",
-            "shader=${listOf("none", "scanlines", "CRT", "LCD3x", "dot matrix").getOrElse(shader) { "$shader" }}",
+            "shader=${shaderNames.getOrElse(shader) { "$shader" }}",
             "aspect=${listOf("4:3", "fill", "16:9").getOrElse(aspect) { "$aspect" }}",
             "widescreen=${widescreenHack ?: "off"}",
             "frameskip=${on(frameSkip)}",
@@ -134,7 +134,7 @@ object Emulator {
     }
     var setupDone by mutableStateOf(true)
     fun finishSetup() { setupDone = true; prefs.edit().putBoolean("setupDone", true).apply() }
-    var cdSpeed by mutableStateOf(2) // CD read speed factor (2 = original)
+    var cdSpeed by mutableStateOf(8) // CD read speed factor (2 = original); 8x by default since streams switch back to 2x
     // Skip Engine: maximum speed (sound muted) through CD loads behind a still silent screen, silent black transitions and
     // backup memory (save) waits
     var skipLoads by mutableStateOf(false)
@@ -153,7 +153,11 @@ object Emulator {
     val effectiveScale get() = if (resScale == 0) nativeScale else resScale
     val resScaleLabel get() = if (resScale == 0) "Native (${nativeScale}x)" else "${resScale}x"
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear
-    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 4 dot matrix
+    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 5 CRT Royale (4, dot matrix, was removed)
+    /** Shader names by internal id (4 is unused: the dot matrix shader was removed). */
+    val shaderNames = listOf("None", "Scanlines", "CRT", "LCD3x", "", "CRT Royale")
+    /** Shader ids in the order the menus offer them. */
+    val shaderOrder = listOf(0, 2, 5, 3, 1)
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
 
     // Hotkeys: action -> set of keycodes (1 key = button, 2+ = combination)
@@ -464,9 +468,14 @@ object Emulator {
         // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
         renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
-        shader = prefs.getInt("shader", 0)
+        shader = prefs.getInt("shader", 0).let { if (it == 4 || it !in 0..5) 0 else it } // dot matrix (4) was removed
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
-        cdSpeed = prefs.getInt("cdSpeed", 2).coerceIn(2, 200)
+        cdSpeed = prefs.getInt("cdSpeed", 8).coerceIn(2, 200)
+        // Once: 4x (the usual choice before videos and streamed music switched back to the original speed) becomes 8x
+        if (!prefs.getBoolean("cdSpeed8x", false)) {
+            if (cdSpeed == 4) cdSpeed = 8
+            prefs.edit().putBoolean("cdSpeed8x", true).putInt("cdSpeed", cdSpeed).apply()
+        }
         skipLoads = prefs.getBoolean("skipLoads", false)
         skipTransitions = prefs.getBoolean("skipTransitions", false)
         skipSaves = prefs.getBoolean("skipSaves", false)

@@ -268,9 +268,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     }
                                 }
                                 if (Emulator.renderer == 1 || Emulator.renderer == 4) {
-                                    val shaders = listOf("None", "Scanlines", "CRT", "LCD3x", "Dots") // by internal id
-                                    val shaderOrder = listOf(0, 2, 4, 3, 1) // cycles alphabetically
-                                    MenuItem(Icons.Default.Gradient, "Shader", value = shaders[Emulator.shader]) {
+                                    val shaderOrder = Emulator.shaderOrder
+                                    MenuItem(Icons.Default.Gradient, "Shader", value = Emulator.shaderNames.getOrElse(Emulator.shader) { "None" }) {
                                         Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]
                                         Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                                     }
