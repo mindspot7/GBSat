@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Smoother library scrolling on modest GPUs: cover reflections are drawn in one pass and covers are kept at screen size.
 - Threaded audio (Auto) now starts on for every device (before: only with 3+ fast cores, so not on e.g. the RG Rotate): with the lighter sound thread it was faster in every game profiled; per-game choices remembered by Auto are measured again.
 - The library opens on the game (or save state) selected last: leaving a game, closing the menu or a settings page and restarting the app no longer jump back to the first game.
 - Threaded audio uses less CPU: the sound thread sleeps directly while waiting for work instead of polling for up to ~64 µs each time (about a tenth of a core on the RG Rotate, shared with the video threads).
