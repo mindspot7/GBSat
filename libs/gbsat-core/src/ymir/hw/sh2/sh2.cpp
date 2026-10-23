@@ -468,6 +468,10 @@ void SH2::ApplyParkedIdle(uint64 current, uint64 reach) {
     }
 }
 
+// Tight loops: a backward jump over at most this many bytes (9 instructions; polling loops with a mask, a compare and
+// a counter, e.g. inside a "wait for the next frame" function, need more than 5)
+static constexpr uint32 kIdleLoopSpan = 16;
+
 // Memory a polling loop may read without side effects: work RAM, SMPC, sound RAM, VDP1/VDP2/SCU registers (not the CD
 // block, whose data port pops a FIFO, nor the on-chip modules). Only the cached and cache-through areas.
 FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
@@ -487,7 +491,7 @@ FORCE_INLINE static bool IsIdleSafeRead(uint32 address) {
            (a >= 0x05FE0000 && a < 0x05FE00D0);     // SCU registers
 }
 
-// A tight loop (head..last, at most 5 instructions) is idle when every iteration is the same as the previous one unless
+// A tight loop (head..last, at most 9 instructions) is idle when every iteration is the same as the previous one unless
 // memory changes: only loads from side-effect-free memory, tests/compares and register-only operations, no stores, and
 // no register carried from one iteration to the next (each one read in the loop is either never written in it or
 // written before it is read). Two kinds of carried registers are allowed because skipping N iterations can apply them
@@ -496,7 +500,10 @@ template <bool emulateCache>
 bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
     info = {};
     int accCount = 0;
-    if (last < head || last - head > 8 || ((last - head) & 1)) {
+    // The rejection reason is kept only when the loop is rejected
+    const uint32 prevFailPc = m_idleFailPc, prevFailAddr = m_idleFailAddr;
+    const uint16 prevFailOp = m_idleFailOp;
+    if (last < head || last - head > kIdleLoopSpan || ((last - head) & 1)) {
         return false;
     }
     struct Op {
@@ -687,6 +694,9 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
     if (info.dtReg >= 0 && ((used | carried) & (1 << info.dtReg))) {
         return false;
     }
+    m_idleFailPc = prevFailPc;
+    m_idleFailOp = prevFailOp;
+    m_idleFailAddr = prevFailAddr;
     return true;
 }
 
@@ -715,7 +725,7 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
         }
     }
 
-    // Performance log: on profiled frames, find the time spent in tight loops (jumping back over at most 4
+    // Performance log: on profiled frames, find the time spent in tight loops (jumping back over at most 8
     // instructions to the same place: polling a register or a delay loop)
     namespace ws = util::waitstats;
     const bool prof = ws::g_profile.load(std::memory_order_relaxed);
@@ -730,7 +740,7 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
         if (prof) [[unlikely]] {
             m_loopClock += instrCycles;
             ws::g_shExec[cpu] += instrCycles;
-            if (PC < prevPC && prevPC - PC <= 8) {
+            if (PC < prevPC && prevPC - PC <= kIdleLoopSpan) {
                 if (PC == m_loopHead) {
                     const uint64 spent = m_loopClock - m_loopStart;
                     ws::g_shLoop[cpu] += spent;
@@ -748,7 +758,7 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
         // it only polls memory; if so, skip as many whole iterations as fit in this time slice, applying their counters.
         // The polled value can't change before the other components run, so the result is exact.
         if constexpr (!debug) {
-            if (PC < prevPC && prevPC - PC <= 8 && m_idleSkip) [[unlikely]] {
+            if (PC < prevPC && prevPC - PC <= kIdleLoopSpan && m_idleSkip) [[unlikely]] {
                 if (PC == m_idleHead && !m_delaySlot && !m_intrFlags.pending && m_cyclesExecuted < cycles) {
                     const uint64 iter = m_cyclesExecuted - m_idleHeadAt;
                     IdleVerdict &v = m_notIdle[(PC >> 1) & 31];
