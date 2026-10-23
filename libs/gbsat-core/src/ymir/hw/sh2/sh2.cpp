@@ -1304,6 +1304,16 @@ FLATTEN FORCE_INLINE uint16 SH2::FetchInstruction(uint32 address) {
 
 template <bool emulateCache>
 FLATTEN FORCE_INLINE void SH2::RefillPipeline() {
+    // Fast path for the common case: code in the cached or cache-through areas without cache emulation is a plain bus
+    // read (same result as MemRead). simpleperf on the T618 showed MemRead<instruction fetch> as a separate call taking
+    // ~2.5% of a core (one call per two instructions); this keeps it inline. Everything else still goes through MemRead.
+    if constexpr (!emulateCache) {
+        const uint32 partition = (PC >> 29u) & 0b111;
+        if (partition == 0b000 || partition == 0b001 || partition == 0b101) [[likely]] {
+            m_fetchedOpcodes = m_bus.Read<uint32>((PC & ~3u) & 0x7FFFFFF);
+            return;
+        }
+    }
     m_fetchedOpcodes = MemRead<uint32, true, false, emulateCache>(PC & ~3u);
 }
 
