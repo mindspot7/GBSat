@@ -96,6 +96,8 @@ SoftwareVDPRenderer::Create(VDPState &state, const config::VDP2DebugRender &vdp2
 // Basics
 
 void SoftwareVDPRenderer::Reset(bool hard) {
+    VDP2CompletePendingFrame();
+    m_vdp2LinesThisFrame = false;
     m_HRes = vdp::kDefaultResH;
     m_VRes = vdp::kDefaultResV;
     m_exclusiveMonitor = false;
@@ -175,6 +177,7 @@ void SoftwareVDPRenderer::EnableThreadedVDP2(bool enable) {
     if (m_threadedVDP2Rendering == enable) {
         return;
     }
+    VDP2CompletePendingFrame();
 
     devlog::debug<grp::swvdp2>("{} threaded VDP2 rendering", (enable ? "Enabling" : "Disabling"));
 
@@ -220,6 +223,7 @@ void SoftwareVDPRenderer::UpdateFunctionPointersTemplate() {
 // Save states
 
 void SoftwareVDPRenderer::PreSaveStateSync() {
+    VDP2CompletePendingFrame();
     if (m_threadedVDP1Rendering) {
         m_vdp1RenderingContext.EnqueueEvent(VDP1RenderEvent::PreSaveStateSync());
     }
@@ -238,6 +242,7 @@ void SoftwareVDPRenderer::PreSaveStateSync() {
 }
 
 void SoftwareVDPRenderer::PostLoadStateSync() {
+    VDP2CompletePendingFrame();
     for (uint32 address = 0; address < kVDP2CRAMSize; address += 2) {
         VDP2UpdateCRAMCache<uint16>(address);
     }
@@ -497,6 +502,7 @@ void SoftwareVDPRenderer::VDP1BeginFrame() {
 }
 
 void SoftwareVDPRenderer::VDP1ExecuteCommand(uint32 cmdAddress, VDP1Command::Control control) {
+    VDP2PollPendingFrame(); // deliver the previous frame as soon as it is done, not a frame later
     if (m_threadedVDP1Rendering) {
         m_vdp1RenderingContext.EnqueueEvent(VDP1RenderEvent::Command(cmdAddress, control));
     } else {
@@ -514,6 +520,7 @@ void SoftwareVDPRenderer::VDP1EndFrame() {
 // -----------------------------------------------------------------------------
 
 void SoftwareVDPRenderer::VDP2SetResolution(uint32 h, uint32 v, bool exclusive) {
+    VDP2CompletePendingFrame(); // the render thread changes the size and clears the framebuffer
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2UpdateResolution(h, v, exclusive));
     } else {
@@ -547,6 +554,7 @@ void SoftwareVDPRenderer::VDP2LatchTVMD() {
 }
 
 void SoftwareVDPRenderer::VDP2BeginFrame() {
+    VDP2PollPendingFrame();
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2BeginFrame());
     } else {
@@ -555,6 +563,10 @@ void SoftwareVDPRenderer::VDP2BeginFrame() {
 }
 
 void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
+    if (m_vdp2FramePending) [[unlikely]] {
+        VDP2CompletePendingFrame(); // the render thread is about to overwrite the framebuffer
+    }
+    m_vdp2LinesThisFrame = true;
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2DrawLine(y));
         m_state.state2.CalcAccessPatterns(m_state.regs2, m_vdp2AccessPatternsConfig);
@@ -571,12 +583,35 @@ void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
 }
 
 void SoftwareVDPRenderer::VDP2EndFrame() {
+    VDP2CompletePendingFrame(); // the previous drawn frame, if no line was drawn since (normally delivered already)
+    const bool drawn = m_vdp2LinesThisFrame;
+    m_vdp2LinesThisFrame = false;
+    if (!drawn) {
+        // Frame skipped by the frontend: nothing new to show (it was dropped by the frontend before)
+        Callbacks.VDP2DrawFinished();
+        return;
+    }
     if (m_threadedVDP2Rendering) {
+        // Delivered later (VDP2CompletePendingFrame) instead of waiting here for the render thread to finish
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame());
+        m_vdp2FramePending = true;
+        return;
+    }
+    Callbacks.VDP2DrawFinished();
+    SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
+}
+
+void SoftwareVDPRenderer::VDP2CompletePendingFrame() {
+    if (!m_vdp2FramePending) {
+        return;
+    }
+    m_vdp2FramePending = false;
+    {
         util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.renderFinishedSignal.Wait();
-        m_vdp2RenderingContext.renderFinishedSignal.Reset();
     }
+    m_vdp2RenderingContext.renderFinishedSignal.Reset();
+    m_vdp2RenderingContext.frameFinished.store(false, std::memory_order_relaxed);
     Callbacks.VDP2DrawFinished();
     SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
 }
@@ -747,7 +782,10 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
                 VDP2FinishLine(event.drawLine.vcnt);
                 break;
             }
-            case EvtType::VDP2EndFrame: rctx.renderFinishedSignal.Set(); break;
+            case EvtType::VDP2EndFrame:
+                rctx.frameFinished.store(true, std::memory_order_release);
+                rctx.renderFinishedSignal.Set();
+                break;
 
             case EvtType::VDP2VRAMWriteByte: rctx.vdp2.mem.VRAM[event.write.address] = event.write.value; break;
             case EvtType::VDP2VRAMWriteWord:

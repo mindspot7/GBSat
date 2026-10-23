@@ -161,6 +161,12 @@ public:
     void VDP2RenderLine(uint32 y) override;
     void VDP2EndFrame() override;
 
+    /// @brief Delivers a finished frame whose delivery was deferred (threaded VDP2), waiting for the render thread if
+    /// needed. The frontend calls it before pausing so the last frame drawn is the one on screen.
+    void FlushPendingFrame() {
+        VDP2CompletePendingFrame();
+    }
+
     // -------------------------------------------------------------------------
     // Debugger
 
@@ -536,6 +542,7 @@ private:
         moodycamel::ProducerToken pTok{eventQueue};
         moodycamel::ConsumerToken cTok{eventQueue};
         util::Event renderFinishedSignal{false};
+        std::atomic<bool> frameFinished{false}; // set with renderFinishedSignal: lets the emulation check without waiting
         util::Event framebufferSwapSignal{false};
         util::Event eraseFramebufferReadySignal{false};
         util::Event preSaveSyncSignal{false};
@@ -605,6 +612,20 @@ private:
     std::thread m_VDP2RenderThread;
     std::thread m_VDP2DeinterlaceRenderThread;
     bool m_threadedVDP2Rendering = false;
+
+    // Deferred frame delivery (threaded VDP2): at the end of a frame the emulation no longer waits for the render thread
+    // to finish it; the frame is delivered when the next drawn frame starts drawing (or at the next frame end, a
+    // resolution change, a reset, a save state), so the render thread finishes in parallel with the emulation of the
+    // blanking period and of frames that aren't drawn ("Hi-res: one field", frame skip).
+    bool m_vdp2FramePending = false;   // a drawn frame was handed to the render thread and not delivered yet
+    bool m_vdp2LinesThisFrame = false; // the current frame draws lines (false on frames skipped by the frontend)
+    void VDP2CompletePendingFrame();
+    // Delivers the deferred frame only if the render thread has already finished it (never waits)
+    void VDP2PollPendingFrame() {
+        if (m_vdp2FramePending && m_vdp2RenderingContext.frameFinished.load(std::memory_order_acquire)) [[unlikely]] {
+            VDP2CompletePendingFrame();
+        }
+    }
 
     void VDP1RenderThread();
     void VDP2RenderThread();

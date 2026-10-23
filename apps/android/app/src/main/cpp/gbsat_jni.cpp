@@ -376,12 +376,9 @@ void DrainCommands() {
 // Video
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
-    // Frame skipping: this frame was not rendered. The Vulkan renderer delivers its frames one frame late, so gating
-    // them with the current frame's skip flag dropped the rendered ones too (frozen picture); it's not gated.
-    if (g->skipPresent.load(std::memory_order_relaxed) &&
-        !g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>()) {
-        return;
-    }
+    // Not gated by the frame skip flag: the software renderer no longer delivers skipped frames, and with threaded VDP2
+    // it delivers a drawn frame later (while the next frame runs, which may be a skipped one); the Vulkan renderer
+    // delivers its frames one frame late too.
     g->presented.fetch_add(1, std::memory_order_relaxed);
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
@@ -851,6 +848,10 @@ void EmuLoop() {
         DrainCommands();
 
         if (g->paused.load()) {
+            // The last frame drawn may still be waiting for the render thread: show it before stopping
+            if (auto *sw = g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>()) {
+                sw->FlushPendingFrame();
+            }
             std::unique_lock lk(g->cmdMutex);
             g->cmdCv.wait_for(lk, milliseconds(20), [] { return !g->commands.empty() || !g->paused.load() || !g->running.load(); });
             lk.unlock();
