@@ -291,7 +291,7 @@ private fun PerformancePage() {
         ToggleRow(Icons.Default.Speed, "Skip idle loops", "The SH-2 CPUs skip loops that only wait for a value to change. Much faster, same result; turn off if a game misbehaves",
             Emulator.idleSkip, ch { Emulator.idleSkip = it })
         SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "Hi-res: one field", "On 704x448 interlaced screens (Virtua Fighter 2, menus) draw only one of the two fields: much faster, but the picture refreshes at half the rate and loses some detail",
+        ToggleRow(Icons.Default.Speed, "Hi-res: one field", "On 704x448 interlaced screens (Virtua Fighter 2, menus) draw only one of the two fields: much faster, but the picture refreshes at half the rate and loses some detail. CPU renderers only (no effect with GPU/Vulkan)",
             Emulator.oneField, ch { Emulator.oneField = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {

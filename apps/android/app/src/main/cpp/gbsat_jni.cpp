@@ -920,7 +920,11 @@ void EmuLoop() {
                 // core; the renderer copies the rendered field's lines onto the skipped field's rows whichever it is.
                 const bool alternating = secondField != g->lastField;
                 g->lastField = secondField;
-                if (g->oneField.load(std::memory_order_relaxed) && alternating && secondField) {
+                // Software renderer only: the Vulkan renderer draws the whole frame on the GPU (no VDP2 CPU work to
+                // save) and delivers frames one late, so skipping fields there froze the picture and the skipped frames
+                // took ~40 ms (VF2 on the RG Rotate, performance log)
+                if (g->oneField.load(std::memory_order_relaxed) && alternating && secondField &&
+                    g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>()) {
                     skip = true;
                 }
             }
