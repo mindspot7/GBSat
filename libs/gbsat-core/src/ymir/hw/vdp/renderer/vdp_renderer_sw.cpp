@@ -607,14 +607,21 @@ void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
 }
 
 void SoftwareVDPRenderer::VDP2EndFrame() {
-    VDP2CompletePendingFrame(); // the previous drawn frame, if no line was drawn since (normally delivered already)
     const bool drawn = m_vdp2LinesThisFrame;
     m_vdp2LinesThisFrame = false;
     if (!drawn) {
-        // Frame skipped by the frontend: nothing new to show (it was dropped by the frontend before)
+        // Frame skipped by the frontend ("Hi-res: one field", frame skip): nothing new to show. The previous drawn frame
+        // may stay pending when the render thread switched framebuffers after it (the next drawn frame doesn't touch its
+        // buffer); waiting for it here took ~7 ms of every skipped frame of Virtua Fighter 2 at 704x448 (RG Rotate).
+        if (m_vdp2PendingFlipped) {
+            VDP2PollPendingFrame();
+        } else {
+            VDP2CompletePendingFrame();
+        }
         Callbacks.VDP2DrawFinished();
         return;
     }
+    VDP2CompletePendingFrame(); // the previous drawn frame, if not delivered yet (before the render thread switches back)
     if (m_threadedVDP2Rendering) {
         // Delivered later (VDP2CompletePendingFrame) instead of waiting here for the render thread to finish
         // Whole pictures only: progressive screens, or interlaced ones with "Hi-res: one field" filling the other field's
