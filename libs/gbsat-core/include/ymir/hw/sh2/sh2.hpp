@@ -114,10 +114,9 @@ public:
     /// @p target (false: not parked, an interrupt or DMA pending, or a delay counter ending sooner); ApplyParkedIdle
     /// applies them (counters). Only valid while nothing else can write the polled memory (the caller checks that the
     /// other CPU is parked too and the SCU is quiet).
-    bool ParkedIdleReach(uint64 target, uint64 current, uint64 &reach) const;
+    bool ParkedIdleReach(uint64 target, uint64 current, uint64 &reach);
     void ApplyParkedIdle(uint64 current, uint64 reach);
-    /// @brief Devices and timers ran (a new window): the polled memory may have changed, so the next skip needs one
-    /// interpreted iteration first.
+    /// @brief Forgets the parked state (e.g. when the option is turned off).
     void ClearParked() {
         m_parked = false;
     }
@@ -746,7 +745,16 @@ private:
         int accReg[2] = {-1, -1};
         sint32 accImm[2] = {0, 0};
         int dtReg = -1;
+        // Memory the loop reads (to tell later, without running it, whether the next iteration would be the same)
+        uint32 loadAddr[8] = {};
+        uint8 loadSize[8] = {};
+        int loadCount = 0;
     };
+    uint32 m_parkVal[8] = {}; // values of the loop's loads when the CPU parked
+    uint32 PeekParkLoad(int i);
+    bool ParkedValuesUnchanged();
+    uint64 ParkedSkipCount(uint64 target, uint64 current) const; // whole iterations to reach target (0: can't)
+    void ApplyParkedCount(uint64 k);
     // Loops found not to be idle, so they aren't analyzed again on every iteration (retried now and then)
     struct IdleVerdict {
         uint32 head = 0, last = 0;

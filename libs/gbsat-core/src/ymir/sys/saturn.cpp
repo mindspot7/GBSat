@@ -529,9 +529,7 @@ bool Saturn::Run() {
         }
     };
 
-    // A new window: devices and timers ran since the CPUs' last iteration, so the polled memory may have changed
-    masterSH2.ClearParked();
-    slaveSH2.ClearParked();
+    // Parked CPUs check the memory they poll before skipping (devices and timers ran since their last iteration)
 
     uint64 execCycles;
     if (SCU.IsDMAActive()) {

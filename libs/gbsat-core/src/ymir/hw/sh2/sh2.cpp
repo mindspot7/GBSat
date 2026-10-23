@@ -432,31 +432,57 @@ void SH2::DumpCacheAddressTag(std::ostream &out) const {
     }
 }
 
-bool SH2::ParkedIdleReach(uint64 target, uint64 current, uint64 &reach) const {
+// Size of the memory read of a load accepted in an idle loop
+static uint8 IdleLoadSize(uint16 op) {
+    const uint32 n = (op >> 8) & 15, lo = op & 15;
+    switch (op >> 12) {
+    case 0x0: return lo == 0xC ? 1 : lo == 0xD ? 2 : 4; // mov.x @(R0,Rm),Rn
+    case 0x5: return 4;                                 // mov.l @(disp,Rm),Rn
+    case 0x6: return lo == 0 ? 1 : lo == 1 ? 2 : 4;     // mov.x @Rm,Rn
+    case 0x8: return n == 4 ? 1 : 2;                    // mov.b/w @(disp,Rm),R0
+    default: return n == 4 ? 1 : n == 5 ? 2 : 4;        // mov.x @(disp,GBR),R0
+    }
+}
+
+uint32 SH2::PeekParkLoad(int i) {
+    const uint32 a = m_parkInfo.loadAddr[i];
+    switch (m_parkInfo.loadSize[i]) {
+    case 1: return MemPeekByte<false>(a);
+    case 2: return MemPeekWord<false>(a);
+    default: return MemPeekLong<false>(a);
+    }
+}
+
+// The parked loop's next iteration would be exactly like the last one: same registers (the CPU is at the head and
+// nothing ran since), same memory values, no interrupt
+bool SH2::ParkedValuesUnchanged() {
     if (!m_parked || !m_idleSkip || PC != m_parkHead || m_intrFlags.pending || m_delaySlot || m_sleep ||
         IsDMATransferActive(m_dmaChannels[0]) || IsDMATransferActive(m_dmaChannels[1])) {
         return false;
     }
+    for (int i = 0; i < m_parkInfo.loadCount; ++i) {
+        if (PeekParkLoad(i) != m_parkVal[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+uint64 SH2::ParkedSkipCount(uint64 target, uint64 current) const {
     if (target <= current) {
-        reach = current;
-        return true;
+        return 0;
     }
     const uint64 k = (target - current + m_parkIter - 1) / m_parkIter;
     if (m_parkInfo.dtReg >= 0) {
         const uint32 left = R[m_parkInfo.dtReg];
         if (left == 0 || k > left - 1) {
-            return false; // the delay ends before the target: let the interpreter run it
+            return 0; // the delay ends before the target: let the interpreter run it
         }
     }
-    reach = current + k * m_parkIter;
-    return true;
+    return k;
 }
 
-void SH2::ApplyParkedIdle(uint64 current, uint64 reach) {
-    const uint64 k = (reach - current) / m_parkIter;
-    if (k == 0) {
-        return;
-    }
+void SH2::ApplyParkedCount(uint64 k) {
     if (m_parkInfo.dtReg >= 0) {
         R[m_parkInfo.dtReg] -= (uint32)k;
     }
@@ -465,6 +491,29 @@ void SH2::ApplyParkedIdle(uint64 current, uint64 reach) {
     }
     if (util::waitstats::g_profile.load(std::memory_order_relaxed)) {
         util::waitstats::g_shSkip[IsMaster() ? 0 : 1] += k * m_parkIter;
+    }
+}
+
+bool SH2::ParkedIdleReach(uint64 target, uint64 current, uint64 &reach) {
+    if (!ParkedValuesUnchanged()) {
+        return false;
+    }
+    if (target <= current) {
+        reach = current;
+        return true;
+    }
+    const uint64 k = ParkedSkipCount(target, current);
+    if (k == 0) {
+        return false;
+    }
+    reach = current + k * m_parkIter;
+    return true;
+}
+
+void SH2::ApplyParkedIdle(uint64 current, uint64 reach) {
+    const uint64 k = (reach - current) / m_parkIter;
+    if (k > 0) {
+        ApplyParkedCount(k);
     }
 }
 
@@ -618,6 +667,13 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
             m_idleFailAddr = o.addr;
             return false;
         }
+        if (o.load) {
+            if (info.loadCount == 8) {
+                return false;
+            }
+            info.loadAddr[info.loadCount] = o.addr;
+            info.loadSize[info.loadCount++] = IdleLoadSize(op);
+        }
         if (count == 24) {
             return false;
         }
@@ -704,7 +760,6 @@ template <bool debug, bool emulateCache>
 FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     m_cyclesExecuted = spilloverCycles;
     m_idleHead = 0; // iteration costs are measured within one call
-    m_parked = false;
     AdvanceWDT<false>();
     AdvanceFRT<false>();
 
@@ -730,6 +785,25 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     namespace ws = util::waitstats;
     const bool prof = ws::g_profile.load(std::memory_order_relaxed);
     const int cpu = IsMaster() ? 0 : 1;
+
+    // Parked at an idle loop whose memory hasn't changed since its last iteration: the whole slice would repeat that
+    // iteration, so skip it without interpreting (exact; counters applied)
+    if constexpr (!debug) {
+        if (m_parked) {
+            bool skipped = false;
+            if (m_cyclesExecuted < cycles && ParkedValuesUnchanged()) {
+                const uint64 k = ParkedSkipCount(cycles, m_cyclesExecuted);
+                if (k > 0) {
+                    ApplyParkedCount(k);
+                    m_cyclesExecuted += k * m_parkIter;
+                    skipped = true;
+                }
+            }
+            if (!skipped) {
+                m_parked = false;
+            }
+        }
+    }
 
     while (m_cyclesExecuted < cycles) {
         const uint32 prevPC = PC;
@@ -795,6 +869,9 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
                             m_parkHead = PC;
                             m_parkIter = iter;
                             m_parkInfo = info;
+                            for (int l = 0; l < info.loadCount; ++l) {
+                                m_parkVal[l] = PeekParkLoad(l);
+                            }
                         }
                     }
                 }
