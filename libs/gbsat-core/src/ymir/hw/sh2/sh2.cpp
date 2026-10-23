@@ -2933,9 +2933,14 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
     };
     static_assert(sizeof(kOps) / sizeof(kOps[0]) == 273, "one label per OpcodeType");
 
-    // First instruction through InterpretNext: it services a pending interrupt
+    // A pending interrupt is serviced by InterpretNext (then the chain starts with the handler's first instruction).
+    // Otherwise the first instruction is dispatched like the others: Advance runs the SH-2s in slices of at most 32
+    // cycles (master/slave sync), so going through InterpretNext's switch at the start of every slice cost one of every
+    // ~15 dispatches (InterpretNext was ~5% of the emulation thread in Burning Rangers, RG Rotate, build258).
     prevPC = PC;
-    m_cyclesExecuted += InterpretNext<false, emulateCache>();
+    if (std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {
+        m_cyclesExecuted += InterpretNext<false, emulateCache>();
+    }
     uint16 instr;
 
     // Short backward jump (a loop iteration): Advance's idle-loop detection only acts the second time a loop reaches
