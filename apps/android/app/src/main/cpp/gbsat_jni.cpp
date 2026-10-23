@@ -379,6 +379,7 @@ void DrainCommands() {
 // A/B diagnostics, switched with adb while a game runs (gbsat.bat, option 6), read once per second:
 //   debug.gbsat.sh2_plain=1   SH-2 plain interpreter instead of the chained one (SH2::RunChained)
 //   debug.gbsat.vdp2_one_fb=1 threaded VDP2 with one framebuffer (waits for the previous frame, as before build254)
+//   debug.gbsat.vdp_nobatch=1 VDP1 commands and VDP2 lines sent to the render threads one by one (as before build264)
 // The performance log's settings column shows them (diag=...).
 static bool PropOn(const char *key) {
     char v[PROP_VALUE_MAX] = {};
@@ -388,6 +389,7 @@ static bool PropOn(const char *key) {
 static void ReadDiagnosticProps() {
     util::waitstats::g_sh2Chained.store(!PropOn("debug.gbsat.sh2_plain"), std::memory_order_relaxed);
     util::waitstats::g_vdp2TwoFB.store(!PropOn("debug.gbsat.vdp2_one_fb"), std::memory_order_relaxed);
+    util::waitstats::g_vdpBatch.store(!PropOn("debug.gbsat.vdp_nobatch"), std::memory_order_relaxed);
 }
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
@@ -838,10 +840,12 @@ void WritePerfLog(float fps, float presentedFps) {
         settings = g_logSettings;
     }
     if (!util::waitstats::g_sh2Chained.load(std::memory_order_relaxed) ||
-        !util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed)) {
+        !util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ||
+        !util::waitstats::g_vdpBatch.load(std::memory_order_relaxed)) {
         settings += ";diag=";
         settings += util::waitstats::g_sh2Chained.load(std::memory_order_relaxed) ? "" : "sh2_plain ";
-        settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb";
+        settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
+        settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
     fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),

@@ -11,6 +11,7 @@
 #include <ymir/hw/vdp/vdp2_regs.hpp>
 #include <ymir/hw/vdp/vdp_callbacks.hpp>
 #include <ymir/hw/vdp/vdp_defs.hpp>
+#include <ymir/util/wait_stats.hpp>
 #include <ymir/hw/vdp/vdp_state.hpp>
 
 #include <ymir/hw/vdp/renderer/common/vdp1_steppers.hpp>
@@ -356,8 +357,15 @@ private:
             case VDP1RenderEvent::Type::VRAMWriteWord:
             case VDP1RenderEvent::Type::FBRAMWriteByte:
             case VDP1RenderEvent::Type::FBRAMWriteWord:
-            case VDP1RenderEvent::Type::RegWrite:
             case VDP1RenderEvent::Type::Command:
+                if (!util::waitstats::g_vdpBatch.load(std::memory_order_relaxed)) {
+                    FlushPendingEvents();
+                    eventQueue.enqueue(pTok, event);
+                    ++cmdCount;
+                    break;
+                }
+                [[fallthrough]];
+            case VDP1RenderEvent::Type::RegWrite:
                 // Batch these writes (and draw commands) to send in bulk: every event sent on its own woke the render
                 // thread when it had caught up, ~250-400 times per frame in Burning Rangers (most of the emulation
                 // thread's ~9% in the kernel, RG Rotate). Sent at the latest every 8 lines (VDP2RenderLine) and before
@@ -600,8 +608,14 @@ private:
             case VDP2RenderEvent::Type::VDP2VRAMWriteWord:
             case VDP2RenderEvent::Type::VDP2CRAMWriteByte:
             case VDP2RenderEvent::Type::VDP2CRAMWriteWord:
-            case VDP2RenderEvent::Type::VDP2RegWrite:
             case VDP2RenderEvent::Type::VDP2DrawLine:
+                if (!util::waitstats::g_vdpBatch.load(std::memory_order_relaxed)) {
+                    FlushPendingEvents();
+                    eventQueue.enqueue(pTok, event);
+                    break;
+                }
+                [[fallthrough]];
+            case VDP2RenderEvent::Type::VDP2RegWrite:
                 // Batch these writes (and lines) to send in bulk; lines are sent at the latest every 8 lines
                 // (VDP2RenderLine) and before any other event (end of frame, framebuffer copy, erase, swap)
                 pendingEvents[pendingEventsCount++] = event;

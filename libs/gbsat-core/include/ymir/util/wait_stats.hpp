@@ -51,6 +51,8 @@ inline std::atomic<bool> g_oneField{false};
 inline std::atomic<bool> g_sh2Chained{true};
 // Threaded VDP2 with two framebuffers (SoftwareVDPRenderer::m_framebuffers); off only for diagnostics (A/B tests)
 inline std::atomic<bool> g_vdp2TwoFB{true};
+// Threaded VDP: VDP1 draw commands and VDP2 lines sent to the render threads in batches; off only for diagnostics
+inline std::atomic<bool> g_vdpBatch{true};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 
