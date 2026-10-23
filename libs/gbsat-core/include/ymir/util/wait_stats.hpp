@@ -32,6 +32,8 @@ inline std::atomic<bool> g_profile{false};
 // "Hi-res: one field" option: the second field of interlaced screens isn't rendered, so the software renderer copies each
 // line of the first field onto the line below it (otherwise those lines keep an old picture)
 inline std::atomic<bool> g_oneField{false};
+// SH-2 chained interpreter (SH2::RunChained); off only for tests that compare it with the plain interpreter
+inline std::atomic<bool> g_sh2Chained{true};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 

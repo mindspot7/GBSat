@@ -1168,6 +1168,10 @@ private:
     template <bool debug, bool emulateCache>
     uint64 InterpretNext();
 
+    // Runs instructions back to back with per-instruction dispatch (see sh2.cpp); non-debug, non-profiled slices only.
+    template <bool emulateCache>
+    void RunChained(uint64 cycles, uint32 &prevPC);
+
 #define TPL_DBG_CACHE_DS template <bool debug, bool emulateCache, bool delaySlot>
 #define TPL_DBG_CACHE template <bool debug, bool emulateCache>
 #define TPL_DBG template <bool debug>

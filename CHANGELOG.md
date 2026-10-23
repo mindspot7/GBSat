@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Faster SH-2 interpreter: each instruction jumps straight to the next one instead of going back through a single dispatch point, which the CPU mispredicted most of the time (about a third of the SH-2 time on the RG Rotate). Same results, checked by a test that runs random code with both.
 - Slightly faster SH-2 interpreter: instruction fetches from RAM/ROM are read inline instead of through the general memory access.
 - Smoother interface right after installing or updating the APK: the app ships baseline profiles, so the library and menus run compiled instead of interpreted (scrolling the library ran at ~33 fps on the RG Rotate after an update).
 - Threaded audio (Auto) now starts on for every device (before: only with 3+ fast cores, so not on e.g. the RG Rotate): with the lighter sound thread it was faster in every game profiled; per-game choices remembered by Auto are measured again.

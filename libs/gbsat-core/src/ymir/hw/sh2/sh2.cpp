@@ -806,10 +806,15 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
     }
 
     while (m_cyclesExecuted < cycles) {
-        const uint32 prevPC = PC;
-
-        // TODO: choose between interpreter (cached or uncached) and JIT recompiler
-        const uint64 instrCycles = InterpretNext<debug, emulateCache>();
+        uint32 prevPC = PC;
+        bool chained = false;
+        if constexpr (!debug && !devlog::debug_enabled<grp::exec_dump>) {
+            if (!prof && util::waitstats::g_sh2Chained.load(std::memory_order_relaxed)) [[likely]] {
+                RunChained<emulateCache>(cycles, prevPC); // runs one or more instructions (see RunChained)
+                chained = true;
+            }
+        }
+        const uint64 instrCycles = chained ? 0 : InterpretNext<debug, emulateCache>();
         m_cyclesExecuted += instrCycles;
         if (prof) [[unlikely]] {
             m_loopClock += instrCycles;
@@ -2636,6 +2641,1135 @@ FORCE_INLINE uint64 SH2::EnterException(uint8 vectorNumber) {
 
 // -----------------------------------------------------------------------------
 // Instruction interpreters
+
+// Chained interpreter (non-debug, non-profiled slices): instructions run back to back and each one dispatches the next
+// from its own indirect jump (computed goto), instead of all of them returning to one switch. With a single dispatch
+// point the CPU mispredicted most jumps: on the RG Rotate ~1/3 of the SH-2 time was that (simpleperf by source line,
+// Burning Rangers). Same work per instruction as InterpretNext + the Advance loop: stops (back to Advance) when the time
+// slice ends, after a short backward jump (Advance's idle-loop detection looks at it) and before a pending interrupt
+// (InterpretNext services it). [prevPC] is the PC of the last instruction run.
+template <bool emulateCache>
+void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
+    static const void *const kOps[] = {
+        &&op_NOP,
+        &&op_SLEEP,
+        &&op_MOV_R,
+        &&op_MOVB_L,
+        &&op_MOVW_L,
+        &&op_MOVL_L,
+        &&op_MOVB_L0,
+        &&op_MOVW_L0,
+        &&op_MOVL_L0,
+        &&op_MOVB_L4,
+        &&op_MOVW_L4,
+        &&op_MOVL_L4,
+        &&op_MOVB_LG,
+        &&op_MOVW_LG,
+        &&op_MOVL_LG,
+        &&op_MOVB_M,
+        &&op_MOVW_M,
+        &&op_MOVL_M,
+        &&op_MOVB_P,
+        &&op_MOVW_P,
+        &&op_MOVL_P,
+        &&op_MOVB_S,
+        &&op_MOVW_S,
+        &&op_MOVL_S,
+        &&op_MOVB_S0,
+        &&op_MOVW_S0,
+        &&op_MOVL_S0,
+        &&op_MOVB_S4,
+        &&op_MOVW_S4,
+        &&op_MOVL_S4,
+        &&op_MOVB_SG,
+        &&op_MOVW_SG,
+        &&op_MOVL_SG,
+        &&op_MOV_I,
+        &&op_MOVW_I,
+        &&op_MOVL_I,
+        &&op_MOVA,
+        &&op_MOVT,
+        &&op_CLRT,
+        &&op_SETT,
+        &&op_EXTUB,
+        &&op_EXTUW,
+        &&op_EXTSB,
+        &&op_EXTSW,
+        &&op_SWAPB,
+        &&op_SWAPW,
+        &&op_XTRCT,
+        &&op_LDC_GBR_R,
+        &&op_LDC_SR_R,
+        &&op_LDC_VBR_R,
+        &&op_LDS_MACH_R,
+        &&op_LDS_MACL_R,
+        &&op_LDS_PR_R,
+        &&op_STC_GBR_R,
+        &&op_STC_SR_R,
+        &&op_STC_VBR_R,
+        &&op_STS_MACH_R,
+        &&op_STS_MACL_R,
+        &&op_STS_PR_R,
+        &&op_LDC_GBR_M,
+        &&op_LDC_SR_M,
+        &&op_LDC_VBR_M,
+        &&op_LDS_MACH_M,
+        &&op_LDS_MACL_M,
+        &&op_LDS_PR_M,
+        &&op_STC_GBR_M,
+        &&op_STC_SR_M,
+        &&op_STC_VBR_M,
+        &&op_STS_MACH_M,
+        &&op_STS_MACL_M,
+        &&op_STS_PR_M,
+        &&op_ADD,
+        &&op_ADD_I,
+        &&op_ADDC,
+        &&op_ADDV,
+        &&op_AND_R,
+        &&op_AND_I,
+        &&op_AND_M,
+        &&op_NEG,
+        &&op_NEGC,
+        &&op_NOT,
+        &&op_OR_R,
+        &&op_OR_I,
+        &&op_OR_M,
+        &&op_ROTCL,
+        &&op_ROTCR,
+        &&op_ROTL,
+        &&op_ROTR,
+        &&op_SHAL,
+        &&op_SHAR,
+        &&op_SHLL,
+        &&op_SHLL2,
+        &&op_SHLL8,
+        &&op_SHLL16,
+        &&op_SHLR,
+        &&op_SHLR2,
+        &&op_SHLR8,
+        &&op_SHLR16,
+        &&op_SUB,
+        &&op_SUBC,
+        &&op_SUBV,
+        &&op_XOR_R,
+        &&op_XOR_I,
+        &&op_XOR_M,
+        &&op_DT,
+        &&op_CLRMAC,
+        &&op_MACW,
+        &&op_MACL,
+        &&op_MUL,
+        &&op_MULS,
+        &&op_MULU,
+        &&op_DMULS,
+        &&op_DMULU,
+        &&op_DIV0S,
+        &&op_DIV0U,
+        &&op_DIV1,
+        &&op_CMP_EQ_I,
+        &&op_CMP_EQ_R,
+        &&op_CMP_GE,
+        &&op_CMP_GT,
+        &&op_CMP_HI,
+        &&op_CMP_HS,
+        &&op_CMP_PL,
+        &&op_CMP_PZ,
+        &&op_CMP_STR,
+        &&op_TAS,
+        &&op_TST_R,
+        &&op_TST_I,
+        &&op_TST_M,
+        &&op_BF,
+        &&op_BFS,
+        &&op_BT,
+        &&op_BTS,
+        &&op_BRA,
+        &&op_BRAF,
+        &&op_BSR,
+        &&op_BSRF,
+        &&op_JMP,
+        &&op_JSR,
+        &&op_TRAPA,
+        &&op_RTE,
+        &&op_RTS,
+        &&op_Illegal,
+        &&op_Delay_NOP,
+        &&op_Delay_SLEEP,
+        &&op_Delay_MOV_R,
+        &&op_Delay_MOVB_L,
+        &&op_Delay_MOVW_L,
+        &&op_Delay_MOVL_L,
+        &&op_Delay_MOVB_L0,
+        &&op_Delay_MOVW_L0,
+        &&op_Delay_MOVL_L0,
+        &&op_Delay_MOVB_L4,
+        &&op_Delay_MOVW_L4,
+        &&op_Delay_MOVL_L4,
+        &&op_Delay_MOVB_LG,
+        &&op_Delay_MOVW_LG,
+        &&op_Delay_MOVL_LG,
+        &&op_Delay_MOVB_M,
+        &&op_Delay_MOVW_M,
+        &&op_Delay_MOVL_M,
+        &&op_Delay_MOVB_P,
+        &&op_Delay_MOVW_P,
+        &&op_Delay_MOVL_P,
+        &&op_Delay_MOVB_S,
+        &&op_Delay_MOVW_S,
+        &&op_Delay_MOVL_S,
+        &&op_Delay_MOVB_S0,
+        &&op_Delay_MOVW_S0,
+        &&op_Delay_MOVL_S0,
+        &&op_Delay_MOVB_S4,
+        &&op_Delay_MOVW_S4,
+        &&op_Delay_MOVL_S4,
+        &&op_Delay_MOVB_SG,
+        &&op_Delay_MOVW_SG,
+        &&op_Delay_MOVL_SG,
+        &&op_Delay_MOV_I,
+        &&op_Delay_MOVW_I,
+        &&op_Delay_MOVL_I,
+        &&op_Delay_MOVA,
+        &&op_Delay_MOVT,
+        &&op_Delay_CLRT,
+        &&op_Delay_SETT,
+        &&op_Delay_EXTUB,
+        &&op_Delay_EXTUW,
+        &&op_Delay_EXTSB,
+        &&op_Delay_EXTSW,
+        &&op_Delay_SWAPB,
+        &&op_Delay_SWAPW,
+        &&op_Delay_XTRCT,
+        &&op_Delay_LDC_GBR_R,
+        &&op_Delay_LDC_SR_R,
+        &&op_Delay_LDC_VBR_R,
+        &&op_Delay_LDS_MACH_R,
+        &&op_Delay_LDS_MACL_R,
+        &&op_Delay_LDS_PR_R,
+        &&op_Delay_STC_GBR_R,
+        &&op_Delay_STC_SR_R,
+        &&op_Delay_STC_VBR_R,
+        &&op_Delay_STS_MACH_R,
+        &&op_Delay_STS_MACL_R,
+        &&op_Delay_STS_PR_R,
+        &&op_Delay_LDC_GBR_M,
+        &&op_Delay_LDC_SR_M,
+        &&op_Delay_LDC_VBR_M,
+        &&op_Delay_LDS_MACH_M,
+        &&op_Delay_LDS_MACL_M,
+        &&op_Delay_LDS_PR_M,
+        &&op_Delay_STC_GBR_M,
+        &&op_Delay_STC_SR_M,
+        &&op_Delay_STC_VBR_M,
+        &&op_Delay_STS_MACH_M,
+        &&op_Delay_STS_MACL_M,
+        &&op_Delay_STS_PR_M,
+        &&op_Delay_ADD,
+        &&op_Delay_ADD_I,
+        &&op_Delay_ADDC,
+        &&op_Delay_ADDV,
+        &&op_Delay_AND_R,
+        &&op_Delay_AND_I,
+        &&op_Delay_AND_M,
+        &&op_Delay_NEG,
+        &&op_Delay_NEGC,
+        &&op_Delay_NOT,
+        &&op_Delay_OR_R,
+        &&op_Delay_OR_I,
+        &&op_Delay_OR_M,
+        &&op_Delay_ROTCL,
+        &&op_Delay_ROTCR,
+        &&op_Delay_ROTL,
+        &&op_Delay_ROTR,
+        &&op_Delay_SHAL,
+        &&op_Delay_SHAR,
+        &&op_Delay_SHLL,
+        &&op_Delay_SHLL2,
+        &&op_Delay_SHLL8,
+        &&op_Delay_SHLL16,
+        &&op_Delay_SHLR,
+        &&op_Delay_SHLR2,
+        &&op_Delay_SHLR8,
+        &&op_Delay_SHLR16,
+        &&op_Delay_SUB,
+        &&op_Delay_SUBC,
+        &&op_Delay_SUBV,
+        &&op_Delay_XOR_R,
+        &&op_Delay_XOR_I,
+        &&op_Delay_XOR_M,
+        &&op_Delay_DT,
+        &&op_Delay_CLRMAC,
+        &&op_Delay_MACW,
+        &&op_Delay_MACL,
+        &&op_Delay_MUL,
+        &&op_Delay_MULS,
+        &&op_Delay_MULU,
+        &&op_Delay_DMULS,
+        &&op_Delay_DMULU,
+        &&op_Delay_DIV0S,
+        &&op_Delay_DIV0U,
+        &&op_Delay_DIV1,
+        &&op_Delay_CMP_EQ_I,
+        &&op_Delay_CMP_EQ_R,
+        &&op_Delay_CMP_GE,
+        &&op_Delay_CMP_GT,
+        &&op_Delay_CMP_HI,
+        &&op_Delay_CMP_HS,
+        &&op_Delay_CMP_PL,
+        &&op_Delay_CMP_PZ,
+        &&op_Delay_CMP_STR,
+        &&op_Delay_TAS,
+        &&op_Delay_TST_R,
+        &&op_Delay_TST_I,
+        &&op_Delay_TST_M,
+        &&op_IllegalSlot
+    };
+    static_assert(sizeof(kOps) / sizeof(kOps[0]) == 273, "one label per OpcodeType");
+
+    // First instruction through InterpretNext: it services a pending interrupt
+    prevPC = PC;
+    m_cyclesExecuted += InterpretNext<false, emulateCache>();
+    uint16 instr;
+
+#define GBSAT_CHAIN_NEXT()                                                                                             \
+    do {                                                                                                               \
+        if (m_cyclesExecuted >= cycles || (PC < prevPC && prevPC - PC <= kIdleLoopSpan) ||                             \
+            std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {                            \
+            return;                                                                                                    \
+        }                                                                                                             \
+        prevPC = PC;                                                                                                   \
+        m_intrFlags.allow = true;                                                                                      \
+        instr = FetchInstruction<emulateCache>(PC);                                                                    \
+        goto *kOps[static_cast<uint16>(DecodeTable::s_instance.opcodes[m_delaySlot][instr])];                          \
+    } while (false)
+
+    GBSAT_CHAIN_NEXT();
+op_NOP:
+    m_cyclesExecuted += NOP<false, emulateCache, false>();
+    GBSAT_CHAIN_NEXT();
+op_SLEEP:
+    m_cyclesExecuted += SLEEP();
+    GBSAT_CHAIN_NEXT();
+op_MOV_R:
+    m_cyclesExecuted += MOV<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_L:
+    m_cyclesExecuted += MOVBL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_L:
+    m_cyclesExecuted += MOVWL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_L:
+    m_cyclesExecuted += MOVLL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_L0:
+    m_cyclesExecuted += MOVBL0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_L0:
+    m_cyclesExecuted += MOVWL0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_L0:
+    m_cyclesExecuted += MOVLL0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_L4:
+    m_cyclesExecuted += MOVBL4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_L4:
+    m_cyclesExecuted += MOVWL4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_L4:
+    m_cyclesExecuted += MOVLL4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_LG:
+    m_cyclesExecuted += MOVBLG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_LG:
+    m_cyclesExecuted += MOVWLG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_LG:
+    m_cyclesExecuted += MOVLLG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_M:
+    m_cyclesExecuted += MOVBM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_M:
+    m_cyclesExecuted += MOVWM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_M:
+    m_cyclesExecuted += MOVLM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_P:
+    m_cyclesExecuted += MOVBP<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_P:
+    m_cyclesExecuted += MOVWP<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_P:
+    m_cyclesExecuted += MOVLP<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_S:
+    m_cyclesExecuted += MOVBS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_S:
+    m_cyclesExecuted += MOVWS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_S:
+    m_cyclesExecuted += MOVLS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_S0:
+    m_cyclesExecuted += MOVBS0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_S0:
+    m_cyclesExecuted += MOVWS0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_S0:
+    m_cyclesExecuted += MOVLS0<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_S4:
+    m_cyclesExecuted += MOVBS4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_S4:
+    m_cyclesExecuted += MOVWS4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_S4:
+    m_cyclesExecuted += MOVLS4<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVB_SG:
+    m_cyclesExecuted += MOVBSG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_SG:
+    m_cyclesExecuted += MOVWSG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_SG:
+    m_cyclesExecuted += MOVLSG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOV_I:
+    m_cyclesExecuted += MOVI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVW_I:
+    m_cyclesExecuted += MOVWI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVL_I:
+    m_cyclesExecuted += MOVLI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVA:
+    m_cyclesExecuted += MOVA<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MOVT:
+    m_cyclesExecuted += MOVT<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CLRT:
+    m_cyclesExecuted += CLRT<false, emulateCache, false>();
+    GBSAT_CHAIN_NEXT();
+op_SETT:
+    m_cyclesExecuted += SETT<false, emulateCache, false>();
+    GBSAT_CHAIN_NEXT();
+op_EXTUB:
+    m_cyclesExecuted += EXTUB<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_EXTUW:
+    m_cyclesExecuted += EXTUW<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_EXTSB:
+    m_cyclesExecuted += EXTSB<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_EXTSW:
+    m_cyclesExecuted += EXTSW<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SWAPB:
+    m_cyclesExecuted += SWAPB<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SWAPW:
+    m_cyclesExecuted += SWAPW<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_XTRCT:
+    m_cyclesExecuted += XTRCT<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_GBR_R:
+    m_cyclesExecuted += LDCGBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_SR_R:
+    m_cyclesExecuted += LDCSR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_VBR_R:
+    m_cyclesExecuted += LDCVBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_MACH_R:
+    m_cyclesExecuted += LDSMACH<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_MACL_R:
+    m_cyclesExecuted += LDSMACL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_PR_R:
+    m_cyclesExecuted += LDSPR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_GBR_R:
+    m_cyclesExecuted += STCGBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_SR_R:
+    m_cyclesExecuted += STCSR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_VBR_R:
+    m_cyclesExecuted += STCVBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_MACH_R:
+    m_cyclesExecuted += STSMACH<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_MACL_R:
+    m_cyclesExecuted += STSMACL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_PR_R:
+    m_cyclesExecuted += STSPR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_GBR_M:
+    m_cyclesExecuted += LDCMGBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_SR_M:
+    m_cyclesExecuted += LDCMSR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDC_VBR_M:
+    m_cyclesExecuted += LDCMVBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_MACH_M:
+    m_cyclesExecuted += LDSMMACH<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_MACL_M:
+    m_cyclesExecuted += LDSMMACL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_LDS_PR_M:
+    m_cyclesExecuted += LDSMPR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_GBR_M:
+    m_cyclesExecuted += STCMGBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_SR_M:
+    m_cyclesExecuted += STCMSR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STC_VBR_M:
+    m_cyclesExecuted += STCMVBR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_MACH_M:
+    m_cyclesExecuted += STSMMACH<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_MACL_M:
+    m_cyclesExecuted += STSMMACL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_STS_PR_M:
+    m_cyclesExecuted += STSMPR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ADD:
+    m_cyclesExecuted += ADD<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ADD_I:
+    m_cyclesExecuted += ADDI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ADDC:
+    m_cyclesExecuted += ADDC<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ADDV:
+    m_cyclesExecuted += ADDV<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_AND_R:
+    m_cyclesExecuted += AND<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_AND_I:
+    m_cyclesExecuted += ANDI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_AND_M:
+    m_cyclesExecuted += ANDM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_NEG:
+    m_cyclesExecuted += NEG<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_NEGC:
+    m_cyclesExecuted += NEGC<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_NOT:
+    m_cyclesExecuted += NOT<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_OR_R:
+    m_cyclesExecuted += OR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_OR_I:
+    m_cyclesExecuted += ORI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_OR_M:
+    m_cyclesExecuted += ORM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ROTCL:
+    m_cyclesExecuted += ROTCL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ROTCR:
+    m_cyclesExecuted += ROTCR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ROTL:
+    m_cyclesExecuted += ROTL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_ROTR:
+    m_cyclesExecuted += ROTR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHAL:
+    m_cyclesExecuted += SHAL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHAR:
+    m_cyclesExecuted += SHAR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLL:
+    m_cyclesExecuted += SHLL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLL2:
+    m_cyclesExecuted += SHLL2<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLL8:
+    m_cyclesExecuted += SHLL8<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLL16:
+    m_cyclesExecuted += SHLL16<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLR:
+    m_cyclesExecuted += SHLR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLR2:
+    m_cyclesExecuted += SHLR2<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLR8:
+    m_cyclesExecuted += SHLR8<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SHLR16:
+    m_cyclesExecuted += SHLR16<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SUB:
+    m_cyclesExecuted += SUB<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SUBC:
+    m_cyclesExecuted += SUBC<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_SUBV:
+    m_cyclesExecuted += SUBV<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_XOR_R:
+    m_cyclesExecuted += XOR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_XOR_I:
+    m_cyclesExecuted += XORI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_XOR_M:
+    m_cyclesExecuted += XORM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_DT:
+    m_cyclesExecuted += DT<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CLRMAC:
+    m_cyclesExecuted += CLRMAC<false, emulateCache, false>();
+    GBSAT_CHAIN_NEXT();
+op_MACW:
+    m_cyclesExecuted += MACW<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MACL:
+    m_cyclesExecuted += MACL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MUL:
+    m_cyclesExecuted += MULL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MULS:
+    m_cyclesExecuted += MULS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_MULU:
+    m_cyclesExecuted += MULU<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_DMULS:
+    m_cyclesExecuted += DMULS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_DMULU:
+    m_cyclesExecuted += DMULU<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_DIV0S:
+    m_cyclesExecuted += DIV0S<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_DIV0U:
+    m_cyclesExecuted += DIV0U<false, emulateCache, false>();
+    GBSAT_CHAIN_NEXT();
+op_DIV1:
+    m_cyclesExecuted += DIV1<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_EQ_I:
+    m_cyclesExecuted += CMPIM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_EQ_R:
+    m_cyclesExecuted += CMPEQ<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_GE:
+    m_cyclesExecuted += CMPGE<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_GT:
+    m_cyclesExecuted += CMPGT<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_HI:
+    m_cyclesExecuted += CMPHI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_HS:
+    m_cyclesExecuted += CMPHS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_PL:
+    m_cyclesExecuted += CMPPL<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_PZ:
+    m_cyclesExecuted += CMPPZ<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_CMP_STR:
+    m_cyclesExecuted += CMPSTR<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_TAS:
+    m_cyclesExecuted += TAS<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_TST_R:
+    m_cyclesExecuted += TST<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_TST_I:
+    m_cyclesExecuted += TSTI<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_TST_M:
+    m_cyclesExecuted += TSTM<false, emulateCache, false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BF:
+    m_cyclesExecuted += BF<false, emulateCache>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BFS:
+    m_cyclesExecuted += BFS<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BT:
+    m_cyclesExecuted += BT<false, emulateCache>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BTS:
+    m_cyclesExecuted += BTS<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BRA:
+    m_cyclesExecuted += BRA<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BRAF:
+    m_cyclesExecuted += BRAF<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BSR:
+    m_cyclesExecuted += BSR<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_BSRF:
+    m_cyclesExecuted += BSRF<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_JMP:
+    m_cyclesExecuted += JMP<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_JSR:
+    m_cyclesExecuted += JSR<false>(instr);
+    GBSAT_CHAIN_NEXT();
+op_TRAPA:
+    m_cyclesExecuted += TRAPA<false, emulateCache>(instr);
+    GBSAT_CHAIN_NEXT();
+op_RTE:
+    m_cyclesExecuted += RTE<false, emulateCache>();
+    GBSAT_CHAIN_NEXT();
+op_RTS:
+    m_cyclesExecuted += RTS<false>();
+    GBSAT_CHAIN_NEXT();
+op_Illegal:
+    m_cyclesExecuted += EnterException<false, emulateCache>(xvGenIllegalInstr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_NOP:
+    m_cyclesExecuted += NOP<false, emulateCache, true>();
+    GBSAT_CHAIN_NEXT();
+op_Delay_SLEEP:
+    m_cyclesExecuted += SLEEP();
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOV_R:
+    m_cyclesExecuted += MOV<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_L:
+    m_cyclesExecuted += MOVBL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_L:
+    m_cyclesExecuted += MOVWL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_L:
+    m_cyclesExecuted += MOVLL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_L0:
+    m_cyclesExecuted += MOVBL0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_L0:
+    m_cyclesExecuted += MOVWL0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_L0:
+    m_cyclesExecuted += MOVLL0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_L4:
+    m_cyclesExecuted += MOVBL4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_L4:
+    m_cyclesExecuted += MOVWL4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_L4:
+    m_cyclesExecuted += MOVLL4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_LG:
+    m_cyclesExecuted += MOVBLG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_LG:
+    m_cyclesExecuted += MOVWLG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_LG:
+    m_cyclesExecuted += MOVLLG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_M:
+    m_cyclesExecuted += MOVBM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_M:
+    m_cyclesExecuted += MOVWM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_M:
+    m_cyclesExecuted += MOVLM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_P:
+    m_cyclesExecuted += MOVBP<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_P:
+    m_cyclesExecuted += MOVWP<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_P:
+    m_cyclesExecuted += MOVLP<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_S:
+    m_cyclesExecuted += MOVBS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_S:
+    m_cyclesExecuted += MOVWS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_S:
+    m_cyclesExecuted += MOVLS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_S0:
+    m_cyclesExecuted += MOVBS0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_S0:
+    m_cyclesExecuted += MOVWS0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_S0:
+    m_cyclesExecuted += MOVLS0<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_S4:
+    m_cyclesExecuted += MOVBS4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_S4:
+    m_cyclesExecuted += MOVWS4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_S4:
+    m_cyclesExecuted += MOVLS4<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVB_SG:
+    m_cyclesExecuted += MOVBSG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_SG:
+    m_cyclesExecuted += MOVWSG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_SG:
+    m_cyclesExecuted += MOVLSG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOV_I:
+    m_cyclesExecuted += MOVI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVW_I:
+    m_cyclesExecuted += MOVWI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVL_I:
+    m_cyclesExecuted += MOVLI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVA:
+    m_cyclesExecuted += MOVA<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MOVT:
+    m_cyclesExecuted += MOVT<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CLRT:
+    m_cyclesExecuted += CLRT<false, emulateCache, true>();
+    GBSAT_CHAIN_NEXT();
+op_Delay_SETT:
+    m_cyclesExecuted += SETT<false, emulateCache, true>();
+    GBSAT_CHAIN_NEXT();
+op_Delay_EXTUB:
+    m_cyclesExecuted += EXTUB<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_EXTUW:
+    m_cyclesExecuted += EXTUW<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_EXTSB:
+    m_cyclesExecuted += EXTSB<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_EXTSW:
+    m_cyclesExecuted += EXTSW<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SWAPB:
+    m_cyclesExecuted += SWAPB<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SWAPW:
+    m_cyclesExecuted += SWAPW<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_XTRCT:
+    m_cyclesExecuted += XTRCT<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_GBR_R:
+    m_cyclesExecuted += LDCGBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_SR_R:
+    m_cyclesExecuted += LDCSR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_VBR_R:
+    m_cyclesExecuted += LDCVBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_MACH_R:
+    m_cyclesExecuted += LDSMACH<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_MACL_R:
+    m_cyclesExecuted += LDSMACL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_PR_R:
+    m_cyclesExecuted += LDSPR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_GBR_R:
+    m_cyclesExecuted += STCGBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_SR_R:
+    m_cyclesExecuted += STCSR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_VBR_R:
+    m_cyclesExecuted += STCVBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_MACH_R:
+    m_cyclesExecuted += STSMACH<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_MACL_R:
+    m_cyclesExecuted += STSMACL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_PR_R:
+    m_cyclesExecuted += STSPR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_GBR_M:
+    m_cyclesExecuted += LDCMGBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_SR_M:
+    m_cyclesExecuted += LDCMSR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDC_VBR_M:
+    m_cyclesExecuted += LDCMVBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_MACH_M:
+    m_cyclesExecuted += LDSMMACH<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_MACL_M:
+    m_cyclesExecuted += LDSMMACL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_LDS_PR_M:
+    m_cyclesExecuted += LDSMPR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_GBR_M:
+    m_cyclesExecuted += STCMGBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_SR_M:
+    m_cyclesExecuted += STCMSR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STC_VBR_M:
+    m_cyclesExecuted += STCMVBR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_MACH_M:
+    m_cyclesExecuted += STSMMACH<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_MACL_M:
+    m_cyclesExecuted += STSMMACL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_STS_PR_M:
+    m_cyclesExecuted += STSMPR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ADD:
+    m_cyclesExecuted += ADD<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ADD_I:
+    m_cyclesExecuted += ADDI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ADDC:
+    m_cyclesExecuted += ADDC<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ADDV:
+    m_cyclesExecuted += ADDV<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_AND_R:
+    m_cyclesExecuted += AND<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_AND_I:
+    m_cyclesExecuted += ANDI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_AND_M:
+    m_cyclesExecuted += ANDM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_NEG:
+    m_cyclesExecuted += NEG<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_NEGC:
+    m_cyclesExecuted += NEGC<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_NOT:
+    m_cyclesExecuted += NOT<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_OR_R:
+    m_cyclesExecuted += OR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_OR_I:
+    m_cyclesExecuted += ORI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_OR_M:
+    m_cyclesExecuted += ORM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ROTCL:
+    m_cyclesExecuted += ROTCL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ROTCR:
+    m_cyclesExecuted += ROTCR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ROTL:
+    m_cyclesExecuted += ROTL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_ROTR:
+    m_cyclesExecuted += ROTR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHAL:
+    m_cyclesExecuted += SHAL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHAR:
+    m_cyclesExecuted += SHAR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLL:
+    m_cyclesExecuted += SHLL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLL2:
+    m_cyclesExecuted += SHLL2<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLL8:
+    m_cyclesExecuted += SHLL8<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLL16:
+    m_cyclesExecuted += SHLL16<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLR:
+    m_cyclesExecuted += SHLR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLR2:
+    m_cyclesExecuted += SHLR2<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLR8:
+    m_cyclesExecuted += SHLR8<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SHLR16:
+    m_cyclesExecuted += SHLR16<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SUB:
+    m_cyclesExecuted += SUB<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SUBC:
+    m_cyclesExecuted += SUBC<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_SUBV:
+    m_cyclesExecuted += SUBV<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_XOR_R:
+    m_cyclesExecuted += XOR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_XOR_I:
+    m_cyclesExecuted += XORI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_XOR_M:
+    m_cyclesExecuted += XORM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_DT:
+    m_cyclesExecuted += DT<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CLRMAC:
+    m_cyclesExecuted += CLRMAC<false, emulateCache, true>();
+    GBSAT_CHAIN_NEXT();
+op_Delay_MACW:
+    m_cyclesExecuted += MACW<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MACL:
+    m_cyclesExecuted += MACL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MUL:
+    m_cyclesExecuted += MULL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MULS:
+    m_cyclesExecuted += MULS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_MULU:
+    m_cyclesExecuted += MULU<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_DMULS:
+    m_cyclesExecuted += DMULS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_DMULU:
+    m_cyclesExecuted += DMULU<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_DIV0S:
+    m_cyclesExecuted += DIV0S<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_DIV0U:
+    m_cyclesExecuted += DIV0U<false, emulateCache, true>();
+    GBSAT_CHAIN_NEXT();
+op_Delay_DIV1:
+    m_cyclesExecuted += DIV1<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_EQ_I:
+    m_cyclesExecuted += CMPIM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_EQ_R:
+    m_cyclesExecuted += CMPEQ<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_GE:
+    m_cyclesExecuted += CMPGE<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_GT:
+    m_cyclesExecuted += CMPGT<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_HI:
+    m_cyclesExecuted += CMPHI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_HS:
+    m_cyclesExecuted += CMPHS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_PL:
+    m_cyclesExecuted += CMPPL<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_PZ:
+    m_cyclesExecuted += CMPPZ<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_CMP_STR:
+    m_cyclesExecuted += CMPSTR<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_TAS:
+    m_cyclesExecuted += TAS<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_TST_R:
+    m_cyclesExecuted += TST<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_TST_I:
+    m_cyclesExecuted += TSTI<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_Delay_TST_M:
+    m_cyclesExecuted += TSTM<false, emulateCache, true>(instr);
+    GBSAT_CHAIN_NEXT();
+op_IllegalSlot:
+    AdvancePC<false, emulateCache, true>(); m_cyclesExecuted += EnterException<false, emulateCache>(xvSlotIllegalInstr);
+    GBSAT_CHAIN_NEXT();
+#undef GBSAT_CHAIN_NEXT
+}
+
+template void SH2::RunChained<false>(uint64, uint32 &);
+template void SH2::RunChained<true>(uint64, uint32 &);
+
 
 template <bool debug, bool emulateCache>
 FORCE_INLINE_EX uint64 SH2::InterpretNext() {
