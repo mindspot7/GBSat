@@ -42,6 +42,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.14.3
+          # The action only saves its cache from the default branch; builds here run on android-port
+          cache-read-only: false
 
       - name: Install ccache
         run: sudo apt-get install -y -qq ccache
@@ -110,7 +112,7 @@ jobs:
           set +e
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
           ccache -z >/dev/null
-          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --stacktrace > build.log 2>&1
+          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --build-cache -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')

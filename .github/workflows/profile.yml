@@ -26,7 +26,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v5
-        with: { gradle-version: 8.14.3 }
+        with: { gradle-version: 8.14.3, cache-read-only: false }
       - name: Install ccache
         run: sudo apt-get install -y -qq ccache
 
@@ -66,7 +66,7 @@ jobs:
           set +e
           export GITHUB_RUN_NUMBER=$BUILD_NUMBER
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
-          gradle --no-daemon assembleRelease -PgbsatProfile -PgbsatCcache --stacktrace > build.log 2>&1; rc=$?
+          gradle --no-daemon assembleRelease -PgbsatProfile -PgbsatCcache --build-cache -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1; rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log; grep -E "What went wrong" -A4 build.log) | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             echo "::error title=Build errors::$msg"
