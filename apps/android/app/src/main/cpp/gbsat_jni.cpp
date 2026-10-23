@@ -1249,8 +1249,15 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             for (char &c : hdr) {
                 if (c < 0x20 || c > 0x7E) c = ' ';
             }
-            std::lock_guard lk(g->winMutex);
-            g->discHeader = hdr;
+            {
+                std::lock_guard lk(g->winMutex);
+                g->discHeader = hdr;
+            }
+            // The loaded game's title in the log: tools/profile.bat names its reports after it (reading the performance
+            // log from the shell could return a stale copy, so the previous game's name)
+            std::string title = hdr.substr(0x60, 112);
+            title.erase(title.find_last_not_of(' ') + 1);
+            LOGI("Game: %s", title.c_str());
         }
     }
     // Cartridge from the game database (adapted from Mednafen): the RAM cartridge for the games that need one (1, 4 or

@@ -1,6 +1,6 @@
 @echo off
 rem CPU profile: records 20 seconds of the running game with simpleperf (built into Android) and saves
-rem %NAME%-profile_<GAME>.txt next to this script, named after the game being played (from the performance log),
+rem %NAME%-profile_<GAME>.txt next to this script, named after the game being played (from the app's log),
 rem so several games can be recorded in a row without renaming. Asks for another game at the end.
 rem Before running: install the profiling build, start a game, connect the device by USB (USB debugging on).
 setlocal EnableDelayedExpansion
@@ -17,10 +17,14 @@ echo.
 echo Start the game on the device and play; press a key here to record 20 seconds.
 pause >nul
 
-rem Game name: the "game" column of the performance log's last line (written every second while a game runs), made
-rem filename-safe on the device (letters and digits, the rest becomes "_")
+echo Recording 20 seconds... keep playing.
+adb shell simpleperf record --app %APP% -e cpu-clock -f 2000 --duration 20 -o /data/local/tmp/%NAME%.data
+if errorlevel 1 (echo Recording failed: is the profiling build installed and the game running? & pause & exit /b 1)
+rem Game name: the last "Game: <title>" line the app wrote to the system log when it loaded a disc (the performance log
+rem read from the shell could be a stale copy and give the previous game), made filename-safe on the device (letters
+rem and digits, the rest becomes "_")
 set GAME=
-for /f "usebackq delims=" %%G in (`adb shell "tail -n 1 /sdcard/Android/media/%APP%/perf-log.csv 2>/dev/null | cut -d, -f2 | tr -cs 'A-Za-z0-9' '_' | cut -c1-32 | sed 's/^_*//;s/_*$//'"`) do set "GAME=%%G"
+for /f "usebackq delims=" %%G in (`adb shell "logcat -d -s GBSat:I 2>/dev/null | grep 'Game: ' | tail -n 1 | sed 's/.*Game: //' | tr -cs 'A-Za-z0-9' '_' | cut -c1-32 | sed 's/^_*//;s/_*$//'"`) do set "GAME=%%G"
 if not defined GAME set GAME=game
 if "!GAME!"=="game" set GAME=game
 set "OUT=%NAME%-profile_!GAME!.txt"
@@ -28,9 +32,6 @@ set N=2
 :unique
 if exist "!OUT!" (set "OUT=%NAME%-profile_!GAME!_!N!.txt" & set /a N+=1 & goto unique)
 
-echo Recording 20 seconds of !GAME!... keep playing.
-adb shell simpleperf record --app %APP% -e cpu-clock -f 2000 --duration 20 -o /data/local/tmp/%NAME%.data
-if errorlevel 1 (echo Recording failed: is the profiling build installed and the game running? & pause & exit /b 1)
 echo Building the report...
 > "!OUT!" echo === %NAME% profile: !GAME! ===
 >> "!OUT!" adb shell getprop ro.product.model
