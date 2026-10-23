@@ -1924,6 +1924,11 @@ JNI_FN(void, nativeSetDisplayOptions)(JNIEnv *, jclass, jint filter, jint shader
     glr::SetOptions(filter, shader);
 }
 
+// Colour correction (0 none, 1 bsnes gamma ramp), with any shader
+JNI_FN(void, nativeSetColorCorrection)(JNIEnv *, jclass, jint mode) {
+    glr::SetColorCorrection(mode);
+}
+
 // Cheats: parallel arrays of address / value / size (1, 2 or 4 bytes).
 JNI_FN(void, nativeSetCheats)(JNIEnv *env, jclass, jlongArray addrs, jlongArray values, jintArray sizes) {
     if (!g) {

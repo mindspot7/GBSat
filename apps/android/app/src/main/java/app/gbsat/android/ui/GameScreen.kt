@@ -273,6 +273,10 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                         Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]
                                         Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                                     }
+                                    MenuItem(Icons.Default.Contrast, "Color correction", value = if (Emulator.gammaRamp) "bsnes gamma" else "Off") {
+                                        Emulator.gammaRamp = !Emulator.gammaRamp; Emulator.savePrefs()
+                                        NativeBridge.nativeSetColorCorrection(if (Emulator.gammaRamp) 1 else 0)
+                                    }
                                     MenuItem(Icons.Default.FilterAlt, "Filter", value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)]) {
                                         Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                                     }

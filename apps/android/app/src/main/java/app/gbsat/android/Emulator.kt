@@ -103,6 +103,7 @@ object Emulator {
             "scale=$resScaleLabel",
             "filter=${if (filter == 0) "nearest" else "bilinear"}",
             "shader=${shaderNames.getOrElse(shader) { "$shader" }}",
+            "gamma_ramp=${on(gammaRamp)}",
             "aspect=${listOf("4:3", "fill", "16:9").getOrElse(aspect) { "$aspect" }}",
             "widescreen=${widescreenHack ?: "off"}",
             "frameskip=${on(frameSkip)}",
@@ -153,11 +154,13 @@ object Emulator {
     val effectiveScale get() = if (resScale == 0) nativeScale else resScale
     val resScaleLabel get() = if (resScale == 0) "Native (${nativeScale}x)" else "${resScale}x"
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear
-    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 5 CRT Royale (4, dot matrix, was removed)
+    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 5 CRT Royale, 6 GTU (4, dot matrix, was removed)
     /** Shader names by internal id (4 is unused: the dot matrix shader was removed). */
-    val shaderNames = listOf("None", "Scanlines", "CRT", "LCD3x", "", "CRT Royale")
+    val shaderNames = listOf("None", "Scanlines", "CRT", "LCD3x", "", "CRT Royale", "GTU")
     /** Shader ids in the order the menus offer them. */
-    val shaderOrder = listOf(0, 2, 5, 3, 1)
+    val shaderOrder = listOf(0, 2, 5, 6, 3, 1)
+    /** bsnes gamma ramp colour correction (darker dark and mid tones, as on the SNES/CRT), with any shader. */
+    var gammaRamp by mutableStateOf(false)
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
 
     // Hotkeys: action -> set of keycodes (1 key = button, 2+ = combination)
@@ -468,7 +471,8 @@ object Emulator {
         // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
         renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
-        shader = prefs.getInt("shader", 0).let { if (it == 4 || it !in 0..5) 0 else it } // dot matrix (4) was removed
+        shader = prefs.getInt("shader", 0).let { if (it == 4 || it !in 0..6) 0 else it } // dot matrix (4) was removed
+        gammaRamp = prefs.getBoolean("gammaRamp", false)
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
         cdSpeed = prefs.getInt("cdSpeed", 8).coerceIn(2, 200)
         // Once: 4x (the usual choice before videos and streamed music switched back to the original speed) becomes 8x
@@ -539,6 +543,7 @@ object Emulator {
         NativeBridge.nativeSetAudio(volume, ffAudio)
         NativeBridge.nativeSetRenderer(displayRenderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
+        NativeBridge.nativeSetColorCorrection(if (gammaRamp) 1 else 0)
         if (running) applyCheats()
         if (fastBoot) NativeBridge.nativeSetFastBoot(true)
     }
@@ -563,7 +568,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
         .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putBoolean("gammaRamp", gammaRamp).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
 
     /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */

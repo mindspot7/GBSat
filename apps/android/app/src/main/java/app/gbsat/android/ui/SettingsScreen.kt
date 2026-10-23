@@ -208,6 +208,9 @@ private fun VideoPage() {
             val shaderIds = Emulator.shaderOrder
             ChoiceRow("Shader", null, shaderIds.map { Emulator.shaderNames[it] },
                 shaderIds.indexOf(Emulator.shader).coerceAtLeast(0), ch { Emulator.shader = shaderIds[it] })
+            SettingsDivider()
+            ToggleRow(Icons.Default.Contrast, "Color correction", "bsnes gamma ramp: darker dark and mid tones, as on a CRT; works with any shader",
+                Emulator.gammaRamp, ch { Emulator.gammaRamp = it })
         }
     }
     SettingsGroup("Overlay", Icons.Default.Layers) {
