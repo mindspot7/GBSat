@@ -200,6 +200,9 @@ void SoftwareVDPRenderer::EnableThreadedVDP2(bool enable) {
         VDP2RenderEvent dummy{};
         while (m_vdp2RenderingContext.eventQueue.try_dequeue(dummy)) {
         }
+        // Copies requested but dropped with the queue: nothing waits for them anymore
+        m_vdp2RenderingContext.spriteCopiesDone.store(m_vdp2SpriteCopiesRequested, std::memory_order_release);
+        m_vdp2UseSpriteFBCopy = false;
     }
 }
 
@@ -460,7 +463,9 @@ void SoftwareVDPRenderer::VDP2WriteReg(uint32 address, uint16 value) {
 // Rendering process
 
 void SoftwareVDPRenderer::VDP1EraseFramebuffer(uint64 cycles) {
-    if (m_threadedVDP2Rendering) {
+    if (VDP2SpriteFBCopyMode()) {
+        VDP2WaitSpriteFBCopy(); // the render thread reads its own copy of the display framebuffer
+    } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1EraseFramebuffer());
         util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.eraseFramebufferReadySignal.Wait();
@@ -484,7 +489,9 @@ void SoftwareVDPRenderer::VDP1SwapFramebuffer() {
         m_vdp1RenderingContext.swapBuffersSignal.Wait();
         m_vdp1RenderingContext.swapBuffersSignal.Reset();
     }
-    if (m_threadedVDP2Rendering) {
+    if (VDP2SpriteFBCopyMode()) {
+        VDP2WaitSpriteFBCopy(); // the render thread doesn't read the framebuffer index (the copy request carries it)
+    } else if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP1SwapFramebuffer());
         util::waitstats::Timer waitTimer{util::waitstats::VDP2};
         m_vdp2RenderingContext.framebufferSwapSignal.Wait();
@@ -555,6 +562,7 @@ void SoftwareVDPRenderer::VDP2LatchTVMD() {
 
 void SoftwareVDPRenderer::VDP2BeginFrame() {
     VDP2PollPendingFrame();
+    m_vdp2SpriteCopyThisFrame = false;
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2BeginFrame());
     } else {
@@ -568,6 +576,12 @@ void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
     }
     m_vdp2LinesThisFrame = true;
     if (m_threadedVDP2Rendering) {
+        if (!m_vdp2SpriteCopyThisFrame && VDP2SpriteFBCopyMode()) {
+            // First line of a drawn frame: the render thread copies the display framebuffer before drawing
+            m_vdp2SpriteCopyThisFrame = true;
+            ++m_vdp2SpriteCopiesRequested;
+            m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2CopySpriteFB(m_state.fbIndex.display));
+        }
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2DrawLine(y));
         m_state.state2.CalcAccessPatterns(m_state.regs2, m_vdp2AccessPatternsConfig);
         m_state.state2.CalcVCellScrollDelay(m_state.regs2);
@@ -599,6 +613,19 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
     }
     Callbacks.VDP2DrawFinished();
     SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
+}
+
+void SoftwareVDPRenderer::VDP2WaitSpriteFBCopy() {
+    auto &done = m_vdp2RenderingContext.spriteCopiesDone;
+    uint32 d = done.load(std::memory_order_acquire);
+    if (d == m_vdp2SpriteCopiesRequested) [[likely]] {
+        return;
+    }
+    util::waitstats::Timer waitTimer{util::waitstats::VDP2};
+    while (d != m_vdp2SpriteCopiesRequested) {
+        done.wait(d, std::memory_order_acquire);
+        d = done.load(std::memory_order_acquire);
+    }
 }
 
 void SoftwareVDPRenderer::VDP2CompletePendingFrame() {
@@ -758,7 +785,16 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
                 VDP2UpdateResolution(event.updateResolution.h, event.updateResolution.v,
                                      event.updateResolution.exclusive);
                 break;
-            case EvtType::VDP2BeginFrame: VDP2InitFrame(); break;
+            case EvtType::VDP2BeginFrame:
+                m_vdp2UseSpriteFBCopy = false; // set again by the frame's copy request
+                VDP2InitFrame();
+                break;
+            case EvtType::VDP2CopySpriteFB:
+                m_vdp2SpriteFB = m_state.mem1.FBRAM[event.copySpriteFB.fbIndex];
+                m_vdp2UseSpriteFBCopy = true;
+                rctx.spriteCopiesDone.fetch_add(1, std::memory_order_release);
+                rctx.spriteCopiesDone.notify_all();
+                break;
             case EvtType::VDP2UpdateEnabledBGs: VDP2UpdateEnabledBGs(); break;
             case EvtType::VDP2DrawLine: //
             {
@@ -2727,7 +2763,9 @@ NO_INLINE void SoftwareVDPRenderer::VDP2DrawSpriteLayer(uint32 y, const VDP2Regs
     auto &layerAttrs = m_spriteLayerAttrs[altField];
 
     const uint8 fbIndex = m_state.fbIndex.display;
-    const auto &fbram = doubleDensity && altField ? m_altFBRAM[fbIndex] : m_state.mem1.FBRAM[fbIndex];
+    const auto &fbram = doubleDensity && altField ? m_altFBRAM[fbIndex]
+                        : m_vdp2UseSpriteFBCopy        ? m_vdp2SpriteFB
+                                                       : m_state.mem1.FBRAM[fbIndex];
 
     [[maybe_unused]] auto &meshLayerOut = m_meshLayerOutput[altField];
     [[maybe_unused]] auto &meshLayerAttrs = m_meshLayerAttrs[altField];

@@ -401,6 +401,7 @@ private:
             VDP2UpdateEnabledBGs,
             VDP2DrawLine,
             VDP2EndFrame,
+            VDP2CopySpriteFB,
 
             VDP2VRAMWriteByte,
             VDP2VRAMWriteWord,
@@ -435,6 +436,10 @@ private:
             } oddField;
 
             struct {
+                uint8 fbIndex;
+            } copySpriteFB;
+
+            struct {
                 uint32 address;
                 uint32 value;
             } write;
@@ -458,6 +463,10 @@ private:
 
         static VDP2RenderEvent VDP1SwapFramebuffer() {
             return {Type::VDP1SwapFramebuffer};
+        }
+
+        static VDP2RenderEvent VDP2CopySpriteFB(uint8 fbIndex) {
+            return {Type::VDP2CopySpriteFB, {.copySpriteFB = {.fbIndex = fbIndex}}};
         }
 
         static VDP2RenderEvent VDP1WriteTVMR(uint16 value) {
@@ -543,6 +552,7 @@ private:
         moodycamel::ConsumerToken cTok{eventQueue};
         util::Event renderFinishedSignal{false};
         std::atomic<bool> frameFinished{false}; // set with renderFinishedSignal: lets the emulation check without waiting
+        std::atomic<uint32> spriteCopiesDone{0}; // VDP2CopySpriteFB events processed (see m_vdp2SpriteFB)
         util::Event framebufferSwapSignal{false};
         util::Event eraseFramebufferReadySignal{false};
         util::Event preSaveSyncSignal{false};
@@ -620,6 +630,19 @@ private:
     bool m_vdp2FramePending = false;   // a drawn frame was handed to the render thread and not delivered yet
     bool m_vdp2LinesThisFrame = false; // the current frame draws lines (false on frames skipped by the frontend)
     void VDP2CompletePendingFrame();
+
+    // Own copy of the VDP1 display framebuffer for the VDP2 render thread (threaded VDP2 without the deinterlace and
+    // transparent mesh enhancements). Taken by the render thread when it starts a drawn frame, so a VDP1 framebuffer
+    // erase or swap only waits until that copy is taken instead of until the whole frame is drawn (that wait was ~4 ms of
+    // every drawn frame on Virtua Fighter 2, RG Rotate).
+    alignas(16) SpriteFB m_vdp2SpriteFB;
+    bool m_vdp2UseSpriteFBCopy = false;           // render thread: this frame reads m_vdp2SpriteFB
+    uint32 m_vdp2SpriteCopiesRequested = 0;       // emulation thread: VDP2CopySpriteFB events sent
+    bool m_vdp2SpriteCopyThisFrame = false;       // emulation thread: the copy for the current frame was requested
+    [[nodiscard]] bool VDP2SpriteFBCopyMode() const {
+        return m_threadedVDP2Rendering && !m_enhancements.deinterlace && !m_enhancements.transparentMeshes;
+    }
+    void VDP2WaitSpriteFBCopy(); // until the render thread has taken every requested copy
     // Delivers the deferred frame only if the render thread has already finished it (never waits)
     void VDP2PollPendingFrame() {
         if (m_vdp2FramePending && m_vdp2RenderingContext.frameFinished.load(std::memory_order_acquire)) [[unlikely]] {
