@@ -112,7 +112,9 @@ void SoftwareVDPRenderer::Reset(bool hard) {
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::Reset());
     } else {
-        m_framebuffer.fill(0xFF000000);
+        for (auto &fb : m_framebuffers) {
+            fb.fill(0xFF000000);
+        }
     }
 
     for (auto &state : m_vramFetchers) {
@@ -545,7 +547,7 @@ void SoftwareVDPRenderer::VDP2UpdateResolution(uint32 h, uint32 v, bool exclusiv
     if (m_state.regs2.TVMD.BDCLMD) {
         color |= m_state.state2.lineBackLayerState.backColor.u32;
     }
-    std::fill_n(m_framebuffer.begin(), m_HRes * m_VRes, color);
+    std::fill_n(DrawFB().begin(), m_HRes * m_VRes, color);
 }
 
 void SoftwareVDPRenderer::VDP2SetField(bool odd) {
@@ -572,7 +574,13 @@ void SoftwareVDPRenderer::VDP2BeginFrame() {
 
 void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
     if (m_vdp2FramePending) [[unlikely]] {
-        VDP2CompletePendingFrame(); // the render thread is about to overwrite the framebuffer
+        if (m_vdp2PendingFlipped) {
+            // Drawn into the other framebuffer: the previous frame only if the render thread has finished it (VDP2EndFrame
+            // delivers it at the latest, before the render thread can switch back to its buffer)
+            VDP2PollPendingFrame();
+        } else {
+            VDP2CompletePendingFrame(); // same framebuffer (interlaced): the render thread is about to overwrite it
+        }
     }
     m_vdp2LinesThisFrame = true;
     if (m_threadedVDP2Rendering) {
@@ -607,12 +615,13 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
     }
     if (m_threadedVDP2Rendering) {
         // Delivered later (VDP2CompletePendingFrame) instead of waiting here for the render thread to finish
-        m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame());
+        m_vdp2PendingFlipped = !m_state.regs2.TVMD.IsInterlaced();
+        m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame(m_vdp2PendingFlipped));
         m_vdp2FramePending = true;
         return;
     }
     Callbacks.VDP2DrawFinished();
-    SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
+    SwCallbacks.FrameComplete(DrawFB().data(), m_HRes, m_VRes);
 }
 
 void SoftwareVDPRenderer::VDP2WaitSpriteFBCopy() {
@@ -622,6 +631,7 @@ void SoftwareVDPRenderer::VDP2WaitSpriteFBCopy() {
         return;
     }
     util::waitstats::Timer waitTimer{util::waitstats::VDP2};
+    util::waitstats::SplitTimer splitTimer{util::waitstats::g_vdp2CopyWaitNs};
     while (d != m_vdp2SpriteCopiesRequested) {
         done.wait(d, std::memory_order_acquire);
         d = done.load(std::memory_order_acquire);
@@ -633,14 +643,19 @@ void SoftwareVDPRenderer::VDP2CompletePendingFrame() {
         return;
     }
     m_vdp2FramePending = false;
-    {
+    auto &rctx = m_vdp2RenderingContext;
+    if (rctx.frameFinished.load(std::memory_order_acquire)) {
+        rctx.renderFinishedSignal.Wait(); // already set (manual-reset event): returns at once
+    } else {
         util::waitstats::Timer waitTimer{util::waitstats::VDP2};
-        m_vdp2RenderingContext.renderFinishedSignal.Wait();
+        util::waitstats::SplitTimer splitTimer{util::waitstats::g_vdp2FrameWaitNs};
+        rctx.renderFinishedSignal.Wait();
     }
-    m_vdp2RenderingContext.renderFinishedSignal.Reset();
-    m_vdp2RenderingContext.frameFinished.store(false, std::memory_order_relaxed);
+    rctx.renderFinishedSignal.Reset();
+    rctx.frameFinished.store(false, std::memory_order_relaxed);
+    const uint32 fb = rctx.finishedFB.load(std::memory_order_acquire);
     Callbacks.VDP2DrawFinished();
-    SwCallbacks.FrameComplete(m_framebuffer.data(), m_HRes, m_VRes);
+    SwCallbacks.FrameComplete(m_framebuffers[fb].data(), m_HRes, m_VRes);
 }
 
 // -----------------------------------------------------------------------------
@@ -773,7 +788,9 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
             switch (event.type) {
             case EvtType::Reset:
                 rctx.Reset();
-                m_framebuffer.fill(0xFF000000);
+                for (auto &fb : m_framebuffers) {
+                    fb.fill(0xFF000000);
+                }
                 break;
             case EvtType::OddField: rctx.vdp2.regs.TVSTAT.ODD = event.oddField.odd; break;
             case EvtType::VDP2LatchTVMD: rctx.vdp2.regs.LatchTVMD(); break;
@@ -819,6 +836,12 @@ void SoftwareVDPRenderer::VDP2RenderThread() {
                 break;
             }
             case EvtType::VDP2EndFrame:
+                // Progressive screens: the next drawn frame goes into the other buffer. The emulation delivers this one
+                // before it sends the next frame's end, so this buffer is free again when the render thread switches back.
+                rctx.finishedFB.store(m_fbDraw, std::memory_order_relaxed);
+                if (event.endFrame.flip) {
+                    m_fbDraw ^= 1;
+                }
                 rctx.frameFinished.store(true, std::memory_order_release);
                 rctx.renderFinishedSignal.Set();
                 break;
@@ -2620,7 +2643,10 @@ FORCE_INLINE void SoftwareVDPRenderer::VDP2FinishLine(uint32 y) {
         const uint32 row = (y << 1) | regs2.TVSTAT.ODD;
         const uint32 partner = row ^ 1u;
         if (row < m_VRes && partner < m_VRes) {
-            std::copy_n(&m_framebuffer[row * m_HRes], m_HRes, &m_framebuffer[partner * m_HRes]);
+            {
+                auto &fb = DrawFB();
+                std::copy_n(&fb[row * m_HRes], m_HRes, &fb[partner * m_HRes]);
+            }
         }
     }
 
@@ -3932,7 +3958,7 @@ FORCE_INLINE void SoftwareVDPRenderer::VDP2ComposeLine(uint32 y, const VDP2Regs 
         if (regs2.borderColorModeLatch) {
             color |= state2.lineBackLayerState.backColor.u32;
         }
-        std::fill_n(&m_framebuffer[y * m_HRes], m_HRes, color);
+        std::fill_n(&DrawFB()[y * m_HRes], m_HRes, color);
         return;
     }
 
@@ -4146,7 +4172,7 @@ FORCE_INLINE void SoftwareVDPRenderer::VDP2ComposeLine(uint32 y, const VDP2Regs 
         }
     }
 
-    const std::span<Color888> framebufferOutput(reinterpret_cast<Color888 *>(&m_framebuffer[y * m_HRes]), m_HRes);
+    const std::span<Color888> framebufferOutput(reinterpret_cast<Color888 *>(&DrawFB()[y * m_HRes]), m_HRes);
 
     const bool normalTVMode = regs2.TVMD.HRESOn < 2;
     const uint8 cramMode = regs2.vramControl.colorRAMMode;

@@ -12,6 +12,10 @@ namespace util::waitstats {
 enum Kind { SCSP, VDP1, VDP2, Count };
 
 inline std::atomic<uint64_t> g_waitNs[Count]{};
+// Parts of the VDP2 wait: for the render thread to finish the previous frame (deferred delivery) and to take its copy of
+// the VDP1 framebuffer (before a VDP1 erase or swap). The rest of VDP2 is erase/swap without the copy.
+inline std::atomic<uint64_t> g_vdp2FrameWaitNs{0};
+inline std::atomic<uint64_t> g_vdp2CopyWaitNs{0};
 
 struct Timer {
     Kind kind;
@@ -19,6 +23,17 @@ struct Timer {
     explicit Timer(Kind k) : kind(k) {}
     ~Timer() {
         g_waitNs[kind].fetch_add(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(),
+            std::memory_order_relaxed);
+    }
+};
+
+struct SplitTimer {
+    std::atomic<uint64_t> &total;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    explicit SplitTimer(std::atomic<uint64_t> &t) : total(t) {}
+    ~SplitTimer() {
+        total.fetch_add(
             std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(),
             std::memory_order_relaxed);
     }

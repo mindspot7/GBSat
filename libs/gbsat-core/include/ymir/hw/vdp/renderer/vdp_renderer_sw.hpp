@@ -440,6 +440,10 @@ private:
             } copySpriteFB;
 
             struct {
+                bool flip; // the next drawn frame goes into the other framebuffer
+            } endFrame;
+
+            struct {
                 uint32 address;
                 uint32 value;
             } write;
@@ -489,8 +493,8 @@ private:
             return {Type::VDP2DrawLine, {.drawLine = {.vcnt = vcnt}}};
         }
 
-        static VDP2RenderEvent VDP2EndFrame() {
-            return {Type::VDP2EndFrame};
+        static VDP2RenderEvent VDP2EndFrame(bool flip) {
+            return {Type::VDP2EndFrame, {.endFrame = {.flip = flip}}};
         }
 
         template <mem_primitive_16 T>
@@ -552,6 +556,7 @@ private:
         moodycamel::ConsumerToken cTok{eventQueue};
         util::Event renderFinishedSignal{false};
         std::atomic<bool> frameFinished{false}; // set with renderFinishedSignal: lets the emulation check without waiting
+        std::atomic<uint32> finishedFB{0};      // m_framebuffers index of the finished frame (set before frameFinished)
         std::atomic<uint32> spriteCopiesDone{0}; // VDP2CopySpriteFB events processed (see m_vdp2SpriteFB)
         util::Event framebufferSwapSignal{false};
         util::Event eraseFramebufferReadySignal{false};
@@ -624,11 +629,13 @@ private:
     bool m_threadedVDP2Rendering = false;
 
     // Deferred frame delivery (threaded VDP2): at the end of a frame the emulation no longer waits for the render thread
-    // to finish it; the frame is delivered when the next drawn frame starts drawing (or at the next frame end, a
+    // to finish it; the frame is delivered as soon as the render thread has finished it (polled while the next frame
+    // runs, which the render thread draws into the other framebuffer), at the latest at the next frame end (or at a
     // resolution change, a reset, a save state), so the render thread finishes in parallel with the emulation of the
     // blanking period and of frames that aren't drawn ("Hi-res: one field", frame skip).
     bool m_vdp2FramePending = false;   // a drawn frame was handed to the render thread and not delivered yet
     bool m_vdp2LinesThisFrame = false; // the current frame draws lines (false on frames skipped by the frontend)
+    bool m_vdp2PendingFlipped = false; // the render thread draws the frame after the pending one into the other buffer
     void VDP2CompletePendingFrame();
 
     // Own copy of the VDP1 display framebuffer for the VDP2 render thread (threaded VDP2 without the deinterlace and
@@ -1001,8 +1008,17 @@ private:
     // Indexing: [altField]
     std::array<ComposeLineBuffers, 2> m_composeLineBuffers;
 
-    // Current display framebuffer.
-    std::array<uint32, kMaxResH * kMaxResV> m_framebuffer;
+    // Display framebuffers. With threaded VDP2 and progressive screens the render thread alternates between the two
+    // (switching after each drawn frame), so it draws the next frame while the previous one waits to be delivered; with a
+    // single buffer the emulation waited at the first line of every drawn frame until the render thread had finished the
+    // previous one (~3 ms of the heavy frames of Burning Rangers on the RG Rotate once the SH-2 got faster, performance
+    // log). Interlaced screens keep one buffer: each frame draws one field and the picture keeps the other field's rows.
+    using FrameBuffer = std::array<uint32, kMaxResH * kMaxResV>;
+    std::array<FrameBuffer, 2> m_framebuffers;
+    uint32 m_fbDraw = 0; // buffer being drawn (owned by the render thread with threaded VDP2)
+    FrameBuffer &DrawFB() {
+        return m_framebuffers[m_fbDraw];
+    }
 
     // Retrieves the current set of VDP2 registers.
     VDP2Regs &VDP2GetRegs();
