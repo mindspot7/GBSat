@@ -2652,7 +2652,7 @@ FORCE_INLINE uint64 SH2::EnterException(uint8 vectorNumber) {
 // from its own indirect jump (computed goto), instead of all of them returning to one switch. With a single dispatch
 // point the CPU mispredicted most jumps: on the RG Rotate ~1/3 of the SH-2 time was that (simpleperf by source line,
 // Burning Rangers). Same work per instruction as InterpretNext + the Advance loop: stops (back to Advance) when the time
-// slice ends, after a short backward jump (Advance's idle-loop detection looks at it) and before a pending interrupt
+// slice ends, after a short backward jump that Advance's idle-loop detection must look at and before a pending interrupt
 // (InterpretNext services it). [prevPC] is the PC of the last instruction run.
 template <bool emulateCache>
 void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
@@ -2938,10 +2938,43 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
     m_cyclesExecuted += InterpretNext<false, emulateCache>();
     uint16 instr;
 
+    // Short backward jump (a loop iteration): Advance's idle-loop detection only acts the second time a loop reaches
+    // the same head with no verdict yet (or after 1024 iterations judged not idle). The other iterations only update
+    // the loop head, done here so tight loops that aren't idle keep running chained instead of returning to Advance
+    // (and through InterpretNext) on every iteration: ~12% of the emulation thread in Burning Rangers (RG Rotate,
+    // simpleperf by source line). Same bookkeeping as Advance; on profiled frames Advance sees every iteration.
+    const bool chainProf = util::waitstats::g_profile.load(std::memory_order_relaxed);
+    #if defined(__GNUC__) || defined(__clang__)
+    #define GBSAT_LAMBDA_INLINE __attribute__((always_inline))
+#else
+    #define GBSAT_LAMBDA_INLINE
+#endif
+    const auto loopBack = [&]() GBSAT_LAMBDA_INLINE -> bool {
+        if (chainProf) {
+            return false;
+        }
+        if (!m_idleSkip) {
+            return true;
+        }
+        if (PC == m_idleHead && !m_delaySlot && !m_intrFlags.pending) {
+            IdleVerdict &v = m_notIdle[(PC >> 1) & 31];
+            if (v.head != PC || v.last != prevPC || v.retry == 0) {
+                return false; // Advance analyzes this loop
+            }
+            --v.retry;
+        }
+        m_idleHead = PC;
+        m_idleHeadAt = m_cyclesExecuted;
+        return true;
+    };
+
 #define GBSAT_CHAIN_NEXT()                                                                                             \
     do {                                                                                                               \
-        if (m_cyclesExecuted >= cycles || (PC < prevPC && prevPC - PC <= kIdleLoopSpan) ||                             \
-            std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {                            \
+        if (m_cyclesExecuted >= cycles || std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed)              \
+            [[unlikely]] {                                                                                             \
+            return;                                                                                                    \
+        }                                                                                                             \
+        if (PC < prevPC && prevPC - PC <= kIdleLoopSpan && !loopBack()) [[unlikely]] {                                 \
             return;                                                                                                    \
         }                                                                                                             \
         prevPC = PC;                                                                                                   \
