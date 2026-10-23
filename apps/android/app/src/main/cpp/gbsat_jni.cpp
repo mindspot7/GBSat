@@ -11,6 +11,7 @@
 #include <unwind.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
+#include <sys/system_properties.h>
 
 #include <ymir/ymir.hpp>
 #include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
@@ -374,6 +375,20 @@ void DrainCommands() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Video
+
+// A/B diagnostics, switched with adb while a game runs (gbsat.bat, option 6), read once per second:
+//   debug.gbsat.sh2_plain=1   SH-2 plain interpreter instead of the chained one (SH2::RunChained)
+//   debug.gbsat.vdp2_one_fb=1 threaded VDP2 with one framebuffer (waits for the previous frame, as before build254)
+// The performance log's settings column shows them (diag=...).
+static bool PropOn(const char *key) {
+    char v[PROP_VALUE_MAX] = {};
+    return __system_property_get(key, v) > 0 && v[0] == '1';
+}
+
+static void ReadDiagnosticProps() {
+    util::waitstats::g_sh2Chained.store(!PropOn("debug.gbsat.sh2_plain"), std::memory_order_relaxed);
+    util::waitstats::g_vdp2TwoFB.store(!PropOn("debug.gbsat.vdp2_one_fb"), std::memory_order_relaxed);
+}
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     // Not gated by the frame skip flag: the software renderer no longer delivers skipped frames, and with threaded VDP2
@@ -822,6 +837,12 @@ void WritePerfLog(float fps, float presentedFps) {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
+    if (!util::waitstats::g_sh2Chained.load(std::memory_order_relaxed) ||
+        !util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed)) {
+        settings += ";diag=";
+        settings += util::waitstats::g_sh2Chained.load(std::memory_order_relaxed) ? "" : "sh2_plain ";
+        settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb";
+    }
     fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
@@ -1004,6 +1025,7 @@ void EmuLoop() {
             cputune::PinEmulationThreads();
         }
         if (now - fpsWindowStart >= seconds(1)) {
+            ReadDiagnosticProps();
             const float secs = duration<float>(now - fpsWindowStart).count();
             g->fps = fpsFrames / secs;
             WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);

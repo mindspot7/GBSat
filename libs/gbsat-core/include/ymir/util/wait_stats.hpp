@@ -49,6 +49,8 @@ inline std::atomic<bool> g_profile{false};
 inline std::atomic<bool> g_oneField{false};
 // SH-2 chained interpreter (SH2::RunChained); off only for tests that compare it with the plain interpreter
 inline std::atomic<bool> g_sh2Chained{true};
+// Threaded VDP2 with two framebuffers (SoftwareVDPRenderer::m_framebuffers); off only for diagnostics (A/B tests)
+inline std::atomic<bool> g_vdp2TwoFB{true};
 inline std::atomic<uint64_t> g_partTicks[PartCount]{};
 inline std::atomic<uint32_t> g_profiledFrames{0};
 

@@ -628,7 +628,8 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
         // rows (same condition as in VDP2FinishLine)
         const bool oneFieldFill = util::waitstats::g_oneField.load(std::memory_order_relaxed) && !m_vdp2ExclusiveRes &&
                                   !m_enhancements.deinterlace;
-        m_vdp2PendingFlipped = !m_state.regs2.TVMD.IsInterlaced() || oneFieldFill;
+        m_vdp2PendingFlipped = util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) &&
+                               (!m_state.regs2.TVMD.IsInterlaced() || oneFieldFill);
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame(m_vdp2PendingFlipped));
         m_vdp2FramePending = true;
         return;
