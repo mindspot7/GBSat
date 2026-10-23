@@ -108,6 +108,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // Installs the baseline profiles (Compose's own and src/main/baseline-prof.txt) on sideloaded APKs, so the UI runs
+    // compiled instead of interpreted right after an install (the library scrolled at ~33 fps on the RG Rotate: Nterp)
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation(project(":gbframe"))
 
     testImplementation(composeBom)
