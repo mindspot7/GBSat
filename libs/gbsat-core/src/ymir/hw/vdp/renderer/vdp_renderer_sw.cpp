@@ -593,6 +593,13 @@ void SoftwareVDPRenderer::VDP2RenderLine(uint32 y) {
             m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2CopySpriteFB(m_state.fbIndex.display));
         }
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2DrawLine(y));
+        if ((y & 7) == 7) {
+            // Batched lines and VDP1 commands go to the render threads every 8 lines (see EnqueueEvent)
+            m_vdp2RenderingContext.FlushPendingEvents();
+            if (m_threadedVDP1Rendering) {
+                m_vdp1RenderingContext.FlushPendingEvents();
+            }
+        }
         m_state.state2.CalcAccessPatterns(m_state.regs2, m_vdp2AccessPatternsConfig);
         m_state.state2.CalcVCellScrollDelay(m_state.regs2);
     } else {

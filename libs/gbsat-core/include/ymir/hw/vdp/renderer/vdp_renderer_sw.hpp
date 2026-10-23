@@ -357,7 +357,11 @@ private:
             case VDP1RenderEvent::Type::FBRAMWriteByte:
             case VDP1RenderEvent::Type::FBRAMWriteWord:
             case VDP1RenderEvent::Type::RegWrite:
-                // Batch these writes to send in bulk
+            case VDP1RenderEvent::Type::Command:
+                // Batch these writes (and draw commands) to send in bulk: every event sent on its own woke the render
+                // thread when it had caught up, ~250-400 times per frame in Burning Rangers (most of the emulation
+                // thread's ~9% in the kernel, RG Rotate). Sent at the latest every 8 lines (VDP2RenderLine) and before
+                // any other event (erase, swap, end of drawing) or wait (VDP1SyncFB).
                 pendingEvents[pendingEventsCount++] = event;
                 if (pendingEventsCount == pendingEvents.size()) {
                     FlushPendingEvents();
@@ -597,22 +601,28 @@ private:
             case VDP2RenderEvent::Type::VDP2CRAMWriteByte:
             case VDP2RenderEvent::Type::VDP2CRAMWriteWord:
             case VDP2RenderEvent::Type::VDP2RegWrite:
-                // Batch these writes to send in bulk
+            case VDP2RenderEvent::Type::VDP2DrawLine:
+                // Batch these writes (and lines) to send in bulk; lines are sent at the latest every 8 lines
+                // (VDP2RenderLine) and before any other event (end of frame, framebuffer copy, erase, swap)
                 pendingEvents[pendingEventsCount++] = event;
                 if (pendingEventsCount == pendingEvents.size()) {
-                    eventQueue.enqueue_bulk(pTok, pendingEvents.begin(), pendingEventsCount);
-                    pendingEventsCount = 0;
+                    FlushPendingEvents();
                 }
                 break;
             default:
                 // Send any pending writes before rendering
-                if (pendingEventsCount > 0) {
-                    eventQueue.enqueue_bulk(pTok, pendingEvents.begin(), pendingEventsCount);
-                    pendingEventsCount = 0;
-                }
+                FlushPendingEvents();
                 eventQueue.enqueue(pTok, event);
                 break;
             }
+        }
+
+        FORCE_INLINE void FlushPendingEvents() {
+            if (pendingEventsCount == 0) {
+                return;
+            }
+            eventQueue.enqueue_bulk(pTok, pendingEvents.begin(), pendingEventsCount);
+            pendingEventsCount = 0;
         }
 
         template <typename It>
