@@ -110,14 +110,28 @@ jobs:
           set +e
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
           ccache -z >/dev/null
-          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --stacktrace > build.log 2>&1
+          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
             echo "::error title=Build errors::$msg"
           fi
           tail -60 build.log
-          ccache -s | head -8
+          # Where the time went (shown as notices on the run): ccache hits and the slowest Gradle tasks
+          ccache -s | head -12 | sed 's/^/ccache: /'
+          echo "::notice title=ccache::$(ccache -s | tr -s ' ' | grep -iE 'hit|miss|cache size' | head -6 | tr '\n' ';')"
+          python3 - <<'PY'
+          import glob, re
+          f = sorted(glob.glob("build/reports/profile/profile-*.html"))
+          if f:
+              h = open(f[-1], encoding="utf-8", errors="replace").read()
+              rows = re.findall(r'<td class="indentPath">([^<]+)</td>\s*<td class="numeric">([^<]+)</td>', h)
+              def secs(t):
+                  m = re.match(r'(?:(\d+)m )?([\d.]+)s', t.strip())
+                  return (int(m.group(1) or 0) * 60 + float(m.group(2))) if m else 0
+              top = sorted(rows, key=lambda r: -secs(r[1]))[:8]
+              print("::notice title=Gradle tasks::" + "; ".join(f"{n.strip()} {t.strip()}" for n, t in top))
+          PY
           exit $rc
 
       - name: Name APK with version
