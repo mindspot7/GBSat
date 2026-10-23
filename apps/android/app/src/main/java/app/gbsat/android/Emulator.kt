@@ -35,11 +35,13 @@ object Emulator {
     var gamesDir by mutableStateOf("")
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
-    // Always on, no longer user options (performance logs: turning them off was never faster). One field only acts with
-    // the CPU renderers (the native side ignores it with Vulkan).
-    val idleSkip = true    // SH-2 idle-loop skipping
-    val oneField = true    // hi-res interlaced screens: render one field of each pair
-    val threadedVdp = true // VDP1/VDP2 rendering on their own threads
+    // Not user options (performance logs: turning them off was never faster). One field only acts with the CPU renderers
+    // (the native side ignores it with Vulkan). Idle-loop skipping and threaded VDP stay on unless a game's recommended
+    // profile turns them off ("idleSkip": false / "threadedVdp": false in assets/game_profiles.json): the way to fix a
+    // game that misbehaves with them without bringing the options back.
+    var idleSkip = true; private set    // SH-2 idle-loop skipping
+    val oneField = true                 // hi-res interlaced screens: render one field of each pair
+    var threadedVdp = true; private set // VDP1/VDP2 rendering on their own threads
     var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
     var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
@@ -636,6 +638,9 @@ object Emulator {
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }
+        // Escape hatches for games that misbehave (no user option): applied even when the user chose other settings
+        idleSkip = profile["idleSkip"] as? Boolean ?: true
+        threadedVdp = profile["threadedVdp"] as? Boolean ?: true
         // The threaded audio choices were measured on chips with 2 fast cores, where sound and the background renderer compete
         // for the second one; with 3+ (e.g. Snapdragon 662 in the Low class) both get a core and Auto decides
         if (device.fastCores <= 2) (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
@@ -660,6 +665,7 @@ object Emulator {
         rememberScspMode()
         // Back to the global renderer, frame skip and threaded audio
         sessionGlobals?.let { renderer = it.renderer; frameSkip = it.frameSkip; scspMode = it.scspMode }
+        idleSkip = true; threadedVdp = true
         sessionGlobals = null; sessionStart = null
         applyOptions()
         pause(true); accountPlayTime(); running = false; currentGame = null; Hotkeys.reset(); cheats = emptyList()
