@@ -2537,6 +2537,15 @@ FORCE_INLINE void SoftwareVDPRenderer::VDP2FinishLine(uint32 y) {
     const VDP2Regs &regs2 = VDP2GetRegs();
     const bool doubleDensity = regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity;
 
+    // One-field mode: the first field's line (even row) is also the line below it, which the skipped field would draw
+    if (util::waitstats::g_oneField.load(std::memory_order_relaxed) && regs2.TVMD.IsInterlaced() && !m_exclusiveMonitor &&
+        !m_enhancements.deinterlace && !regs2.TVSTAT.ODD) {
+        const uint32 row = y << 1;
+        if (row + 1 < m_VRes) {
+            std::copy_n(&m_framebuffer[row * m_HRes], m_HRes, &m_framebuffer[(row + 1) * m_HRes]);
+        }
+    }
+
     // Update NBG coordinates
     for (uint32 i = 0; i < 4; ++i) {
         const BGParams &bgParams = regs2.bgParams[i + 1];

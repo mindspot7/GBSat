@@ -1373,6 +1373,7 @@ JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {
 JNI_FN(void, nativeSetOneField)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         g->oneField.store(on, std::memory_order_relaxed);
+        util::waitstats::g_oneField.store(on, std::memory_order_relaxed);
     }
 }
 JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
