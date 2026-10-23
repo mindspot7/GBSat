@@ -633,10 +633,11 @@ object Emulator {
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
         val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, device.tier) else emptyMap()
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
-        // Auto threaded audio starts on with 2+ fast cores. On the Unisoc T618 (2 fast cores) it used to cost the background
+        // Auto threaded audio starts on, on every device. On the Unisoc T618 (2 fast cores) it used to cost the background
         // renderer too much, but with the sound thread no longer polling while it waits it was faster in every game
         // profiled (Daytona USA: emulation thread ~60% of a core instead of ~76%); the tuner still tries the other mode
-        var startThreaded = device.fastCores >= 2
+        // when a game runs slow
+        var startThreaded = true
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }
