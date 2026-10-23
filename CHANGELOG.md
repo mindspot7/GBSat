@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Threaded audio (Auto) now starts on for devices with 2 fast cores too (e.g. RG Rotate): with the lighter sound thread it was faster in every game profiled; per-game choices remembered by Auto are measured again.
 - The library opens on the game (or save state) selected last: leaving a game, closing the menu or a settings page and restarting the app no longer jump back to the first game.
 - Threaded audio uses less CPU: the sound thread sleeps directly while waiting for work instead of polling for up to ~64 µs each time (about a tenth of a core on the RG Rotate, shared with the video threads).
 - Shorter loading with a faster CD read speed (4x and up): seeks on data tracks also run at the faster drive rate (each file read used to spend ~175 ms seeking at the idle rate). No change at the original speed.

@@ -435,8 +435,9 @@ object Emulator {
         prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
         // Threaded audio choices the Auto tuner remembered per game ("scsp:<game>") were measured before the VDP2 render
         // thread stopped blocking the emulation at the end of each frame, which changed which mode is faster (Burning
-        // Rangers on the RG Rotate stayed on "off" at ~55 fps against ~59 with threaded audio): start over ("scsp2:")
-        prefs.all.keys.filter { it.startsWith("scsp:") }.takeIf { it.isNotEmpty() }?.let { old ->
+        // Rangers on the RG Rotate stayed on "off" at ~55 fps against ~59 with threaded audio), and again after the sound
+        // thread stopped polling while waiting and Auto started threaded on 2 fast cores: start over ("scsp3:")
+        prefs.all.keys.filter { it.startsWith("scsp:") || it.startsWith("scsp2:") }.takeIf { it.isNotEmpty() }?.let { old ->
             prefs.edit().apply { old.forEach { remove(it) } }.apply()
         }
         preloadDisc = prefs.getBoolean("preloadDisc", false)
@@ -617,7 +618,7 @@ object Emulator {
     /** Auto threaded audio: remembers the mode the tuner kept for this game. */
     fun rememberScspMode() {
         val game = currentGame ?: return
-        if (scspMode == 0 && running) prefs.edit().putBoolean("scsp2:$game", NativeBridge.nativeGetThreadedScsp()).apply()
+        if (scspMode == 0 && running) prefs.edit().putBoolean("scsp3:$game", NativeBridge.nativeGetThreadedScsp()).apply()
     }
 
     /**
@@ -632,9 +633,10 @@ object Emulator {
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
         val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, device.tier) else emptyMap()
         var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
-        // Auto threaded audio starts on with 3+ fast cores; with 2 (e.g. Unisoc T618) the second one is usually worth more
-        // to the background renderer
-        var startThreaded = device.fastCores >= 3
+        // Auto threaded audio starts on with 2+ fast cores. On the Unisoc T618 (2 fast cores) it used to cost the background
+        // renderer too much, but with the sound thread no longer polling while it waits it was faster in every game
+        // profiled (Daytona USA: emulation thread ~60% of a core instead of ~76%); the tuner still tries the other mode
+        var startThreaded = device.fastCores >= 2
         var audioKnown = false
         (profile["renderer"] as? String)?.let { r = if (it == "gpu") 4 else 1 }
         (profile["frameSkip"] as? Boolean)?.let { fs = it }
@@ -645,7 +647,7 @@ object Emulator {
         // for the second one; with 3+ (e.g. Snapdragon 662 in the Low class) both get a core and Auto decides
         if (device.fastCores <= 2) (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
         // Auto threaded audio: what the tuner measured for this game on this device beats the profile
-        if (prefs.contains("scsp2:$path")) { startThreaded = prefs.getBoolean("scsp2:$path", startThreaded); audioKnown = true }
+        if (prefs.contains("scsp3:$path")) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win
         var userChoice = false
         if (prefs.contains("game:$path:renderer")) { r = prefs.getInt("game:$path:renderer", r); userChoice = true }
