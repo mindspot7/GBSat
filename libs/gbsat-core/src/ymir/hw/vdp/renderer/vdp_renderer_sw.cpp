@@ -101,6 +101,7 @@ void SoftwareVDPRenderer::Reset(bool hard) {
     m_HRes = vdp::kDefaultResH;
     m_VRes = vdp::kDefaultResV;
     m_exclusiveMonitor = false;
+    m_vdp2ExclusiveRes = false;
 
     if (hard) {
         m_CRAMCache.fill({});
@@ -530,6 +531,7 @@ void SoftwareVDPRenderer::VDP1EndFrame() {
 
 void SoftwareVDPRenderer::VDP2SetResolution(uint32 h, uint32 v, bool exclusive) {
     VDP2CompletePendingFrame(); // the render thread changes the size and clears the framebuffer
+    m_vdp2ExclusiveRes = exclusive;
     if (m_threadedVDP2Rendering) {
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2UpdateResolution(h, v, exclusive));
     } else {
@@ -615,7 +617,11 @@ void SoftwareVDPRenderer::VDP2EndFrame() {
     }
     if (m_threadedVDP2Rendering) {
         // Delivered later (VDP2CompletePendingFrame) instead of waiting here for the render thread to finish
-        m_vdp2PendingFlipped = !m_state.regs2.TVMD.IsInterlaced();
+        // Whole pictures only: progressive screens, or interlaced ones with "Hi-res: one field" filling the other field's
+        // rows (same condition as in VDP2FinishLine)
+        const bool oneFieldFill = util::waitstats::g_oneField.load(std::memory_order_relaxed) && !m_vdp2ExclusiveRes &&
+                                  !m_enhancements.deinterlace;
+        m_vdp2PendingFlipped = !m_state.regs2.TVMD.IsInterlaced() || oneFieldFill;
         m_vdp2RenderingContext.EnqueueEvent(VDP2RenderEvent::VDP2EndFrame(m_vdp2PendingFlipped));
         m_vdp2FramePending = true;
         return;

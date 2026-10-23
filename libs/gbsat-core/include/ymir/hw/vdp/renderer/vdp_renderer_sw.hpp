@@ -636,6 +636,7 @@ private:
     bool m_vdp2FramePending = false;   // a drawn frame was handed to the render thread and not delivered yet
     bool m_vdp2LinesThisFrame = false; // the current frame draws lines (false on frames skipped by the frontend)
     bool m_vdp2PendingFlipped = false; // the render thread draws the frame after the pending one into the other buffer
+    bool m_vdp2ExclusiveRes = false;   // emulation thread: last resolution set is exclusive monitor (VDP2SetResolution)
     void VDP2CompletePendingFrame();
 
     // Own copy of the VDP1 display framebuffer for the VDP2 render thread (threaded VDP2 without the deinterlace and
@@ -1012,7 +1013,8 @@ private:
     // (switching after each drawn frame), so it draws the next frame while the previous one waits to be delivered; with a
     // single buffer the emulation waited at the first line of every drawn frame until the render thread had finished the
     // previous one (~3 ms of the heavy frames of Burning Rangers on the RG Rotate once the SH-2 got faster, performance
-    // log). Interlaced screens keep one buffer: each frame draws one field and the picture keeps the other field's rows.
+    // log). Interlaced screens keep one buffer (each frame draws one field and the picture keeps the other field's rows),
+    // except with "Hi-res: one field", where each drawn frame also fills the other field's rows (VDP2FinishLine).
     using FrameBuffer = std::array<uint32, kMaxResH * kMaxResV>;
     std::array<FrameBuffer, 2> m_framebuffers;
     uint32 m_fbDraw = 0; // buffer being drawn (owned by the render thread with threaded VDP2)
