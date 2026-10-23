@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ android-port, vulkan, debug-states ]
-    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/gbsat-core/res/shaders/**', 'libs/gbsat-core/src/ymir/gpu/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/gbsat-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'apps/android/app/src/main/cpp/serdes/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/**', 'libs/gbsat-core/include/ymir/hw/vdp/**' ]
+    paths: [ '.github/workflows/vulkan-dev.yml', 'cmake/**', 'libs/gbsat-core/res/shaders/**', 'libs/gbsat-core/src/ymir/gpu/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/vulkan/**', 'libs/gbsat-core/include/ymir/hw/vdp/renderer/vulkan/**', 'apps/vk-test/**', 'libs/gbsat-core/src/ymir/hw/sh2/**', 'libs/gbsat-core/include/ymir/hw/sh2/**', 'apps/android/app/src/main/cpp/serdes/**', 'libs/gbsat-core/src/ymir/hw/vdp/renderer/**', 'libs/gbsat-core/include/ymir/hw/vdp/**' ]
 
 jobs:
   shaders:
