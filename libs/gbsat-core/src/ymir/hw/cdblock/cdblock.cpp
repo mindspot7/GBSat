@@ -66,6 +66,10 @@ CDBlock::CDBlock(core::Scheduler &scheduler, media::CDInterface &cdif, const med
         if (m_readSpeed > 1) {
             m_readSpeed = m_readSpeedFactor;
             devlog::info<grp::base>("Read speed set to {}x", m_readSpeed);
+            // Applies to a read in progress too (the frontend switches the speed while a game streams from the CD)
+            if (m_status.statusCode == kStatusCodePlay && m_status.controlADR == 0x41) {
+                m_targetDriveCycles = kDriveCyclesPlaying1x / m_readSpeed;
+            }
         }
     });
     m_readSpeedFactor = 2;

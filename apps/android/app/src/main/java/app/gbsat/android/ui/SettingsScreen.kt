@@ -275,7 +275,7 @@ private fun PerformancePage() {
             Emulator.frameSkip, ch { Emulator.frameSkip = it })
         SettingsDivider()
         val cdSpeeds = listOf(2, 4, 8, 16)
-        ChoiceRow("CD read speed", "Shorter loading screens; use Original if a game's videos or music go out of sync",
+        ChoiceRow("CD read speed", "Shorter loading screens. Videos and music streamed from the CD switch back to the original speed; use Original if one still goes out of sync",
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
         SettingsDivider()
         // Skip Engine: maximum speed (sound muted) only while one of these is detected

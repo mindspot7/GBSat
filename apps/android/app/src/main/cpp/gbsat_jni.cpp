@@ -177,6 +177,10 @@ struct Context {
     int wantRun = 0, holdRun = 0;       // frames the skip conditions held / frames the skip stays on after them
     uint32_t lastCdSectors = 0, lastCdSeek = 0, lastBup = 0;
     uint32_t autoSkipFrames = 0;        // frames run by the Skip Engine since the last performance log line
+    // CD read speed: the user's choice, and the one applied (the original 2x while the game streams video or music
+    // from the CD, see UpdateAutoSkip); emulation thread
+    uint8_t cdSpeedUser = 2, cdSpeedApplied = 2;
+    int streamRun = 0, calmRun = 0;
     std::atomic<float> volume{1.0f};   // output volume 0..1
     std::atomic<int> ffAudio{0};       // fast-forward audio: 0 = default (normal pitch, skips), 1 = speed up, 2 = mute
     float ffDecimAcc = 0.0f;           // sample decimation accumulator for "speed up" (SCSP thread)
@@ -625,7 +629,8 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
-// Skip Engine, once per emulated frame (emulation thread): decides whether the next frames run at maximum speed.
+// Skip Engine and CD read speed, once per emulated frame (emulation thread): decides whether the next frames run at
+// maximum speed, and whether the faster CD read speed applies (not while the game streams from the CD).
 //  - Loads: the CD read data or sought on a data track in the last half second, the picture is still or black and the
 //    game is silent (so videos and music streamed from the CD play normally)
 //  - Transitions: 3+ black frames in a row and silence
@@ -644,6 +649,26 @@ void UpdateAutoSkip() {
     g->cdRecent = cdActive ? 30 : std::max(0, g->cdRecent - 1);
     g->saveRecent = bupDelta >= 64 ? 30 : std::max(0, g->saveRecent - 1);
     const bool quiet = g->audioPeak.exchange(0, std::memory_order_relaxed) < 600; // about -35 dB
+
+    // Faster CD reads only while the game isn't streaming: with the CD reading, a moving picture and sound (a video, or
+    // music streamed from the disc) the original speed comes back after 10 frames, and the faster one after 1 s without
+    // it. Like DuckStation, which turns its read speedup off for XA/CD audio and video decoding. Fast reads during
+    // streams made videos and music go out of sync in some games.
+    if (g->cdSpeedUser > 2) {
+        const bool streaming = g->cdRecent > 0 && !quiet && !g->frameStill && !g->frameBlack;
+        g->streamRun = streaming ? g->streamRun + 1 : 0;
+        g->calmRun = streaming ? 0 : g->calmRun + 1;
+        uint8_t speed = g->cdSpeedApplied;
+        if (g->streamRun >= 10) {
+            speed = 2;
+        } else if (g->calmRun >= 60) {
+            speed = g->cdSpeedUser;
+        }
+        if (speed != g->cdSpeedApplied) {
+            g->cdSpeedApplied = speed;
+            g->saturn->configuration.cdblock.readSpeedFactor = speed;
+        }
+    }
 
     bool want = false;
     if (g->skipLoads.load(std::memory_order_relaxed) && g->cdRecent > 0 && quiet && (g->frameStill || g->frameBlack)) {
@@ -766,7 +791,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "auto_skip_pct") == nullptr;
+        fresh = strstr(head, "cd_speed_now") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -782,7 +807,7 @@ void WritePerfLog(float fps, float presentedFps) {
                    "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
                    "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,"
                    "sched_vdp_ms,sched_sound_ms,sched_cd_ms,sched_other_ms,rendered_frame_ms,skipped_frame_ms,"
-                   "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,settings\n");
+                   "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,cd_speed_now,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -928,7 +953,7 @@ void WritePerfLog(float fps, float presentedFps) {
         settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
         settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
@@ -939,7 +964,7 @@ void WritePerfLog(float fps, float presentedFps) {
             schedMs[ws::SchedVDP], schedMs[ws::SchedSCSP], schedMs[ws::SchedCD], schedMs[ws::SchedOther], renderedMs, skippedMs,
             ws::g_vdp2FrameWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             ws::g_vdp2CopyWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
-            g->autoSkipFrames * 100.0 / std::max(1.0f, fps), settings.c_str());
+            g->autoSkipFrames * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied, settings.c_str());
     g->autoSkipFrames = 0;
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
@@ -1675,7 +1700,11 @@ JNI_FN(void, nativeSetAudio)(JNIEnv *, jclass, jint volume, jint ffMode) {
 JNI_FN(void, nativeSetCdReadSpeed)(JNIEnv *, jclass, jint factor) {
     if (g) {
         const uint8_t f = static_cast<uint8_t>(std::clamp<jint>(factor, 2, 200));
-        Post([f] { g->saturn->configuration.cdblock.readSpeedFactor = f; });
+        Post([f] {
+            g->cdSpeedUser = g->cdSpeedApplied = f;
+            g->streamRun = g->calmRun = 0;
+            g->saturn->configuration.cdblock.readSpeedFactor = f;
+        });
     }
 }
 
