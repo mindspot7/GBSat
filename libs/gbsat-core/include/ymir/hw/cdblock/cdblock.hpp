@@ -157,6 +157,7 @@ private:
     bool SetupScan(uint8 direction);
 
     void ProcessDriveState();
+    void ExpediteSeek(); // shorter seeks at accelerated read speeds (see cdblock.cpp)
     void ProcessDriveStatePlay();
     void CheckPlayEnd();
 

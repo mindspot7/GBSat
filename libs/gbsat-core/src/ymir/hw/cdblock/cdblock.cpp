@@ -555,6 +555,18 @@ void CDBlock::LoadState(const savestate::CDBlockSaveState &state) {
     m_fsState.LoadState(state.fs);
 }
 
+// Faster CD read speeds (readSpeedFactor above the original 2x) also shorten seeks on data tracks: the seek steps run at
+// the accelerated drive rate from the start, instead of waiting for the next tick of an idle drive (up to ~35 ms) and, for
+// file reads, ticking at the idle rate through the whole seek (~175 ms per file). The number of seek steps is unchanged
+// (games such as Digital Dance Mix rely on it), and at the original speed nothing changes.
+void CDBlock::ExpediteSeek() {
+    if (m_readSpeedFactor <= 2 || m_readSpeed <= 1 || m_status.controlADR != 0x41) {
+        return;
+    }
+    m_targetDriveCycles = kDriveCyclesPlaying1x / m_readSpeedFactor;
+    m_scheduler.ScheduleNoLaterThan(m_driveStateUpdateEvent, m_targetDriveCycles);
+}
+
 void CDBlock::OnDriveStateUpdateEvent(core::EventContext &eventContext, void *userContext) {
     auto &cdb = *static_cast<CDBlock *>(userContext);
     cdb.ProcessDriveState();
@@ -802,6 +814,7 @@ bool CDBlock::SetupGenericPlayback(uint32 startParam, uint32 endParam, uint16 re
             m_status.track = trackInfo->number;
             m_status.index = 1;
             m_seekTicks = kSeekTicks; // TODO: calculate realistic seek time
+            ExpediteSeek();
 
             if (m_status.controlADR == 0x41) {
                 m_targetDriveCycles = kDriveCyclesPlaying1x / m_readSpeed;
@@ -879,6 +892,7 @@ bool CDBlock::SetupGenericPlayback(uint32 startParam, uint32 endParam, uint16 re
             m_status.track = trackInfo->number;
             m_status.index = 1;
             m_seekTicks = kSeekTicks; // TODO: calculate realistic seek time
+            ExpediteSeek();
 
             if (m_status.controlADR == 0x41) {
                 m_targetDriveCycles = kDriveCyclesPlaying1x / m_readSpeed;
@@ -964,6 +978,7 @@ bool CDBlock::SetupFilePlayback(uint32 fileID, uint32 offset, uint8 filterNumber
     m_status.track = info->number;
     m_status.index = 1;
     m_seekTicks = kSeekTicks; // TODO: calculate realistic seek time
+    ExpediteSeek();
 
     devlog::debug<grp::play_init>("Read file {} (ID {}), offset {}, filter {}, frame addresses {:06X} to {:06X}",
                                   fileInfo.name, fileID, offset, filterNumber, m_playStartPos, m_playEndPos);

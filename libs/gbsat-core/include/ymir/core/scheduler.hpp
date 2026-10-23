@@ -181,6 +181,18 @@ public:
         ScheduleEvent(id, scaledCount + interval);
     }
 
+    /// @brief Brings the specified event forward to `interval` cycles from now, unless it is already due sooner.
+    /// @param[in] id the event ID
+    /// @param[in] interval the interval in cycles from the current cycle count
+    FORCE_INLINE void ScheduleNoLaterThan(EventID id, uint64 interval) {
+        assert(id < kNumScheduledEvents);
+        Event &event = m_events[id];
+        const uint64 target = m_currCount * event.countNumerator / event.countDenominator + interval;
+        if (event.target == kNoDeadline || target < event.target) {
+            ScheduleEvent(id, target);
+        }
+    }
+
     /// @brief Schedules the specified event to happen at the specified cycle count.
     /// @param[in] id the event ID
     /// @param[in] target the absolute cycle count
