@@ -665,7 +665,7 @@ void WritePerfLog(float fps, float presentedFps) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "ssh2_hot_ops") == nullptr;
+        fresh = strstr(head, "ssh2_idle_fail") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -679,7 +679,7 @@ void WritePerfLog(float fps, float presentedFps) {
                    "emu_core,emu_core_mhz,emu_cpu_pct,vdp1_cpu_pct,vdp2_cpu_pct,scsp_cpu_pct,other_cpu_pct,busiest_other,"
                    "thermal_status,thermal_headroom,device,"
                    "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
-                   "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,settings\n");
+                   "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -791,19 +791,31 @@ void WritePerfLog(float fps, float presentedFps) {
     // Audio buffer: frames per callback, the level the pacing keeps, the lowest level seen this second (-1: none)
     const uint32_t minFillRaw = g->ring.minFill.exchange(UINT32_MAX, std::memory_order_relaxed);
     const int minFill = minFillRaw == UINT32_MAX ? -1 : (int)minFillRaw;
+    // Why each CPU's last analyzed loop wasn't idle: address:instruction[@memory read]
+    char fail[2][48];
+    for (int c = 0; c < 2; ++c) {
+        const auto &cpu = c == 0 ? g->saturn->masterSH2 : g->saturn->slaveSH2;
+        if (cpu.IdleFailAddr() && cpu.IdleFailOp() != 0xFFFE) {
+            snprintf(fail[c], sizeof(fail[c]), "%08X:%04X@%08X", cpu.IdleFailPc(), cpu.IdleFailOp(), cpu.IdleFailAddr());
+        } else if (cpu.IdleFailOp() == 0xFFFE) {
+            snprintf(fail[c], sizeof(fail[c]), "%08X:carried R%04X", cpu.IdleFailPc(), cpu.IdleFailAddr());
+        } else {
+            snprintf(fail[c], sizeof(fail[c]), "%08X:%04X", cpu.IdleFailPc(), cpu.IdleFailOp());
+        }
+    }
     std::string settings;
     {
         std::lock_guard lk(g_logSettingsMutex);
         settings = g_logSettings;
     }
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
             probe.thermal, probe.headroom, device.c_str(), loopPct[0], loopPct[1], hot[0], hot[1], skipPct[0], skipPct[1], g->ring.burst.load(std::memory_order_relaxed),
-            g->targetFill.load(std::memory_order_relaxed), minFill, hotOps[0].c_str(), hotOps[1].c_str(), settings.c_str());
+            g->targetFill.load(std::memory_order_relaxed), minFill, hotOps[0].c_str(), hotOps[1].c_str(), fail[0], fail[1], settings.c_str());
     fclose(f);
 }
 

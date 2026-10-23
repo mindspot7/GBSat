@@ -122,6 +122,19 @@ public:
         m_parked = false;
     }
 
+    /// @brief Why the last loop analyzed wasn't idle (performance log): the instruction that ruled it out, and the
+    /// address it reads when that was the reason (opcode FFFF: no rts found in a called function; FFFE: a register
+    /// carried between iterations).
+    uint32 IdleFailPc() const {
+        return m_idleFailPc;
+    }
+    uint16 IdleFailOp() const {
+        return m_idleFailOp;
+    }
+    uint32 IdleFailAddr() const {
+        return m_idleFailAddr;
+    }
+
     bool GetNMI() const;
     void SetNMI();
 
@@ -742,6 +755,8 @@ private:
     std::array<IdleVerdict, 32> m_notIdle{};
     // Parked: the last time slice ended at the head of a verified idle loop (cost per iteration and counters known)
     bool m_parked = false;
+    uint32 m_idleFailPc = 0, m_idleFailAddr = 0;
+    uint16 m_idleFailOp = 0;
     uint32 m_parkHead = 0;
     uint64 m_parkIter = 0;
     IdleLoopInfo m_parkInfo;

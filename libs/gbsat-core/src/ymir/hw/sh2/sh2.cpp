@@ -511,6 +511,9 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
     // loop itself: a called function must run straight to its rts.
     const auto decode = [&](uint32 pc, bool inCall) -> bool {
         const uint16 op = PeekInstruction<emulateCache>(pc);
+        m_idleFailPc = pc; // what rules the loop out, if anything (performance log)
+        m_idleFailOp = op;
+        m_idleFailAddr = 0;
         const uint32 n = (op >> 8) & 15, m = (op >> 4) & 15, lo = op & 15;
         Op o;
         switch (op >> 12) {
@@ -605,6 +608,7 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
         default: return false;
         }
         if (o.load && !IsIdleSafeRead(o.addr)) {
+            m_idleFailAddr = o.addr;
             return false;
         }
         if (count == 24) {
@@ -650,6 +654,9 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
                 }
             }
             if (!returned) {
+                m_idleFailPc = target;
+                m_idleFailOp = 0xFFFF;
+                m_idleFailAddr = 0;
                 return false;
             }
             pc += 2; // the delay slot was decoded before the function
@@ -662,6 +669,9 @@ bool SH2::IsIdleLoop(uint32 head, uint32 last, IdleLoopInfo &info) {
     uint16 written = 0, used = 0;
     for (int i = 0; i < count; ++i) {
         if (ops[i].rd & allWr & ~written) {
+            m_idleFailPc = head;
+            m_idleFailOp = 0xFFFE;
+            m_idleFailAddr = ops[i].rd & allWr & ~written;
             return false; // a value carried over from the previous iteration (a pointer...)
         }
         written |= ops[i].wr;
