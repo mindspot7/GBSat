@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -280,19 +279,10 @@ private fun PerformancePage() {
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
     }
     SettingsGroup("Emulation", Icons.Default.Memory) {
-        ToggleRow(Icons.AutoMirrored.Filled.CallSplit, "Threaded VDP", "Render the VDP1/VDP2 graphics on separate CPU threads",
-            Emulator.threadedVdp, ch { Emulator.threadedVdp = it })
-        SettingsDivider()
         ChoiceRow("Threaded audio", "Sound chip and its 68000 on a separate thread. Auto tries both while a game runs slow and remembers the faster one per game",
             listOf("Auto", "On", "Off"), Emulator.scspMode, ch { Emulator.scspMode = it })
         SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
-        SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "Skip idle loops", "The SH-2 CPUs skip loops that only wait for a value to change. Much faster, same result; turn off if a game misbehaves",
-            Emulator.idleSkip, ch { Emulator.idleSkip = it })
-        SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "Hi-res: one field", "On 704x448 interlaced screens (Virtua Fighter 2, menus) draw only one of the two fields: much faster, but the picture refreshes at half the rate and loses some detail. CPU renderers only (no effect with GPU/Vulkan)",
-            Emulator.oneField, ch { Emulator.oneField = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
         ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })

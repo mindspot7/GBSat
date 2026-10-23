@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -289,17 +288,8 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                 MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
                                     Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
-                                MenuItem(Icons.AutoMirrored.Filled.CallSplit, "Threaded VDP", value = if (Emulator.threadedVdp) "On" else "Off") {
-                                    Emulator.threadedVdp = !Emulator.threadedVdp; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
                                 MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
                                     Emulator.scspMode = (Emulator.scspMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.Speed, "Skip idle loops", value = if (Emulator.idleSkip) "On" else "Off") {
-                                    Emulator.idleSkip = !Emulator.idleSkip; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.Speed, "Hi-res: one field", value = if (Emulator.oneField) "On" else "Off") {
-                                    Emulator.oneField = !Emulator.oneField; Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                             }
                             MenuPage.Overlays -> {

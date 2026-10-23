@@ -35,9 +35,11 @@ object Emulator {
     var gamesDir by mutableStateOf("")
     var analogPad by mutableStateOf(false)
     var sh2Cache by mutableStateOf(false)
-    var idleSkip by mutableStateOf(true) // SH-2 idle-loop skipping
-    var oneField by mutableStateOf(false) // hi-res interlaced screens: render one field of each pair
-    var threadedVdp by mutableStateOf(true)
+    // Always on, no longer user options (performance logs: turning them off was never faster). One field only acts with
+    // the CPU renderers (the native side ignores it with Vulkan).
+    val idleSkip = true    // SH-2 idle-loop skipping
+    val oneField = true    // hi-res interlaced screens: render one field of each pair
+    val threadedVdp = true // VDP1/VDP2 rendering on their own threads
     var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
     var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
@@ -80,14 +82,14 @@ object Emulator {
     // ---- Presets: groups of video/performance options ----
     enum class Preset(val label: String) { Low("Low"), Mid("Mid"), High("High") }
     private data class PresetValues(val renderer: Int, val resScale: Int, val shader: Int, val filter: Int,
-                                    val frameSkip: Boolean, val sh2Cache: Boolean, val threadedVdp: Boolean)
+                                    val frameSkip: Boolean, val sh2Cache: Boolean)
     private fun presetValues(p: Preset) = when (p) {
         // Powerful devices: GPU rendering at the screen's native resolution with scanlines
-        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        Preset.High -> PresetValues(renderer = 4, resScale = 0, shader = 1, filter = 1, frameSkip = false, sh2Cache = false)
         // Mid-range: CPU rendering (OpenGL output) with scanlines
-        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 1, filter = 1, frameSkip = false, sh2Cache = false, threadedVdp = true)
+        Preset.Mid -> PresetValues(renderer = 1, resScale = 1, shader = 1, filter = 1, frameSkip = false, sh2Cache = false)
         // Modest devices: CPU rendering (OpenGL output), no shader, frame skip
-        Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false, threadedVdp = true)
+        Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false)
     }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
     /** The options in use, for the performance log (key=value pairs separated by ';'). */
@@ -118,11 +120,11 @@ object Emulator {
     }
 
     val currentPreset: Preset?
-        get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache, threadedVdp) }
+        get() = Preset.entries.firstOrNull { presetValues(it) == PresetValues(renderer, resScale, shader, filter, frameSkip, sh2Cache) }
     fun applyPreset(p: Preset) {
         val v = presetValues(p)
         renderer = v.renderer; resScale = v.resScale; shader = v.shader; filter = v.filter
-        frameSkip = v.frameSkip; sh2Cache = v.sh2Cache; threadedVdp = v.threadedVdp
+        frameSkip = v.frameSkip; sh2Cache = v.sh2Cache
         savePrefs(); applyOptions()
     }
     var setupDone by mutableStateOf(true)
@@ -426,9 +428,7 @@ object Emulator {
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
-        idleSkip = prefs.getBoolean("idleSkip", true)
-        oneField = prefs.getBoolean("oneField", false)
-        threadedVdp = prefs.getBoolean("threadedVdp", true)
+        prefs.edit().remove("idleSkip").remove("oneField").remove("threadedVdp").apply() // no longer options (always on)
         scspMode = prefs.getInt("scspMode", 0)
         prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
         preloadDisc = prefs.getBoolean("preloadDisc", false)
@@ -530,8 +530,8 @@ object Emulator {
     }
 
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
-        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putBoolean("idleSkip", idleSkip).putBoolean("oneField", oneField)
-        .putBoolean("threadedVdp", threadedVdp).putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
+        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache)
+        .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
