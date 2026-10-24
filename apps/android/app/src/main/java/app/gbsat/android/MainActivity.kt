@@ -68,14 +68,6 @@ class MainActivity : ComponentActivity() {
     private var r2Key = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Library: Select switches between all games and recent save states. Handled here because right after start or
-        // after closing a game nothing may be focused yet, and Compose key handlers only see events while focused.
-        if (!Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                app.gbsat.android.ui.MenuState.recent.value = !app.gbsat.android.ui.MenuState.recent.value
-            }
-            return true
-        }
         // Library: X opens/closes the main menu, and a controller key that arrives while the focus is lost (after a tap, when
         // a menu closed, or a menu opened by touch while the library behind it kept the focus) first puts the focus back
         // where it belongs (the open menu, else the library), so the controller never gets stuck. Handled here because

@@ -52,8 +52,7 @@ import kotlinx.coroutines.withContext
  * Home screen: top bar (app icon, name, clock, battery), the game library in the theme chosen in Settings → Extras
  * (gb.frame.HomeLibrary: Showcase by default, Grid or Continue) and the main menu (gb.frame.HomeMenuPanel: library view,
  * settings, quit), which slides in from the left. Works with touch and with a controller: the D-pad moves the
- * selection, A opens, B goes back, X opens the menu, Y (or a long press) opens the game options, Select shows the recent
- * save states.
+ * selection, A opens, B goes back, X opens the menu, and Y (or a long press) opens the game options.
  */
 @Composable
 fun LibraryScreen(
@@ -65,7 +64,6 @@ fun LibraryScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var recentMode by MenuState.recent
     var menuOpen by MenuState.open
     val style by HomeTheme.style
     val fullscreen by HomeTheme.fullscreen
@@ -138,7 +136,6 @@ fun LibraryScreen(
             confirmQuit -> confirmQuit = false
             achievementsFor != null -> achievementsFor = null
             menuOpen -> menuOpen = false
-            recentMode -> recentMode = false
             else -> confirmQuit = true
         }
     }
@@ -168,14 +165,12 @@ fun LibraryScreen(
         options = { if (!openingGame) gameMenu = it },
         resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { MenuState.selected = null; showLaunchLoading { launchState(it) } } },
         openMenu = { menuOpen = true },
-        showRecent = { recentMode = it },
     )
     val toSystem = { openPage(SettingsPage.System) }
     val emptyKind = when {
         !Emulator.iplLoaded -> EmptyKind.Bios
         Emulator.gamesDir.isBlank() -> EmptyKind.Folder
-        games.isEmpty() && !recentMode -> if (loading) EmptyKind.Loading else EmptyKind.NoGames
-        recentMode && entries.isEmpty() -> EmptyKind.NoStates
+        games.isEmpty() -> if (loading) EmptyKind.Loading else EmptyKind.NoGames
         else -> null
     }
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
@@ -202,7 +197,7 @@ fun LibraryScreen(
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty,
+                HomeLibrary(style, homeGames, entries, actions, coverVersion, empty,
                     refocus = MenuState.refocus.intValue, fullscreen = fullscreen)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
@@ -228,8 +223,6 @@ fun LibraryScreen(
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
-            recent = recentMode, gamesCount = games.size, recentCount = entries.distinctBy { it.game }.size,
-            onShowRecent = { recentMode = it; menuOpen = false },
             items = SettingsEntries.filter { it.third != SettingsPage.About }.map { (icon, label, page) ->
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
@@ -283,9 +276,6 @@ internal object MenuState {
     /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
     val quitOpen = mutableStateOf(false)
     var onQuit: (() -> Unit)? = null
-    /** Library shows recent save states instead of all games (Select; toggled in MainActivity so it works without
-     *  focus). Remembered between sessions by the kit's LibraryView. */
-    val recent = gb.frame.LibraryView.recent
     var selected by mutableStateOf<SettingsPage?>(null)
     /** The library is on screen (not a settings page or a game): MainActivity handles X and lost focus there. */
     @Volatile var libraryShown = false
@@ -347,20 +337,6 @@ private fun GameOptions(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
-}
-
-/** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
-@Composable
-private fun HelpBar(recentMode: Boolean) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ButtonHint("A", Color(0xFFE5483B), "Play")
-        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
-        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
-        ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
-    }
 }
 
 @Composable
