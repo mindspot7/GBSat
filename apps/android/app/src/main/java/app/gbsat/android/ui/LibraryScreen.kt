@@ -175,14 +175,14 @@ fun LibraryScreen(
         }
         false
     }) {
-        Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier.padding(6.dp) else Modifier.safeDrawingPadding().padding(12.dp)),
+        Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier.safeDrawingPadding().padding(12.dp)),
             verticalArrangement = Arrangement.spacedBy(if (fullscreen) 0.dp else 12.dp)) {
             if (!fullscreen) HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = {
                 if (!menuOpen) MenuState.selected = null
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(if (fullscreen) HomeStyle.Grid else style, homeGames, entries, recentMode, actions, coverVersion, empty,
+                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty,
                     refocus = MenuState.refocus.intValue, fullscreen = fullscreen)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
