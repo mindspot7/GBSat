@@ -206,7 +206,46 @@ fun LibraryScreen(
                     }
                 }
             }
-
+            // Restore the quick-action bar for the standard library layouts. Theme and Layout keep
+            // the same side-by-side button treatment as the former All Games / Recents shortcut row.
+            if (!fullscreen) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            HomeTheme.style.value = when (HomeTheme.style.value) {
+                                HomeStyle.Showcase -> HomeStyle.Grid
+                                HomeStyle.Grid -> HomeStyle.Continue
+                                HomeStyle.Continue -> HomeStyle.Showcase
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Gold),
+                        border = BorderStroke(1.dp, Gold.copy(alpha = 0.65f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Theme", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { HomeTheme.fullscreen.value = true },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Gold),
+                        border = BorderStroke(1.dp, Gold.copy(alpha = 0.65f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Layout: Default", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
         if (fullscreen && !menuOpen && !openingGame) {
             Box(Modifier.align(Alignment.CenterStart).zIndex(5f).padding(start = 2.dp)
