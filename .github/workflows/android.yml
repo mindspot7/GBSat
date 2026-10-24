@@ -33,6 +33,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # CMake is not preinstalled on every hosted runner. Reuse the pinned SDK package.
+      - name: Restore Android CMake cache
+        uses: actions/cache@v5
+        with:
+          path: /usr/local/lib/android/sdk/cmake/3.31.6
+          key: android-cmake-linux-3.31.6
+
       - name: Install NDK, CMake and platform
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
