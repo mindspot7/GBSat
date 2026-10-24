@@ -137,14 +137,9 @@ fun LibraryScreen(
         gameMenu = null
     }
 
-    // B / Back: close the current menu; from the library, ask before quitting
-    // Some controllers deliver B twice (as BUTTON_B mapped to Back and as a system Back): one press must act only once,
-    // otherwise the quit dialog opens and immediately closes again
-    var lastBack by remember { mutableLongStateOf(0L) }
+    // B / Back: close the current menu; from the library, ask before quitting.
+    // MainActivity deduplicates paired controller keycodes, so quick consecutive B presses must not be debounced.
     androidx.activity.compose.BackHandler {
-        val now = android.os.SystemClock.uptimeMillis()
-        if (now - lastBack < 300) return@BackHandler
-        lastBack = now
         when {
             confirmQuit -> confirmQuit = false
             achievementsFor != null -> achievementsFor = null
