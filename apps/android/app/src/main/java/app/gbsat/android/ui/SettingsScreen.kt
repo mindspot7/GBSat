@@ -190,7 +190,7 @@ private fun VideoPage() {
             Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
         if (Emulator.renderer == 4) {
             SettingsDivider()
-            ChoiceRow("Internal resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
+            ChoiceRow("Enhanced resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
                 listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
                 ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
             val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
@@ -209,8 +209,6 @@ private fun VideoPage() {
             ChoiceRow("Shader", null, shaderIds.map { gb.frame.Shaders.name(it) },
                 shaderIds.indexOf(Emulator.shader).coerceAtLeast(0), ch { Emulator.shader = shaderIds[it] })
             SettingsDivider()
-            ToggleRow(Icons.Default.Contrast, "Color correction", "bsnes gamma ramp: darker dark and mid tones, as on a CRT; works with any shader",
-                Emulator.gammaRamp, ch { Emulator.gammaRamp = it })
         }
     }
     SettingsGroup("Overlay", Icons.Default.Layers) {
