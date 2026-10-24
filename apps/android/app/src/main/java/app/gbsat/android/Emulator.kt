@@ -593,8 +593,14 @@ object Emulator {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
         rememberScspMode() // a game was still running
         openDisc?.close()
-        val disc = Storage.open(path) ?: return@withContext "Can't open ${Storage.fileName(path)}. Choose the games folder again in Settings → System."
+        android.util.Log.i("GBSat-Disc", "launch requested path=" + path + "; name=" + Storage.fileName(path))
+        val disc = Storage.open(path) ?: run {
+            android.util.Log.e("GBSat-Disc", "Storage.open returned null path=" + path)
+            return@withContext "Unable to open ${Storage.fileName(path)}. Check games folder permission and logcat."
+        }
+        android.util.Log.i("GBSat-Disc", "calling nativeLoadDisc path=" + disc.path + "; preload=" + preloadDisc)
         val err = NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
+        android.util.Log.i("GBSat-Disc", "nativeLoadDisc result=" + (err ?: "success"))
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()

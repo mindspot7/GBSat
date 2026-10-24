@@ -369,7 +369,14 @@ private fun ControlsPage() {
 
 @Composable
 private fun ExtrasPage(onLayoutChanged: () -> Unit) {
-    HomeThemeSettings(onLayoutChanged)
+    SettingsGroup("Library", Icons.Default.Collections) {
+        ToggleRow(Icons.Default.Fullscreen, "Fullscreen mode", "Hide the top and bottom bars and expand the box-art grid. Tap the small handle on the left to open the menu.",
+            HomeTheme.fullscreen.value) { HomeTheme.fullscreen.value = it }
+        SettingsDivider()
+        ChoiceRow("Library layout", "Choose how game box art is arranged when fullscreen is off.",
+            HomeStyle.entries.map { it.label }, HomeStyle.entries.indexOf(HomeTheme.style.value).coerceAtLeast(0),
+            { HomeTheme.style.value = HomeStyle.entries[it]; onLayoutChanged() })
+    }
     RetroAchievementsSettings("GBSat")
 }
 

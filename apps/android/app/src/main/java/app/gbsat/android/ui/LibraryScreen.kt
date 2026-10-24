@@ -68,6 +68,7 @@ fun LibraryScreen(
     var recentMode by MenuState.recent
     var menuOpen by MenuState.open
     val style by HomeTheme.style
+    val fullscreen by HomeTheme.fullscreen
     val menuFocus = remember { FocusRequester() }
     val hasPad = rememberHasGamepad()
     // Menu opened: with a controller its first entry (or the page just closed) is selected, even when it was opened by a
@@ -174,14 +175,15 @@ fun LibraryScreen(
         }
         false
     }) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // The top bar opens the main menu
-            HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = {
-                if (!menuOpen) MenuState.selected = null // a fresh menu starts on its first entry (System)
+        Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier.padding(6.dp) else Modifier.safeDrawingPadding().padding(12.dp)),
+            verticalArrangement = Arrangement.spacedBy(if (fullscreen) 0.dp else 12.dp)) {
+            if (!fullscreen) HomeTopBar(painterResource(R.mipmap.ic_launcher), "GBSat", onClick = {
+                if (!menuOpen) MenuState.selected = null
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty, refocus = MenuState.refocus.intValue)
+                HomeLibrary(if (fullscreen) HomeStyle.Grid else style, homeGames, entries, recentMode, actions, coverVersion, empty,
+                    refocus = MenuState.refocus.intValue, fullscreen = fullscreen)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
                     Box(Modifier.zIndex(10f).fillMaxSize()) {
@@ -189,9 +191,19 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (hasPad && HomeTheme.buttonHelp.value) HelpBar(recentMode)
+
         }
-        // Main menu: slides in from the left over everything (X, or a tap on the top bar). It stays open while a settings
+        if (fullscreen) {
+            Box(Modifier.align(Alignment.CenterStart).zIndex(5f).padding(start = 2.dp)
+                .clip(RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp))
+                .background(Color(0xCC171329)).clickable {
+                    if (!menuOpen) MenuState.selected = null
+                    menuOpen = !menuOpen
+                }.padding(horizontal = 5.dp, vertical = 12.dp)) {
+                Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Gold, modifier = Modifier.size(18.dp))
+            }
+        }
+        // Main menu: slides in from the left over everything (X, or a tap on the header/handle). It stays open while a settings
         // page is shown, so Back returns to it with that entry selected
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
