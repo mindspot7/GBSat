@@ -311,10 +311,10 @@ private val SettingsEntries = listOf(
 private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) =
     ConfirmDialog(title = "Exit", message = "Are you sure you want to exit?", confirm = "Exit", onConfirm = onConfirm, onCancel = onCancel)
 
-private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF1D1636), Color(0xFF2B2152), Color(0xFF161126)))
-private val PanelColor = Color(0xFF1B1830).copy(alpha = 0.88f)
-private val PanelBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
-private val Gold = Color(0xFFE8C26A)
+private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF11131A), Color(0xFF202431), Color(0xFF0B0D12)))
+private val PanelColor = Color(0xFF1A1D27).copy(alpha = 0.96f)
+private val PanelBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.17f))
+private val Gold = Color(0xFFE5C56A)
 
 @Composable
 private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = RoundedCornerShape(24.dp), content: @Composable () -> Unit) =

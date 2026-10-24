@@ -64,8 +64,8 @@ enum class SettingsPage(val label: String, val icon: ImageVector) {
     About("About", Icons.Default.Info),
 }
 
-private val Gold = Color(0xFFE8C26A)
-private val CardColor = Color(0xFF1B1830).copy(alpha = 0.9f)
+private val Gold = Color(0xFFE5C56A)
+private val CardColor = Color(0xFF1A1D27).copy(alpha = 0.9f)
 private val CardBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
 private val Dim = Color.White.copy(alpha = 0.65f)
 
@@ -96,7 +96,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
     dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data") }, text = { Text(m) },
         confirmButton = { TextButton(onClick = { dataMsg = null }) { Text("OK") } }) }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1D1636), Color(0xFF2B2152), Color(0xFF161126))))) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF11131A), Color(0xFF202431), Color(0xFF0B0D12))))) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             TopAppBar(
                 title = {
