@@ -246,8 +246,8 @@ fun LibraryScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     CircularProgressIndicator(color = Gold, strokeWidth = 4.dp, modifier = Modifier.size(54.dp))
-                    Text("Abrindo jogo…", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("Preparando a imagem do disco. Na primeira abertura pode demorar um pouco.", color = Color.White.copy(alpha = .78f),
+                    Text("Opening game…", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Preparing the disc image. The first launch may take a little longer.", color = Color.White.copy(alpha = .78f),
                         style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.widthIn(max = 320.dp).padding(horizontal = 20.dp))
                 }
