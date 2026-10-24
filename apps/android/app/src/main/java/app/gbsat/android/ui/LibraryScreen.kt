@@ -280,7 +280,7 @@ internal object MenuState {
     /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
     val quitOpen = mutableStateOf(false)
     /** Remember whether the library shows recent save states or all games. */
-    val recent = gb.frame.LibraryView.recent
+    val recent = mutableStateOf(false)
     var onQuit: (() -> Unit)? = null
     var selected by mutableStateOf<SettingsPage?>(null)
     /** The library is on screen (not a settings page or a game): MainActivity handles X and lost focus there. */
