@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Library controls: B opens (and closes) the main menu and X cycles the theme Showcase / Grid / All in One; the button help bar shows the new buttons. Quit stays in the menu.
+- The library no longer competes with the open main menu for the controller focus, so Back from a settings page lands on the entry that was opened; closing the menu or changing the theme puts the selection back on the game selected last (it used to return to the game the screen had opened on).
 - Fixed controller focus restoration when returning from Settings or closing the main menu; stale focus state no longer leaves selection on box art behind the menu.
 - Removed the unintended All games / Recent library toggle and its persisted preference; save-state screenshots remain available in All in One.
 - Routed controller B and system Back through one debounced navigation path, and reset stale menu-focus state when returning from settings.
