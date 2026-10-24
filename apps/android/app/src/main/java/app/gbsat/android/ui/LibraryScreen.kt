@@ -94,6 +94,7 @@ fun LibraryScreen(
     // ---- Data: games, save states, play time ----
     var games by remember { mutableStateOf<List<gb.frame.Game>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    var openingGame by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var states by remember { mutableStateOf<List<Emulator.RecentState>>(emptyList()) }
     LifecycleResumeEffect(Unit) { refreshKey++; onPauseOrDispose { } }
@@ -142,12 +143,30 @@ fun LibraryScreen(
         }
     }
 
+    fun showLaunchLoading(action: () -> Unit) {
+        if (openingGame) return
+        openingGame = true
+        action()
+        scope.launch {
+            // The launch callback starts the emulator coroutine. Keep the input-blocking overlay until the
+            // emulator reports that it is running; the timeout also lets the library recover after a failed launch.
+            repeat(900) {
+                if (Emulator.running) {
+                    delay(350)
+                    openingGame = false
+                    return@launch
+                }
+                delay(100)
+            }
+            openingGame = false
+        }
+    }
     val openPage: (SettingsPage) -> Unit = { MenuState.selected = it; onOpenSettings(it) }
     val actions = HomeActions(
-        play = { MenuState.selected = null; launch(it.key) },
-        fresh = { MenuState.selected = null; open(it.key) },
-        options = { gameMenu = it },
-        resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { MenuState.selected = null; launchState(it) } },
+        play = { MenuState.selected = null; showLaunchLoading { launch(it.key) } },
+        fresh = { MenuState.selected = null; showLaunchLoading { open(it.key) } },
+        options = { if (!openingGame) gameMenu = it },
+        resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { MenuState.selected = null; showLaunchLoading { launchState(it) } } },
         openMenu = { menuOpen = true },
         showRecent = { recentMode = it },
     )
@@ -162,6 +181,7 @@ fun LibraryScreen(
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
 
     Box(Modifier.fillMaxSize().background(AppBackground).onFocusChanged { MenuState.hasFocus = it.hasFocus }.onPreviewKeyEvent { e ->
+        if (openingGame) return@onPreviewKeyEvent true
         // Quit dialog open: it owns the controller. A confirms, B/Back cancels; acting on key release and consuming the
         // press too, so the same press can't also reach the library or the system Back
         if (confirmQuit) {
@@ -193,7 +213,7 @@ fun LibraryScreen(
             }
 
         }
-        if (fullscreen) {
+        if (fullscreen && !menuOpen && !openingGame) {
             Box(Modifier.align(Alignment.CenterStart).zIndex(5f).padding(start = 2.dp)
                 .clip(RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp))
                 .background(Color(0xCC171329)).clickable {
@@ -216,6 +236,23 @@ fun LibraryScreen(
             extras = listOf(HomeMenuItem(MenuIcon.About, "About", selected = MenuState.selected == SettingsPage.About) { openPage(SettingsPage.About) }),
             onQuit = onQuit, header = { RaUserHeader() }, onFocusChanged = { MenuState.menuHasFocus = it },
         )
+        if (openingGame) {
+            Box(
+                Modifier.fillMaxSize().zIndex(100f)
+                    .background(Color(0xE6171425))
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { }
+                    .onPreviewKeyEvent { true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    CircularProgressIndicator(color = Gold, strokeWidth = 4.dp, modifier = Modifier.size(54.dp))
+                    Text("Abrindo jogo…", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Preparando a imagem do disco. Na primeira abertura pode demorar um pouco.", color = Color.White.copy(alpha = .78f),
+                        style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.widthIn(max = 320.dp).padding(horizontal = 20.dp))
+                }
+            }
+        }
         gameMenu?.let { g -> GameOptions(g, entries.firstOrNull { it.game == g.key },
             onDismiss = { gameMenu = null },
             onContinue = { e -> gameMenu = null; actions.resume(e) },
