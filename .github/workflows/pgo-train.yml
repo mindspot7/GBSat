@@ -1,6 +1,6 @@
 name: PGO training build
 
-# Instrumented APK that records the hot code paths for profile-guided optimization (tools/pgo-pull.bat). Same
+# Instrumented APK that records the hot code paths for profile-guided optimization (tools/gbsat.bat, option 5). Same
 # signature as the normal builds, so it installs over them. Run manually from the Actions tab.
 on:
   workflow_dispatch:

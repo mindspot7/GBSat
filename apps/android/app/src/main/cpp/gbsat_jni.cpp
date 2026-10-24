@@ -11,7 +11,6 @@
 #include <unwind.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
-#include <sys/system_properties.h>
 
 #include <ymir/ymir.hpp>
 #include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
@@ -23,6 +22,8 @@
 #include "gl_renderer.hpp"
 #include "cpu_tuning.hpp"
 #include "perf_probe.hpp"
+#include "auto_skip.hpp"
+#include "diag_props.hpp"
 
 extern "C" {
 #include <md5.h>
@@ -165,22 +166,12 @@ struct Context {
     std::atomic<bool> running{false};
     std::atomic<bool> paused{true};
     std::atomic<bool> fastForward{false};
-    // Skip Engine: runs at maximum speed (like fast forward, sound muted) while the CD loads behind a still, silent screen,
-    // through silent black transitions and while the game reads or writes the backup memory (UpdateAutoSkip)
-    std::atomic<bool> skipLoads{false}, skipTransitions{false}, skipSaves{false};
-    std::atomic<bool> autoTurbo{false};
-    std::atomic<int> audioPeak{0};      // loudest sample since the last frame (sound callback)
-    std::array<uint32_t, 32 * 24> frameSig{}; // sampled pixels of the last delivered frame (OnFrameComplete)
-    bool frameSigValid = false, frameStill = false, frameBlack = false;
-    int blackRun = 0;                   // consecutive black frames delivered
-    int cdRecent = 0, saveRecent = 0;   // frames left in the CD / backup memory activity windows
-    int wantRun = 0, holdRun = 0;       // frames the skip conditions held / frames the skip stays on after them
-    uint32_t lastCdSectors = 0, lastCdSeek = 0, lastBup = 0;
-    uint32_t autoSkipFrames = 0;        // frames run by the Skip Engine since the last performance log line
-    // CD read speed: the user's choice, and the one applied (the original 2x while the game streams video or music
-    // from the CD, see UpdateAutoSkip); emulation thread
+    // Skip Engine (GBFrame gb::AutoSkip): maximum speed (sound muted) through CD loads behind a still, silent screen,
+    // silent black transitions and backup memory waits; also says when the faster CD read speed is safe (UpdateAutoSkip)
+    gb::AutoSkip skip;
+    uint32_t lastCdSectors = 0, lastCdSeek = 0, lastBup = 0; // core activity counters at the last frame
+    // CD read speed: the user's choice, and the one applied (the original 2x while the game streams from the CD)
     uint8_t cdSpeedUser = 2, cdSpeedApplied = 2;
-    int streamRun = 0, calmRun = 0;
     std::atomic<float> volume{1.0f};   // output volume 0..1
     std::atomic<int> ffAudio{0};       // fast-forward audio: 0 = default (normal pitch, skips), 1 = speed up, 2 = mute
     float ffDecimAcc = 0.0f;           // sample decimation accumulator for "speed up" (SCSP thread)
@@ -398,15 +389,11 @@ void DrainCommands() {
 //   debug.gbsat.vdp2_one_fb=1 threaded VDP2 with one framebuffer (waits for the previous frame, as before build254)
 //   debug.gbsat.vdp_nobatch=1 VDP1 commands and VDP2 lines sent to the render threads one by one (as before build264)
 // The performance log's settings column shows them (diag=...).
-static bool PropOn(const char *key) {
-    char v[PROP_VALUE_MAX] = {};
-    return __system_property_get(key, v) > 0 && v[0] == '1';
-}
 
 static void ReadDiagnosticProps() {
-    util::waitstats::g_sh2Chained.store(!PropOn("debug.gbsat.sh2_plain"), std::memory_order_relaxed);
-    util::waitstats::g_vdp2TwoFB.store(!PropOn("debug.gbsat.vdp2_one_fb"), std::memory_order_relaxed);
-    util::waitstats::g_vdpBatch.store(!PropOn("debug.gbsat.vdp_nobatch"), std::memory_order_relaxed);
+    util::waitstats::g_sh2Chained.store(!gb::DiagOn("gbsat", "sh2_plain"), std::memory_order_relaxed);
+    util::waitstats::g_vdp2TwoFB.store(!gb::DiagOn("gbsat", "vdp2_one_fb"), std::memory_order_relaxed);
+    util::waitstats::g_vdpBatch.store(!gb::DiagOn("gbsat", "vdp_nobatch"), std::memory_order_relaxed);
 }
 
 void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
@@ -415,29 +402,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     // delivers its frames one frame late too.
     g->presented.fetch_add(1, std::memory_order_relaxed);
     {
-        // Skip Engine: is the picture black, or still (a loading screen)? 32x24 sampled pixels, compared with the last
-        // delivered frame; small animations (a spinning disc, blinking text) still count as still
-        constexpr uint32_t kGX = 32, kGY = 24;
-        uint32_t dark = 0, changed = 0;
-        for (uint32_t y = 0; y < kGY; ++y) {
-            const uint32_t sy = ((2 * y + 1) * height) / (2 * kGY);
-            for (uint32_t x = 0; x < kGX; ++x) {
-                const uint32_t sx = ((2 * x + 1) * width) / (2 * kGX);
-                const uint32_t px = fb[(size_t)sy * width + sx];
-                const int c0 = px & 0xFF, c1 = (px >> 8) & 0xFF, c2 = (px >> 16) & 0xFF;
-                if (c0 < 24 && c1 < 24 && c2 < 24) ++dark;
-                uint32_t &old = g->frameSig[y * kGX + x];
-                if (std::abs(c0 - (int)(old & 0xFF)) > 16 || std::abs(c1 - (int)((old >> 8) & 0xFF)) > 16 ||
-                    std::abs(c2 - (int)((old >> 16) & 0xFF)) > 16) {
-                    ++changed;
-                }
-                old = px;
-            }
-        }
-        g->frameBlack = dark >= kGX * kGY * 98 / 100;
-        g->frameStill = g->frameSigValid && changed <= kGX * kGY * 2 / 100;
-        g->frameSigValid = true;
-        g->blackRun = g->frameBlack ? g->blackRun + 1 : 0;
+        g->skip.OnFrame(fb, width, height); // Skip Engine: black / still picture
     }
     {
         const uint32_t step = std::max<uint32_t>(1, width / 352);
@@ -629,13 +594,8 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
-// Skip Engine and CD read speed, once per emulated frame (emulation thread): decides whether the next frames run at
-// maximum speed, and whether the faster CD read speed applies (not while the game streams from the CD).
-//  - Loads: the CD read data or sought on a data track in the last half second, the picture is still or black and the
-//    game is silent (so videos and music streamed from the CD play normally)
-//  - Transitions: 3+ black frames in a row and silence
-//  - Save waits: the game read or wrote the backup memory in bulk in the last half second
-// It starts after 3 frames meeting a condition and stays on 8 frames after the last one (no flicker on short changes).
+// Skip Engine and CD read speed, once per emulated frame (emulation thread): reports the core's CD and backup memory
+// activity to gb::AutoSkip (GBFrame, which decides) and applies the CD read speed it allows.
 void UpdateAutoSkip() {
     namespace ws = util::waitstats;
     const uint32_t sectors = ws::g_cdDataSectors.load(std::memory_order_relaxed);
@@ -646,51 +606,17 @@ void UpdateAutoSkip() {
     g->lastCdSectors = sectors;
     g->lastCdSeek = seek;
     g->lastBup = bup;
-    g->cdRecent = cdActive ? 30 : std::max(0, g->cdRecent - 1);
-    g->saveRecent = bupDelta >= 64 ? 30 : std::max(0, g->saveRecent - 1);
-    const bool quiet = g->audioPeak.exchange(0, std::memory_order_relaxed) < 600; // about -35 dB
+    g->skip.Update(cdActive, bupDelta);
 
-    // Faster CD reads only while the game isn't streaming: with the CD reading, a moving picture and sound (a video, or
-    // music streamed from the disc) the original speed comes back after 10 frames, and the faster one after 1 s without
-    // it. Like DuckStation, which turns its read speedup off for XA/CD audio and video decoding. Fast reads during
-    // streams made videos and music go out of sync in some games.
+    // Faster CD reads only while the game isn't streaming video or music from the CD (fast reads during streams made
+    // them go out of sync in some games)
     if (g->cdSpeedUser > 2) {
-        const bool streaming = g->cdRecent > 0 && !quiet && !g->frameStill && !g->frameBlack;
-        g->streamRun = streaming ? g->streamRun + 1 : 0;
-        g->calmRun = streaming ? 0 : g->calmRun + 1;
-        uint8_t speed = g->cdSpeedApplied;
-        if (g->streamRun >= 10) {
-            speed = 2;
-        } else if (g->calmRun >= 60) {
-            speed = g->cdSpeedUser;
-        }
+        const uint8_t speed = g->skip.FastDiscOk() ? g->cdSpeedUser : 2;
         if (speed != g->cdSpeedApplied) {
             g->cdSpeedApplied = speed;
             g->saturn->configuration.cdblock.readSpeedFactor = speed;
         }
     }
-
-    bool want = false;
-    if (g->skipLoads.load(std::memory_order_relaxed) && g->cdRecent > 0 && quiet && (g->frameStill || g->frameBlack)) {
-        want = true;
-    }
-    if (g->skipTransitions.load(std::memory_order_relaxed) && g->blackRun >= 3 && quiet) {
-        want = true;
-    }
-    if (g->skipSaves.load(std::memory_order_relaxed) && g->saveRecent > 0) {
-        want = true;
-    }
-    g->wantRun = want ? g->wantRun + 1 : 0;
-    if (g->wantRun >= 3) {
-        g->holdRun = 8;
-    } else if (g->holdRun > 0) {
-        --g->holdRun;
-    }
-    const bool on = g->holdRun > 0;
-    if (on) {
-        ++g->autoSkipFrames;
-    }
-    g->autoTurbo.store(on, std::memory_order_relaxed);
 }
 
 // Automatic threaded audio: whether the sound chip runs faster on its own thread depends on the game and the device
@@ -699,7 +625,7 @@ void UpdateAutoSkip() {
 // second by the emulation thread.
 void ScspAutoTune(float fps) {
     auto &t = g->scspTune;
-    if (!g->scspAuto || g->fastForward.load() || g->autoTurbo.load()) {
+    if (!g->scspAuto || g->fastForward.load() || g->skip.Active()) {
         t = {};
         return;
     }
@@ -964,8 +890,7 @@ void WritePerfLog(float fps, float presentedFps) {
             schedMs[ws::SchedVDP], schedMs[ws::SchedSCSP], schedMs[ws::SchedCD], schedMs[ws::SchedOther], renderedMs, skippedMs,
             ws::g_vdp2FrameWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             ws::g_vdp2CopyWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
-            g->autoSkipFrames * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied, settings.c_str());
-    g->autoSkipFrames = 0;
+            g->skip.TakeActiveFrames() * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied, settings.c_str());
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
     fclose(f);
@@ -1005,7 +930,7 @@ void EmuLoop() {
             const bool hires = g->videoW.load(std::memory_order_relaxed) >= 560 || g->videoH.load(std::memory_order_relaxed) >= 400;
             const auto t = steady_clock::now();
             bool skip;
-            if (g->fastForward.load() || g->autoTurbo.load(std::memory_order_relaxed)) {
+            if (g->fastForward.load() || g->skip.Active()) {
                 // Fast forward: render about 60 frames per second of real time and skip the rest, so heavy games
                 // spend the time emulating instead of drawing frames nobody can see
                 // (at most ~30 per second, and at least every other frame is skipped even when the game can't reach
@@ -1158,11 +1083,11 @@ void EmuLoop() {
             fpsWindowStart = now;
         }
 
-        if (g->fastForward.load() || g->autoTurbo.load(std::memory_order_relaxed)) {
+        if (g->fastForward.load() || g->skip.Active()) {
             // Default and mute: drop the excess so audio stays in sync when fast-forward ends.
             // Speed up: the samples were already decimated; keep the buffer short so it follows the game.
             // Skip Engine: muted (nothing reaches the buffer)
-            if (g->ffAudio.load() != 1 || g->autoTurbo.load(std::memory_order_relaxed) ||
+            if (g->ffAudio.load() != 1 || g->skip.Active() ||
                 g->ring.Fill() > g->targetFill.load() * 2) {
                 g->ring.Clear();
             }
@@ -1229,11 +1154,8 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     g->saturn->SCSP.SetSampleCallback({nullptr, [](int16_t l, int16_t r, void *) {
                                            // Skip Engine: how loud the game is (a load or transition is silent); muted
                                            // while it runs at maximum speed
-                                           const int peak = std::max(std::abs((int)l), std::abs((int)r));
-                                           if (peak > g->audioPeak.load(std::memory_order_relaxed)) {
-                                               g->audioPeak.store(peak, std::memory_order_relaxed);
-                                           }
-                                           if (g->autoTurbo.load(std::memory_order_relaxed) &&
+                                           g->skip.OnSample(l, r);
+                                           if (g->skip.Active() &&
                                                !g->fastForward.load(std::memory_order_relaxed)) {
                                                return;
                                            }
@@ -1521,9 +1443,9 @@ JNI_FN(void, nativeSetPaused)(JNIEnv *, jclass, jboolean paused) {
 // Skip Engine options (see UpdateAutoSkip)
 JNI_FN(void, nativeSetAutoSkip)(JNIEnv *, jclass, jboolean loads, jboolean transitions, jboolean saves) {
     if (g) {
-        g->skipLoads = loads;
-        g->skipTransitions = transitions;
-        g->skipSaves = saves; // the emulation thread stops a running skip within a few frames
+        g->skip.skipLoads = loads;
+        g->skip.skipTransitions = transitions;
+        g->skip.skipSaves = saves; // the emulation thread stops a running skip within a few frames
     }
 }
 
@@ -1649,7 +1571,7 @@ JNI_FN(jlongArray, nativeGetStats)(JNIEnv *env, jclass) {
         v[3] = g->palMode.load() ? 1 : 0;
         v[4] = g->lastScale.load();
         v[5] = g->frameTimeUs.load();
-        v[6] = g->autoTurbo.load() ? 1 : 0;
+        v[6] = g->skip.Active() ? 1 : 0;
     }
     jlongArray arr = env->NewLongArray(7);
     env->SetLongArrayRegion(arr, 0, 7, v);
@@ -1702,7 +1624,6 @@ JNI_FN(void, nativeSetCdReadSpeed)(JNIEnv *, jclass, jint factor) {
         const uint8_t f = static_cast<uint8_t>(std::clamp<jint>(factor, 2, 200));
         Post([f] {
             g->cdSpeedUser = g->cdSpeedApplied = f;
-            g->streamRun = g->calmRun = 0;
             g->saturn->configuration.cdblock.readSpeedFactor = f;
         });
     }

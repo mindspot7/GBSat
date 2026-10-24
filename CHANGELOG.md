@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+
+## 1.3.5
+- Faster with threaded VDP2 rendering: on progressive screens (and hi-res ones with one field) the render thread alternates between two framebuffers, so the emulation no longer waits for the previous frame at the start of each drawn frame, and skipped frames no longer wait for it either (Burning Rangers on the RG Rotate: 58.2 → 59.8 fps on average, no second below 58; Virtua Fighter 2 at 704x448: VDP2 wait from ~4 ms to ~0.9 ms per frame).
+- Faster SH-2 interpreter: the chained interpreter also runs on the frames the performance log measures, and the first instruction of each time slice no longer goes through the slower dispatch.
+- Skip Engine: new options "Skip loading screens", "Skip transitions" and "Skip save waits" (Settings → Speed and the in-game Performance menu, off by default) run the game at maximum speed with the sound muted only while a CD load behind a still, silent screen, a silent black transition or a save (backup memory) access is detected; a small fast-forward icon shows while skipping.
+- CD read speed: videos and music streamed from the CD now switch back to the original speed by themselves (like DuckStation), so the faster speeds no longer desync them; the default is now 8x (a saved 4x becomes 8x once).
+- New shaders: CRT Royale (a one-pass take on RetroArch's crt-royale: brightness-dependent scanlines, aperture grille mask, halation) and GTU (a TV look without a mask: band-limited picture and integrated scanlines). The Dots shader was removed (a saved Dots choice becomes None).
+- New "Color correction" option (Settings → Picture and the in-game menu): the bsnes gamma ramp, with any shader.
+- Monitoring overlay: GPU usage in percent like the CPU line (the app's own GPU time), and FPS and speed in green (95% of full speed and up), yellow (80-95%) or red (below 80%).
+- Fixed: leaving a game, the library returns to that game's cover and the selection stays on it (the first D-pad press used to jump to another game).
+- Performance log: new columns `wait_vdp2_frame_ms`, `wait_vdp2_copy_ms` (parts of the VDP2 wait), `auto_skip_pct` (share of each second run by the Skip Engine), `cd_speed_now` (CD read speed applied) and the new options; A/B diagnostic switches set over adb are marked as `diag=`.
 - Faster SH-2 interpreter: each instruction jumps straight to the next one instead of going back through a single dispatch point, which the CPU mispredicted most of the time (about a third of the SH-2 time on the RG Rotate). Same results, checked by a test that runs random code with both.
 - Slightly faster SH-2 interpreter: instruction fetches from RAM/ROM are read inline instead of through the general memory access.
 - Smoother interface right after installing or updating the APK: the app ships baseline profiles, so the library and menus run compiled instead of interpreted (scrolling the library ran at ~33 fps on the RG Rotate after an update).

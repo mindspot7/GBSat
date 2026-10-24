@@ -1,6 +1,6 @@
 name: Profiling build
 
-# APK with native symbols for on-device profiling (tools/profile.bat). Same signature as the normal builds, so it
+# APK with native symbols for on-device profiling (tools/gbsat.bat, option 3). Same signature as the normal builds, so it
 # installs over them. Run manually from the Actions tab.
 on:
   workflow_dispatch:

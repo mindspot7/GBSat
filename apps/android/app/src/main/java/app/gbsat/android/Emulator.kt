@@ -102,7 +102,7 @@ object Emulator {
             "renderer=$rendererLabel",
             "scale=$resScaleLabel",
             "filter=${if (filter == 0) "nearest" else "bilinear"}",
-            "shader=${shaderNames.getOrElse(shader) { "$shader" }}",
+            "shader=${gb.frame.Shaders.name(shader)}",
             "gamma_ramp=${on(gammaRamp)}",
             "aspect=${listOf("4:3", "fill", "16:9").getOrElse(aspect) { "$aspect" }}",
             "widescreen=${widescreenHack ?: "off"}",
@@ -154,11 +154,7 @@ object Emulator {
     val effectiveScale get() = if (resScale == 0) nativeScale else resScale
     val resScaleLabel get() = if (resScale == 0) "Native (${nativeScale}x)" else "${resScale}x"
     var filter by mutableStateOf(1)   // 0 nearest, 1 bilinear
-    var shader by mutableStateOf(0)   // 0 none, 1 scanlines, 2 CRT, 3 LCD3x, 5 CRT Royale, 6 GTU (4, dot matrix, was removed)
-    /** Shader names by internal id (4 is unused: the dot matrix shader was removed). */
-    val shaderNames = listOf("None", "Scanlines", "CRT", "LCD3x", "", "CRT Royale", "GTU")
-    /** Shader ids in the order the menus offer them. */
-    val shaderOrder = listOf(0, 2, 5, 6, 3, 1)
+    var shader by mutableStateOf(gb.frame.Shaders.NONE) // presenter shader id (gb.frame.Shaders)
     /** bsnes gamma ramp colour correction (darker dark and mid tones, as on the SNES/CRT), with any shader. */
     var gammaRamp by mutableStateOf(false)
     var ffToggle by mutableStateOf(false) // fast-forward hotkey: false = hold, true = toggle
@@ -471,7 +467,7 @@ object Emulator {
         // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
         renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
         filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
-        shader = prefs.getInt("shader", 0).let { if (it == 4 || it !in 0..6) 0 else it } // dot matrix (4) was removed
+        shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0)) // the removed dot matrix becomes none
         gammaRamp = prefs.getBoolean("gammaRamp", false)
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
         cdSpeed = prefs.getInt("cdSpeed", 8).coerceIn(2, 200)
@@ -543,7 +539,7 @@ object Emulator {
         NativeBridge.nativeSetAudio(volume, ffAudio)
         NativeBridge.nativeSetRenderer(displayRenderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
-        NativeBridge.nativeSetColorCorrection(if (gammaRamp) 1 else 0)
+        NativeBridge.nativeSetColorCorrection(if (gammaRamp) gb.frame.Shaders.COLOR_BSNES_GAMMA else gb.frame.Shaders.COLOR_NONE)
         if (running) applyCheats()
         if (fastBoot) NativeBridge.nativeSetFastBoot(true)
     }

@@ -205,8 +205,8 @@ private fun VideoPage() {
             SettingsDivider()
             ChoiceRow("Texture filtering", null, listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), ch { Emulator.filter = it })
             SettingsDivider()
-            val shaderIds = Emulator.shaderOrder
-            ChoiceRow("Shader", null, shaderIds.map { Emulator.shaderNames[it] },
+            val shaderIds = gb.frame.Shaders.menuOrder
+            ChoiceRow("Shader", null, shaderIds.map { gb.frame.Shaders.name(it) },
                 shaderIds.indexOf(Emulator.shader).coerceAtLeast(0), ch { Emulator.shader = shaderIds[it] })
             SettingsDivider()
             ToggleRow(Icons.Default.Contrast, "Color correction", "bsnes gamma ramp: darker dark and mid tones, as on a CRT; works with any shader",

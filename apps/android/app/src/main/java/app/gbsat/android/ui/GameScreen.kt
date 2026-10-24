@@ -268,14 +268,13 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     }
                                 }
                                 if (Emulator.renderer == 1 || Emulator.renderer == 4) {
-                                    val shaderOrder = Emulator.shaderOrder
-                                    MenuItem(Icons.Default.Gradient, "Shader", value = Emulator.shaderNames.getOrElse(Emulator.shader) { "None" }) {
-                                        Emulator.shader = shaderOrder[(shaderOrder.indexOf(Emulator.shader) + 1) % shaderOrder.size]
+                                    MenuItem(Icons.Default.Gradient, "Shader", value = gb.frame.Shaders.name(Emulator.shader)) {
+                                        Emulator.shader = gb.frame.Shaders.next(Emulator.shader)
                                         Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                                     }
-                                    MenuItem(Icons.Default.Contrast, "Color correction", value = if (Emulator.gammaRamp) "bsnes gamma" else "Off") {
+                                    MenuItem(Icons.Default.Contrast, "Color correction", value = if (Emulator.gammaRamp) "On" else "Off") {
                                         Emulator.gammaRamp = !Emulator.gammaRamp; Emulator.savePrefs()
-                                        NativeBridge.nativeSetColorCorrection(if (Emulator.gammaRamp) 1 else 0)
+                                        NativeBridge.nativeSetColorCorrection(if (Emulator.gammaRamp) gb.frame.Shaders.COLOR_BSNES_GAMMA else gb.frame.Shaders.COLOR_NONE)
                                     }
                                     MenuItem(Icons.Default.FilterAlt, "Filter", value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)]) {
                                         Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
