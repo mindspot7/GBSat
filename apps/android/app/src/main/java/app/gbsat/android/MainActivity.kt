@@ -22,6 +22,9 @@ import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private var padMask = 0
+    private var lastBackDispatchAt = 0L
+    private var lastGamepadBAt = 0L
+    private var lastGamepadBDevice = -1
     private val capHeld = HashSet<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +72,19 @@ class MainActivity : ComponentActivity() {
     private var r2Key = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // A controller can emit BUTTON_B and KEYCODE_BACK for the same press. In gameplay, B remains a Saturn button;
+        // consume a paired synthetic Back rather than opening the emulator menu as a side effect.
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && Emulator.running && !Emulator.paused) {
+            if (event.action == KeyEvent.ACTION_DOWN) { lastGamepadBAt = event.eventTime; lastGamepadBDevice = event.deviceId }
+        }
+        val captureActive = Emulator.remapTarget != null || Emulator.hotkeyCapture != null
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && !captureActive) {
+            val gamepadBack = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0
+            if (Emulator.running && !Emulator.paused && gamepadBack && event.deviceId == lastGamepadBDevice &&
+                kotlin.math.abs(event.eventTime - lastGamepadBAt) < 100L) return true
+            return backKey(event)
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && (!Emulator.running || Emulator.paused) && !captureActive) return backKey(event)
         // Library: X opens/closes the main menu, and a controller key that arrives while the focus is lost (after a tap, when
         // a menu closed, or a menu opened by touch while the library behind it kept the focus) first puts the focus back
         // where it belongs (the open menu, else the library), so the controller never gets stuck. Handled here because
@@ -190,7 +206,13 @@ class MainActivity : ComponentActivity() {
      * synthesized KEYCODE_BACK no longer reaches the back callbacks.
      */
     private fun backKey(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBackPressedDispatcher.onBackPressed()
+        if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastBackDispatchAt >= 250L) {
+                lastBackDispatchAt = now
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
         return true
     }
 

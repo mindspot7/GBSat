@@ -50,7 +50,10 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
             } else {
                 BackHandler(screen == Screen.Settings) {
                     screen = Screen.Library
-                    if (MenuState.open.value) MenuState.menuRefocus.intValue++
+                    if (MenuState.open.value) {
+                        MenuState.menuHasFocus = false
+                        MenuState.menuRefocus.intValue++
+                    }
                 }
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
                     Box(Modifier.padding(pad).fillMaxSize()) {
@@ -71,8 +74,11 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
                             Screen.Settings -> SettingsScreen(
                                 onBack = {
                                     screen = Screen.Library
-                                    // The settings screen replaces LibraryScreen in composition; restore the menu focus on return.
-                                    if (MenuState.open.value) MenuState.menuRefocus.intValue++
+                                    // LibraryScreen is rebuilt; force the selected settings tile to reclaim focus.
+                                    if (MenuState.open.value) {
+                                        MenuState.menuHasFocus = false
+                                        MenuState.menuRefocus.intValue++
+                                    }
                                 },
                                 toast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 page = settingsPage,

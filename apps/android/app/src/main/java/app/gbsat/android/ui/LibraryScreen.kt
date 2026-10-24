@@ -65,7 +65,6 @@ fun LibraryScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menuOpen by MenuState.open
-    var recentMode by remember { mutableStateOf(LibraryView.recent) }
     val style by HomeTheme.style
     val fullscreen by HomeTheme.fullscreen
     val menuFocus = remember { FocusRequester() }
@@ -138,7 +137,7 @@ fun LibraryScreen(
         gameMenu = null
     }
 
-    // B / Back: close the menu, leave Recent, otherwise ask before quitting
+    // B / Back: close the current menu; from the library, ask before quitting
     // Some controllers deliver B twice (as BUTTON_B mapped to Back and as a system Back): one press must act only once,
     // otherwise the quit dialog opens and immediately closes again
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -172,7 +171,11 @@ fun LibraryScreen(
             openingGame = false
         }
     }
-    val openPage: (SettingsPage) -> Unit = { MenuState.selected = it; onOpenSettings(it) }
+    val openPage: (SettingsPage) -> Unit = {
+        MenuState.selected = it
+        MenuState.menuHasFocus = false
+        onOpenSettings(it)
+    }
     val actions = HomeActions(
         play = { MenuState.selected = null; showLaunchLoading { launch(it.key) } },
         fresh = { MenuState.selected = null; showLaunchLoading { open(it.key) } },
@@ -185,7 +188,6 @@ fun LibraryScreen(
         !Emulator.iplLoaded -> EmptyKind.Bios
         Emulator.gamesDir.isBlank() -> EmptyKind.Folder
         games.isEmpty() -> if (loading) EmptyKind.Loading else EmptyKind.NoGames
-        recentMode && entries.isEmpty() -> EmptyKind.NoStates
         else -> null
     }
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
@@ -212,7 +214,7 @@ fun LibraryScreen(
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty,
+                HomeLibrary(style, homeGames, entries, actions, coverVersion, empty,
                     refocus = MenuState.refocus.intValue, fullscreen = fullscreen)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
@@ -221,7 +223,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (!fullscreen && hasPad && HomeTheme.buttonHelp.value) HelpBar(recentMode)
+            if (!fullscreen && hasPad && HomeTheme.buttonHelp.value) HelpBar()
 
         }
         if (fullscreen && !menuOpen && !openingGame) {
@@ -241,8 +243,6 @@ fun LibraryScreen(
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
             themeLabel = HomeTheme.style.value.label,
             fullscreen = fullscreen,
-            recentMode = recentMode,
-            onToggleRecent = { recentMode = !recentMode; LibraryView.recent = recentMode },
             onCycleTheme = {
                 val styles = HomeStyle.entries
                 HomeTheme.style.value = styles[(HomeTheme.style.value.ordinal + 1) % styles.size]
@@ -282,7 +282,7 @@ fun LibraryScreen(
     }
 }
 
-private enum class EmptyKind { Bios, Folder, Loading, NoGames, NoStates }
+private enum class EmptyKind { Bios, Folder, Loading, NoGames }
 
 /** What the library shows while there are no games (or save states) to show. */
 @Composable
@@ -292,7 +292,6 @@ private fun EmptyContent(kind: EmptyKind, toSystem: () -> Unit) = Panel(Modifier
         EmptyKind.Folder -> EmptyState(Icons.Default.Folder, "Choose your games folder", "Pick the folder that holds your Saturn disc images.", "Open System options", toSystem)
         EmptyKind.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         EmptyKind.NoGames -> EmptyState(Icons.Default.SearchOff, "No games found", "Nothing found in ${Storage.folderLabel(Emulator.gamesDir)}", null, {})
-        EmptyKind.NoStates -> EmptyState(Icons.Default.History, "No save states yet", "Save states you create in games show up here, newest first.", null, {})
     }
 }
 
@@ -367,15 +366,15 @@ private fun GameOptions(
 
 /** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
 @Composable
-private fun HelpBar(recentMode: Boolean) {
+private fun HelpBar() {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
     ) {
         ButtonHint("A", Color(0xFFE5483B), "Play")
-        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
+        ButtonHint("Y", Color(0xFF3BB273), "Game options")
         ButtonHint("X", Color(0xFF3B7BE5), "Menu")
-        ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
+        ButtonHint("B", Color(0xFFF2C230), "Back / Quit")
     }
 }
 

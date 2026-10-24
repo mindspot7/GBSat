@@ -2,7 +2,8 @@
 
 ## Unreleased
 - Fixed controller focus restoration when returning from Settings or closing the main menu; stale focus state no longer leaves selection on box art behind the menu.
-- Restored the main-menu Library toggle for All games / Recent save states and persist its choice between sessions.
+- Removed the unintended All games / Recent library toggle and its persisted preference; save-state screenshots remain available in All in One.
+- Routed controller B and system Back through one debounced navigation path, and reset stale menu-focus state when returning from settings.
 - Sanitized saved display, audio-threading, filtering, and CD-speed settings against unsupported values; removed an unused Settings Extras callback.
 
 ## 1.3.5
