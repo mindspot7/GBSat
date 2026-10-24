@@ -2,6 +2,7 @@ package app.gbsat.android
 
 import gb.frame.HotkeyAction
 import gb.frame.Hotkeys
+import gb.frame.HomeTheme
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -74,6 +75,13 @@ class MainActivity : ComponentActivity() {
         // Compose key handlers only see events while something inside them is focused.
         val menu = app.gbsat.android.ui.MenuState
         if (!Emulator.running && menu.libraryShown && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && !menu.quitOpen.value) {
+            // Select is the console-style shortcut for switching the library between Default and FullScreen.
+            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value
+                }
+                return true
+            }
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_X) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     if (!menu.open.value) menu.selected = null // a fresh menu starts on its first entry (System)
