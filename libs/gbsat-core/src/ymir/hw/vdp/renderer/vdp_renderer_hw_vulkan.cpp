@@ -3852,8 +3852,6 @@ struct VulkanVDPRenderer::Impl {
         return s;
     }
 
-    std::vector<uint32> deliveredPixels;
-
     /// @brief Makes GPU writes visible to the CPU on non-coherent (cached) host memory.
     void InvalidateForRead(const GpuBuffer &buf) {
         if (buf.coherent || buf.mapped == nullptr) {
@@ -3876,14 +3874,15 @@ struct VulkanVDPRenderer::Impl {
         InvalidateForRead(frameCtx.readbackBuffer);
         // One sequential pass over the mapped memory into a CPU buffer (with opaque alpha); the frame consumer reads
         // it several times (thumbnail, presentation), which is slow straight from GPU-visible memory
-        const auto *src = static_cast<const uint32 *>(frameCtx.readbackBuffer.mapped);
+        // The mapped readback buffer stays valid throughout FrameReady: the frontend consumes/copies the
+        // frame synchronously before this frame slot is reused. Force opaque alpha in place instead of copying
+        // every high-resolution frame into a second CPU buffer (at 4x this avoids another ~5 MB/frame copy).
+        auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
         const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
-        deliveredPixels.resize(count);
-        uint32 *dst = deliveredPixels.data();
         for (size_t i = 0; i < count; ++i) {
-            dst[i] = src[i] | 0xFF000000u; // force opaque alpha
+            pixels[i] |= 0xFF000000u;
         }
-        hwCallbacks.FrameReady(dst, frameCtx.readbackW, frameCtx.readbackH);
+        hwCallbacks.FrameReady(pixels, frameCtx.readbackW, frameCtx.readbackH);
     }
 };
 
