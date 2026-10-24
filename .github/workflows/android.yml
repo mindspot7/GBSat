@@ -64,7 +64,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.14.3
-          # The action only saves its cache from the default branch; builds here run on android-port
+          # Required for safely sharing the configuration cache between workflow runs.
+          # Add GRADLE_ENCRYPTION_KEY as a repository Actions secret.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+          # Builds here run on android-port, so allow cache writes on this branch.
           cache-read-only: false
 
       - name: Install ccache
@@ -162,16 +165,55 @@ jobs:
           ccache -s | head -12 | sed 's/^/ccache: /'
           echo "::notice title=ccache::$(ccache -s | tr -s ' ' | grep -iE 'hit|miss|cache size' | head -6 | tr '\n' ';')"
           python3 - <<'PY'
+          from html.parser import HTMLParser
           import glob, re
-          f = sorted(glob.glob("build/reports/profile/profile-*.html"))
-          if f:
-              h = open(f[-1], encoding="utf-8", errors="replace").read()
-              rows = re.findall(r'<td class="indentPath">([^<]+)</td>\s*<td class="numeric">([^<]+)</td>', h)
-              def secs(t):
-                  m = re.match(r'(?:(\d+)m )?([\d.]+)s', t.strip())
-                  return (int(m.group(1) or 0) * 60 + float(m.group(2))) if m else 0
-              top = sorted(rows, key=lambda r: -secs(r[1]))[:8]
-              print("::notice title=Gradle tasks::" + "; ".join(f"{n.strip()} {t.strip()}" for n, t in top))
+
+          class ProfileParser(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.in_task_tab = False
+                  self.in_row = False
+                  self.in_cell = False
+                  self.cell = ""
+                  self.cells = []
+                  self.rows = []
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+                  if tag == "div" and attrs.get("class") == "tab" and attrs.get("id") == "tab4":
+                      self.in_task_tab = True
+                  elif self.in_task_tab and tag == "tr":
+                      self.in_row, self.cells = True, []
+                  elif self.in_row and tag == "td":
+                      self.in_cell, self.cell = True, ""
+              def handle_data(self, data):
+                  if self.in_cell:
+                      self.cell += data
+              def handle_endtag(self, tag):
+                  if tag == "td" and self.in_cell:
+                      self.cells.append(self.cell.strip())
+                      self.in_cell = False
+                  elif tag == "tr" and self.in_row:
+                      if len(self.cells) >= 2:
+                          self.rows.append((self.cells[0], self.cells[1]))
+                      self.in_row = False
+                  elif tag == "div" and self.in_task_tab:
+                      # The tab contains nested elements; stop only at the next top-level tab.
+                      pass
+
+          files = sorted(glob.glob("build/reports/profile/profile-*.html"))
+          if files:
+              parser = ProfileParser()
+              parser.feed(open(files[-1], encoding="utf-8", errors="replace").read())
+              def secs(value):
+                  m = re.fullmatch(r"(?:(\d+)m)?([\d.]+)s", value.strip())
+                  return int(m.group(1) or 0) * 60 + float(m.group(2)) if m else 0
+              tasks = [(name, duration) for name, duration in parser.rows
+                       if name.startswith(":") and name.count(":") >= 2 and secs(duration) > 0]
+              top = sorted(tasks, key=lambda item: -secs(item[1]))[:8]
+              if top:
+                  print("::notice title=Gradle tasks::" + "; ".join(f"{name} {duration}" for name, duration in top))
+              else:
+                  print("::warning title=Gradle tasks::No task timings parsed from " + files[-1])
           PY
           exit $rc
 
