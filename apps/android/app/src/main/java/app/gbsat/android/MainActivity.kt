@@ -79,6 +79,8 @@ class MainActivity : ComponentActivity() {
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value
+                    // Reclaim focus after fullscreen changes the library's layout. Keep the menu selection if it is open.
+                    if (menu.open.value) menu.menuRefocus.intValue++ else menu.refocus.intValue++
                 }
                 return true
             }
