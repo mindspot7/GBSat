@@ -37,7 +37,21 @@ jobs:
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"
+          packages=()
+          for package in "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"; do
+            case "$package" in
+              "ndk;"*) path="$ANDROID_HOME/ndk/${package#ndk;}";;
+              "cmake;"*) path="$ANDROID_HOME/cmake/${package#cmake;}";;
+              "platforms;"*) path="$ANDROID_HOME/platforms/${package#platforms;}";;
+              "build-tools;"*) path="$ANDROID_HOME/build-tools/${package#build-tools;}";;
+            esac
+            [ -d "$path" ] || packages+=("$package")
+          done
+          if [ "${#packages[@]}" -gt 0 ]; then
+            sdkmanager --install "${packages[@]}"
+          else
+            echo "Android SDK packages already present; skipping installation"
+          fi
 
       - uses: gradle/actions/setup-gradle@v5
         with:
@@ -55,12 +69,29 @@ jobs:
           key: ccache-native-${{ github.run_id }}
           restore-keys: ccache-native-
 
+      - name: Resolve DXC release
+        id: dxc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(gh api repos/microsoft/DirectXShaderCompiler/releases/latest --jq .tag_name)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Restore DXC archive cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/gbsat-dxc
+          key: dxc-linux-${{ steps.dxc.outputs.tag }}
+
       - name: Install DXC (HLSL to SPIR-V shader compiler)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download -R microsoft/DirectXShaderCompiler -p 'linux_dxc_*.tar.gz' -D /tmp/dxc
-          sudo mkdir -p /opt/dxc && sudo tar -xzf /tmp/dxc/linux_dxc_*.tar.gz -C /opt/dxc
+          mkdir -p "$HOME/.cache/gbsat-dxc"
+          if ! ls "$HOME/.cache/gbsat-dxc"/linux_dxc_*.tar.gz >/dev/null 2>&1; then
+            gh release download "${{ steps.dxc.outputs.tag }}" -R microsoft/DirectXShaderCompiler -p 'linux_dxc_*.tar.gz' -D "$HOME/.cache/gbsat-dxc"
+          fi
+          sudo mkdir -p /opt/dxc && sudo tar -xzf "$HOME"/.cache/gbsat-dxc/linux_dxc_*.tar.gz -C /opt/dxc
           echo "/opt/dxc/bin" >> "$GITHUB_PATH"
           echo "LD_LIBRARY_PATH=/opt/dxc/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           /opt/dxc/bin/dxc --version || true
