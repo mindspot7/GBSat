@@ -197,6 +197,9 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
     var cheatsOpen by remember { mutableStateOf(false) }
     var achievementsOpen by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(MenuPage.Root) }
+    // When backing out of a submenu, restore focus to the root entry that opened it.
+    var returnFocusLabel by remember { mutableStateOf<String?>(null) }
+    fun openSubmenu(label: String, target: MenuPage) { returnFocusLabel = label; page = target }
     BackHandler { when { cheatsOpen -> cheatsOpen = false; achievementsOpen -> achievementsOpen = false; page != MenuPage.Root -> page = MenuPage.Root; else -> onDismiss() } }
     if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
     if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
@@ -236,19 +239,19 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .1f))
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
-                        CompositionLocalProvider(LocalMenuFirstItem provides remember(page) { FirstItem() }) {
+                        CompositionLocalProvider(LocalMenuFirstItem provides remember(page, returnFocusLabel) { FirstItem(if (page == MenuPage.Root) returnFocusLabel else null) }) {
                         when (page) {
                             MenuPage.Root -> {
                                 MenuItem(Icons.Default.PlayArrow, "Resume", onClick = onDismiss)
-                                MenuItem(Icons.Default.Save, "Save state", sub = true) { page = MenuPage.Save }
-                                MenuItem(Icons.Default.Restore, "Load state", sub = true) { page = MenuPage.Load }
+                                MenuItem(Icons.Default.Save, "Save state", sub = true) { openSubmenu("Save state", MenuPage.Save) }
+                                MenuItem(Icons.Default.Restore, "Load state", sub = true) { openSubmenu("Load state", MenuPage.Load) }
                                 // Hidden while the on-screen fast-forward button is shown
                                 if (!Emulator.showFfButton) MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
-                                MenuItem(Icons.Default.Tv, "Video", sub = true) { page = MenuPage.Video }
-                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Audio", sub = true) { page = MenuPage.Audio }
-                                MenuItem(Icons.Default.Speed, "Performance", sub = true) { page = MenuPage.Performance }
-                                MenuItem(Icons.Default.Layers, "Overlays", sub = true) { page = MenuPage.Overlays }
-                                MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { page = MenuPage.Game }
+                                MenuItem(Icons.Default.Tv, "Video", sub = true) { openSubmenu("Video", MenuPage.Video) }
+                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Audio", sub = true) { openSubmenu("Audio", MenuPage.Audio) }
+                                MenuItem(Icons.Default.Speed, "Performance", sub = true) { openSubmenu("Performance", MenuPage.Performance) }
+                                MenuItem(Icons.Default.Layers, "Overlays", sub = true) { openSubmenu("Overlays", MenuPage.Overlays) }
+                                MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { openSubmenu("Game", MenuPage.Game) }
                                 MenuItem(Icons.AutoMirrored.Filled.ExitToApp, "Exit") { Emulator.quitGame() } // back to the library
                             }
                             MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
@@ -379,7 +382,7 @@ private fun StateSlots(save: Boolean, onDone: () -> Unit) {
     message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
 }
 
-private class FirstItem { var claimed = false }
+private class FirstItem(val preferredLabel: String? = null) { var claimed = false }
 private val LocalMenuFirstItem = androidx.compose.runtime.compositionLocalOf<FirstItem?> { null }
 
 @Composable
@@ -391,7 +394,14 @@ private fun MenuItem(
     // The first item of each menu page takes the focus, so the controller works as soon as the menu opens
     val first = LocalMenuFirstItem.current
     val fr = remember { androidx.compose.ui.focus.FocusRequester() }
-    val isFirst = remember(first) { first != null && !first.claimed.also { first.claimed = true } }
+    val isFirst = remember(first, label) {
+        if (first == null) false
+        else if (first.preferredLabel != null) {
+            val match = label == first.preferredLabel && !first.claimed
+            if (match) first.claimed = true
+            match
+        } else (!first.claimed).also { first.claimed = true }
+    }
     if (isFirst) LaunchedEffect(first) { kotlinx.coroutines.delay(60); runCatching { fr.requestFocus() } }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))

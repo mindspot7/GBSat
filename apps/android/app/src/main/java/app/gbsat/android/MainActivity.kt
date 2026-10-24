@@ -63,13 +63,11 @@ class MainActivity : ComponentActivity() {
 
     private fun setImmersiveMode(on: Boolean) {
         val c = WindowInsetsControllerCompat(window, window.decorView)
-        // Keep Android's navigation bar visible: hiding systemBars() also removes the system Back affordance
-        // on three-button navigation devices. Immersive mode here means hiding the status bar only.
+        // The app intentionally stays immersive. Android Back is dispatched to the active Compose BackHandler.
         if (on) {
-            c.hide(WindowInsetsCompat.Type.statusBars())
-            c.show(WindowInsetsCompat.Type.navigationBars())
+            c.hide(WindowInsetsCompat.Type.systemBars())
             c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else c.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+        } else c.show(WindowInsetsCompat.Type.systemBars())
     }
 
     // ---- Physical gamepad support ----
@@ -88,7 +86,8 @@ class MainActivity : ComponentActivity() {
         if (event.keyCode == KeyEvent.KEYCODE_BACK && !captureActive) {
             // Some pads report one B press twice: as BUTTON_B and as KEYCODE_BACK. Pair only the duplicate
             // from the same device and same press; never swallow every controller Back during gameplay.
-            if (event.action == KeyEvent.ACTION_DOWN &&
+            val fromController = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD) != 0
+            if (fromController && event.action == KeyEvent.ACTION_DOWN &&
                 event.deviceId == lastGamepadBDevice &&
                 event.eventTime >= lastGamepadBAt &&
                 event.eventTime - lastGamepadBAt <= 150L
