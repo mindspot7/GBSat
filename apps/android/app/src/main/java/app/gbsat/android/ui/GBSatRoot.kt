@@ -48,7 +48,10 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
             } else if (!Emulator.setupDone) {
                 SetupWizard(onFinish = { Emulator.finishSetup() })
             } else {
-                BackHandler(screen == Screen.Settings) { screen = Screen.Library }
+                BackHandler(screen == Screen.Settings) {
+                    screen = Screen.Library
+                    if (MenuState.open.value) MenuState.menuRefocus.intValue++
+                }
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
                     Box(Modifier.padding(pad).fillMaxSize()) {
                         when (screen) {
@@ -66,7 +69,11 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
                                 open = { path -> scope.launch { Emulator.launch(path, useAutoLoad = false)?.let { snackbar.showSnackbar(it) } } },
                             )
                             Screen.Settings -> SettingsScreen(
-                                onBack = { screen = Screen.Library },
+                                onBack = {
+                            screen = Screen.Library
+                            // The settings screen replaces LibraryScreen in composition; explicitly restore the menu focus on return.
+                            if (MenuState.open.value) MenuState.menuRefocus.intValue++
+                        },
                                 toast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 page = settingsPage,
                             )
