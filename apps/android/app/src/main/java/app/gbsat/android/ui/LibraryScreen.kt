@@ -359,6 +359,23 @@ private fun HelpBar(recentMode: Boolean) {
 
 
 @Composable
+private fun ButtonHint(letter: String, tint: Color, label: String) {
+    Row(
+        Modifier.padding(start = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier.size(28.dp).clip(RoundedCornerShape(50)).background(tint),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(letter, color = Color.White, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
+        }
+        Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, onAction: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Icon(icon, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
