@@ -65,6 +65,7 @@ fun LibraryScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menuOpen by MenuState.open
+    var recentMode by MenuState.recent
     val style by HomeTheme.style
     val fullscreen by HomeTheme.fullscreen
     val menuFocus = remember { FocusRequester() }
@@ -197,7 +198,7 @@ fun LibraryScreen(
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HomeLibrary(style, homeGames, entries, actions, coverVersion, empty,
+                HomeLibrary(style, homeGames, entries, recentMode, actions, coverVersion, empty,
                     refocus = MenuState.refocus.intValue, fullscreen = fullscreen)
                 achievementsFor?.let { path ->
                     // Drawn over the library (same window), so the controller mapping of the main window applies
@@ -206,46 +207,8 @@ fun LibraryScreen(
                     }
                 }
             }
-            // Restore the quick-action bar for the standard library layouts. Theme and Layout keep
-            // the same side-by-side button treatment as the former All Games / Recents shortcut row.
-            if (!fullscreen) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = {
-                            HomeTheme.style.value = when (HomeTheme.style.value) {
-                                HomeStyle.Showcase -> HomeStyle.Grid
-                                HomeStyle.Grid -> HomeStyle.Continue
-                                HomeStyle.Continue -> HomeStyle.Showcase
-                            }
-                        },
-                        modifier = Modifier.weight(1f).height(46.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Gold),
-                        border = BorderStroke(1.dp, Gold.copy(alpha = 0.65f)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    ) {
-                        Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(19.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Theme", fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = { HomeTheme.fullscreen.value = true },
-                        modifier = Modifier.weight(1f).height(46.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Gold),
-                        border = BorderStroke(1.dp, Gold.copy(alpha = 0.65f)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    ) {
-                        Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(19.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Layout: Default", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
+            if (!fullscreen && hasPad && HomeTheme.buttonHelp.value) HelpBar(recentMode)
+
         }
         if (fullscreen && !menuOpen && !openingGame) {
             Box(Modifier.align(Alignment.CenterStart).zIndex(5f).padding(start = 2.dp)
@@ -262,22 +225,12 @@ fun LibraryScreen(
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
+            recent = recentMode, gamesCount = games.size, recentCount = entries.distinctBy { it.game }.size,
+            onShowRecent = { recentMode = it; menuOpen = false },
             items = SettingsEntries.filter { it.third != SettingsPage.About }.map { (icon, label, page) ->
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
             extras = listOf(HomeMenuItem(MenuIcon.About, "About", selected = MenuState.selected == SettingsPage.About) { openPage(SettingsPage.About) }),
-            quickActions = listOf(
-                HomeMenuItem(MenuIcon.Extras, "Theme") {
-                    HomeTheme.style.value = when (HomeTheme.style.value) {
-                        HomeStyle.Showcase -> HomeStyle.Grid
-                        HomeStyle.Grid -> HomeStyle.Continue
-                        HomeStyle.Continue -> HomeStyle.Showcase
-                    }
-                },
-                HomeMenuItem(MenuIcon.Video, if (HomeTheme.fullscreen.value) "Layout: FullScreen" else "Layout: Default") {
-                    HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value
-                },
-            ),
             onQuit = onQuit, header = { RaUserHeader() }, onFocusChanged = { MenuState.menuHasFocus = it },
         )
         if (openingGame) {
@@ -389,6 +342,21 @@ private fun GameOptions(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
+
+/** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
+@Composable
+private fun HelpBar(recentMode: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ButtonHint("A", Color(0xFFE5483B), "Play")
+        if (!recentMode) ButtonHint("Y", Color(0xFF3BB273), "Game options")
+        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
+        ButtonHint("B", Color(0xFFF2C230), if (recentMode) "Back" else "Quit")
+    }
+}
+
 
 @Composable
 fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, onAction: () -> Unit) {
