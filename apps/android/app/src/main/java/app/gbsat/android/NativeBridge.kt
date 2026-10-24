@@ -61,8 +61,6 @@ object NativeBridge {
     @JvmStatic fun raHttp(id: Int, url: String, post: String?, contentType: String?, userAgent: String) =
         gb.frame.RetroAchievements.httpRequest(id, url, post, contentType, userAgent)
     @JvmStatic external fun nativeSetDisplayOptions(filter: Int, shader: Int)
-    /** 0 none, 1 bsnes gamma ramp. */
-    @JvmStatic external fun nativeSetColorCorrection(mode: Int)
     @JvmStatic external fun nativeSetCheats(addrs: LongArray, values: LongArray, sizes: IntArray)
     @JvmStatic external fun nativeSetFastBoot(on: Boolean)
     @JvmStatic external fun nativeGetDiscHash(): String?
