@@ -225,8 +225,13 @@ fun LibraryScreen(
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
-            recent = recentMode, gamesCount = games.size, recentCount = entries.distinctBy { it.game }.size,
-            onShowRecent = { recentMode = it; menuOpen = false },
+            themeLabel = HomeTheme.style.value.label,
+            fullscreen = fullscreen,
+            onCycleTheme = {
+                val styles = HomeStyle.entries
+                HomeTheme.style.value = styles[(HomeTheme.style.value.ordinal + 1) % styles.size]
+            },
+            onToggleFullscreen = { HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value },
             items = SettingsEntries.filter { it.third != SettingsPage.About }.map { (icon, label, page) ->
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
