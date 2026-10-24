@@ -3875,13 +3875,9 @@ struct VulkanVDPRenderer::Impl {
         // One sequential pass over the mapped memory into a CPU buffer (with opaque alpha); the frame consumer reads
         // it several times (thumbnail, presentation), which is slow straight from GPU-visible memory
         // The mapped readback buffer stays valid throughout FrameReady: the frontend consumes/copies the
-        // frame synchronously before this frame slot is reused. Force opaque alpha in place instead of copying
-        // every high-resolution frame into a second CPU buffer (at 4x this avoids another ~5 MB/frame copy).
+        // frame synchronously before this frame slot is reused. The presenter samples RGB only, so pass the
+        // mapped pixels directly and avoid a full-frame CPU copy/alpha pass at every enhanced resolution.
         auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
-        const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
-        for (size_t i = 0; i < count; ++i) {
-            pixels[i] |= 0xFF000000u;
-        }
         hwCallbacks.FrameReady(pixels, frameCtx.readbackW, frameCtx.readbackH);
     }
 };
