@@ -70,10 +70,10 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
                             )
                             Screen.Settings -> SettingsScreen(
                                 onBack = {
-                            screen = Screen.Library
-                            // The settings screen replaces LibraryScreen in composition; explicitly restore the menu focus on return.
-                            if (MenuState.open.value) MenuState.menuRefocus.intValue++
-                        },
+                                    screen = Screen.Library
+                                    // The settings screen replaces LibraryScreen in composition; restore the menu focus on return.
+                                    if (MenuState.open.value) MenuState.menuRefocus.intValue++
+                                },
                                 toast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 page = settingsPage,
                             )
