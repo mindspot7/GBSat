@@ -230,6 +230,8 @@ fun LibraryScreen(
             onCycleTheme = {
                 val styles = HomeStyle.entries
                 HomeTheme.style.value = styles[(HomeTheme.style.value.ordinal + 1) % styles.size]
+                // Theme changes must not move focus away from the Theme tile.
+                if (hasPad) MenuState.menuRefocus.intValue++
             },
             onToggleFullscreen = { HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value },
             items = SettingsEntries.filter { it.third != SettingsPage.About }.map { (icon, label, page) ->
