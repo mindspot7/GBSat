@@ -227,6 +227,18 @@ fun LibraryScreen(
                 HomeMenuItem(icon, label, selected = MenuState.selected == page) { openPage(page) }
             },
             extras = listOf(HomeMenuItem(MenuIcon.About, "About", selected = MenuState.selected == SettingsPage.About) { openPage(SettingsPage.About) }),
+            quickActions = listOf(
+                HomeMenuItem(MenuIcon.Extras, "Theme") {
+                    HomeTheme.style.value = when (HomeTheme.style.value) {
+                        HomeStyle.Showcase -> HomeStyle.Grid
+                        HomeStyle.Grid -> HomeStyle.Continue
+                        HomeStyle.Continue -> HomeStyle.Showcase
+                    }
+                },
+                HomeMenuItem(MenuIcon.Video, if (HomeTheme.fullscreen.value) "Layout: FullScreen" else "Layout: Default") {
+                    HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value
+                },
+            ),
             onQuit = onQuit, header = { RaUserHeader() }, onFocusChanged = { MenuState.menuHasFocus = it },
         )
         if (openingGame) {
