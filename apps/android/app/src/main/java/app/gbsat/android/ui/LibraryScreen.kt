@@ -65,7 +65,7 @@ fun LibraryScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menuOpen by MenuState.open
-    var recentMode by MenuState.recent
+    var recentMode by remember { mutableStateOf(LibraryView.recent) }
     val style by HomeTheme.style
     val fullscreen by HomeTheme.fullscreen
     val menuFocus = remember { FocusRequester() }
@@ -82,11 +82,24 @@ fun LibraryScreen(
         }
     }
     LaunchedEffect(menuOpen, hasPad) {
-        if (menuOpen) { if (hasPad) { delay(120); focusMenu() } } else if (hasPad) MenuState.refocus.intValue++
+        if (menuOpen) {
+            if (hasPad) { delay(120); focusMenu() }
+        } else {
+            // The menu is no longer a focus target; never let its old focus flag block the library's next focus request.
+            MenuState.menuHasFocus = false
+            if (hasPad) MenuState.refocus.intValue++
+        }
     }
     LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen && hasPad) focusMenu() }
     // MainActivity handles X (menu) and gives the focus back to the library when a key comes while nothing has it
-    DisposableEffect(Unit) { MenuState.libraryShown = true; onDispose { MenuState.libraryShown = false; MenuState.hasFocus = false } }
+    DisposableEffect(Unit) {
+        MenuState.libraryShown = true
+        onDispose {
+            MenuState.libraryShown = false
+            MenuState.hasFocus = false
+            MenuState.menuHasFocus = false
+        }
+    }
     var confirmQuit by MenuState.quitOpen
     MenuState.onQuit = onQuit
 
@@ -172,6 +185,7 @@ fun LibraryScreen(
         !Emulator.iplLoaded -> EmptyKind.Bios
         Emulator.gamesDir.isBlank() -> EmptyKind.Folder
         games.isEmpty() -> if (loading) EmptyKind.Loading else EmptyKind.NoGames
+        recentMode && entries.isEmpty() -> EmptyKind.NoStates
         else -> null
     }
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
@@ -227,6 +241,8 @@ fun LibraryScreen(
             appIcon = painterResource(R.mipmap.ic_launcher), appName = "GBSat",
             themeLabel = HomeTheme.style.value.label,
             fullscreen = fullscreen,
+            recentMode = recentMode,
+            onToggleRecent = { recentMode = !recentMode; LibraryView.recent = recentMode },
             onCycleTheme = {
                 val styles = HomeStyle.entries
                 HomeTheme.style.value = styles[(HomeTheme.style.value.ordinal + 1) % styles.size]
@@ -285,8 +301,6 @@ internal object MenuState {
     val open = mutableStateOf(false)
     /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
     val quitOpen = mutableStateOf(false)
-    /** Remember whether the library shows recent save states or all games. */
-    val recent = mutableStateOf(false)
     var onQuit: (() -> Unit)? = null
     var selected by mutableStateOf<SettingsPage?>(null)
     /** The library is on screen (not a settings page or a game): MainActivity handles X and lost focus there. */

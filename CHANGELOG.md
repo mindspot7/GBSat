@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fixed controller focus restoration when returning from Settings or closing the main menu; stale focus state no longer leaves selection on box art behind the menu.
+- Restored the main-menu Library toggle for All games / Recent save states and persist its choice between sessions.
+- Sanitized saved display, audio-threading, filtering, and CD-speed settings against unsupported values; removed an unused Settings Extras callback.
 
 ## 1.3.5
 - Faster with threaded VDP2 rendering: on progressive screens (and hi-res ones with one field) the render thread alternates between two framebuffers, so the emulation no longer waits for the previous frame at the start of each drawn frame, and skipped frames no longer wait for it either (Burning Rangers on the RG Rotate: 58.2 → 59.8 fps on average, no second below 58; Virtua Fighter 2 at 704x448: VDP2 wait from ~4 ms to ~0.9 ms per frame).

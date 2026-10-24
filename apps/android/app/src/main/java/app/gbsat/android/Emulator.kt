@@ -439,7 +439,7 @@ object Emulator {
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
         prefs.edit().remove("idleSkip").remove("oneField").remove("threadedVdp").apply() // no longer options (always on)
-        scspMode = prefs.getInt("scspMode", 0)
+        scspMode = prefs.getInt("scspMode", 0).coerceIn(0, 2)
         prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
         // Threaded audio choices the Auto tuner remembered per game ("scsp:<game>") were measured before the VDP2 render
         // thread stopped blocking the emulation at the end of each frame, which changed which mode is faster (Burning
@@ -450,7 +450,7 @@ object Emulator {
         }
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
-        aspect = prefs.getInt("aspect", 0)
+        aspect = prefs.getInt("aspect", 0).coerceIn(0, 2)
         showFps = prefs.getBoolean("showFps", false)
         showSpeed = prefs.getBoolean("showSpeed", false)
         showFfButton = prefs.getBoolean("showFfButton", false)
@@ -463,10 +463,10 @@ object Emulator {
         useGameProfiles = prefs.getBoolean("gameProfiles", true)
         // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
         renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
-        filter = prefs.getInt("filter", 1).coerceAtMost(1) // "Sharp bilinear" (2) was removed
+        filter = prefs.getInt("filter", 1).coerceIn(0, 1) // "Sharp bilinear" (2) was removed
         shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0)) // the removed dot matrix becomes none
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
-        cdSpeed = prefs.getInt("cdSpeed", 8).coerceIn(2, 200)
+        cdSpeed = prefs.getInt("cdSpeed", 8).let { if (it in setOf(2, 4, 8, 16)) it else 8 }
         // Once: 4x (the usual choice before videos and streamed music switched back to the original speed) becomes 8x
         if (!prefs.getBoolean("cdSpeed8x", false)) {
             if (cdSpeed == 4) cdSpeed = 8
@@ -674,9 +674,9 @@ object Emulator {
         if (prefs.contains("scsp3:$path")) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win
         var userChoice = false
-        if (prefs.contains("game:$path:renderer")) { r = prefs.getInt("game:$path:renderer", r); userChoice = true }
+        if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 4 || saved == 2) 4 else 1; userChoice = true }
         if (prefs.contains("game:$path:frameSkip")) { fs = prefs.getBoolean("game:$path:frameSkip", fs); userChoice = true }
-        if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm); userChoice = true }
+        if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm).coerceIn(0, 2); userChoice = true }
         renderer = r; frameSkip = fs; scspMode = sm
         sessionStart = GameOpts(r, fs, sm)
         applyOptions()

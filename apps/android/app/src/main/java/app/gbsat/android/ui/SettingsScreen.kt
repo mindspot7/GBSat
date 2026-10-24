@@ -122,7 +122,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                         SettingsPage.Audio -> AudioPage()
                         SettingsPage.Performance -> PerformancePage()
                         SettingsPage.Controls -> ControlsPage()
-                        SettingsPage.Extras -> ExtrasPage(onLayoutChanged = { MenuState.open.value = false; onBack() })
+                        SettingsPage.Extras -> ExtrasPage()
                         SettingsPage.About -> AboutPage()
                     }
                     Spacer(Modifier.height(24.dp))
@@ -368,7 +368,7 @@ private fun ControlsPage() {
 }
 
 @Composable
-private fun ExtrasPage(onLayoutChanged: () -> Unit) {
+private fun ExtrasPage() {
     RetroAchievementsSettings("GBSat")
 }
 

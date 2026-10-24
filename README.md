@@ -17,7 +17,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 | | |
 | --- | --- |
 | 🚀 **Vulkan GPU renderer** | Saturn VDP1/VDP2 graphics on the GPU with Vulkan compute shaders, internal resolution up to **4x**. CPU (OpenGL) renderer for every other device. |
-| 🎮 **Built for handhelds** | The whole app works with a controller: D-pad, A/B/X/Y, Select for recent games, full remapping, hotkeys and an analog 3D Control Pad mode. Touch controls too. |
+| 🎮 **Built for handhelds** | The whole app works with a controller: D-pad, A/B/X/Y, Select for library fullscreen, full remapping, hotkeys and an analog 3D Control Pad mode. The main menu's Library tile switches between all games and recent save states. Touch controls too. |
 | 💾 **Save states** | Slots with screenshot previews, quick save/load, **auto save and auto load**, and a "Recent" view to jump straight back into any state. |
 | 🏆 **RetroAchievements** | Login, hardcore mode, unlock notifications, achievement list and offline play in casual mode. |
 | 🖼️ **Game library** | Box art downloaded automatically (with fuzzy title matching), custom covers, play time per game. |
@@ -64,7 +64,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 - Recommended per-game settings for slower devices; renderer, frame skip and threaded audio changed in a game are remembered for that game
 
 **Controls and interface**
-- Home screen layouts (Settings → Extras → Layout): Showcase (default), Grid and All in One; main menu panel with the library view and the settings
+- Home screen layouts: Showcase (default), Grid and All in One. The main menu's Theme tile cycles layouts, Fullscreen toggles the library display, and Library switches between all games and recent save states.
 - Controller navigation everywhere, including the in-game quick menu (save/load, video, audio, overlays, cheats, disc tray, reset)
 - Button remapping (including L3/R3), hotkeys for quick save/load, fast-forward (hold or toggle) and the menu
 - First-run setup wizard, configurable data folder, crash reports with automatic fallback to the CPU renderer
