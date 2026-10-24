@@ -412,7 +412,7 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         for (uint32_t y = 0; y < th; ++y) {
             const uint32_t *src = fb + (size_t)(y * step) * width;
             uint32_t *dst = g->lastFrame.data() + (size_t)y * tw;
-            for (uint32_t x = 0; x < tw; ++x) dst[x] = src[x * step];
+            for (uint32_t x = 0; x < tw; ++x) dst[x] = src[x * step] | 0xFF000000u;
         }
         g->lastFrameW = tw;
         g->lastFrameH = th;
