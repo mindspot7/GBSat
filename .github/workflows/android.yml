@@ -43,7 +43,6 @@ jobs:
       - name: Install NDK, CMake and platform
         run: |
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --licenses >/dev/null || true
           packages=()
           for package in "ndk;27.2.12479018" "cmake;3.31.6" "platforms;android-36" "build-tools;36.0.0"; do
             case "$package" in
@@ -55,9 +54,11 @@ jobs:
             [ -d "$path" ] || packages+=("$package")
           done
           if [ "${#packages[@]}" -gt 0 ]; then
+            # Accept licenses only when the runner actually needs to install SDK packages.
+            yes | sdkmanager --licenses >/dev/null || true
             sdkmanager --install "${packages[@]}"
           else
-            echo "Android SDK packages already present; skipping installation"
+            echo "Android SDK packages already present; skipping license checks and installation"
           fi
 
       - uses: gradle/actions/setup-gradle@v5
