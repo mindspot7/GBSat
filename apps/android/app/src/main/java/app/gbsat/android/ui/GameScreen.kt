@@ -262,7 +262,7 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     Emulator.savePrefs(); Emulator.applyOptions()
                                 }
                                 if (Emulator.renderer == 4) {
-                                    MenuItem(Icons.Default.HighQuality, "Internal resolution", value = Emulator.resScaleLabel) {
+                                    MenuItem(Icons.Default.HighQuality, "Enhanced resolution", value = Emulator.resScaleLabel) {
                                         // 1x → 2x → 3x → 4x → Native → 1x
                                         Emulator.resScale = when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }; Emulator.savePrefs(); Emulator.applyOptions()
                                     }
@@ -271,10 +271,6 @@ private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
                                     MenuItem(Icons.Default.Gradient, "Shader", value = gb.frame.Shaders.name(Emulator.shader)) {
                                         Emulator.shader = gb.frame.Shaders.next(Emulator.shader)
                                         Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
-                                    }
-                                    MenuItem(Icons.Default.Contrast, "Color correction", value = if (Emulator.gammaRamp) "On" else "Off") {
-                                        Emulator.gammaRamp = !Emulator.gammaRamp; Emulator.savePrefs()
-                                        NativeBridge.nativeSetColorCorrection(if (Emulator.gammaRamp) gb.frame.Shaders.COLOR_BSNES_GAMMA else gb.frame.Shaders.COLOR_NONE)
                                     }
                                     MenuItem(Icons.Default.FilterAlt, "Filter", value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)]) {
                                         Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
