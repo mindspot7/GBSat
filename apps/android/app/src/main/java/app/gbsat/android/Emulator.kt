@@ -594,13 +594,28 @@ object Emulator {
         rememberScspMode() // a game was still running
         openDisc?.close()
         android.util.Log.i("GBSat-Disc", "launch requested path=" + path + "; name=" + Storage.fileName(path))
-        val disc = Storage.open(path) ?: run {
+        var disc = Storage.open(path) ?: run {
             android.util.Log.e("GBSat-Disc", "Storage.open returned null path=" + path)
             return@withContext "Unable to open ${Storage.fileName(path)}. Check games folder permission and logcat."
         }
         android.util.Log.i("GBSat-Disc", "calling nativeLoadDisc path=" + disc.path + "; preload=" + preloadDisc)
-        val err = NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
+        var err = NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
         android.util.Log.i("GBSat-Disc", "nativeLoadDisc result=" + (err ?: "success"))
+        val isChd = path.endsWith(".chd", ignoreCase = true)
+        var copied = false
+        if (err != null && isChd) {
+            // A CHD is read through its descriptor (no copy). If this device can't, fall back to a copy in the app cache.
+            android.util.Log.w("GBSat-Disc", "CHD descriptor read failed; retrying from a cached copy")
+            disc.close()
+            Storage.open(path, stageCopy = true)?.let { copy ->
+                disc = copy
+                copied = true
+                err = NativeBridge.nativeLoadDisc(copy.path, preloadDisc)
+                android.util.Log.i("GBSat-Disc", "nativeLoadDisc (copy) result=" + (err ?: "success"))
+            }
+        }
+        // Read straight through the descriptor: copies kept by earlier versions are not needed on this device
+        if (err == null && isChd && !copied) Storage.clearChdCopies()
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()

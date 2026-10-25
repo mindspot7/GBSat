@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- CHD games are no longer copied to the app cache before starting: the core reads the file straight through the descriptor the app already holds (reopening it by path is refused on devices like the Anbernic RG DS, which is why a copy was needed). Starting a CHD is immediate and uses no extra storage; the copy is kept only as a fallback if a device can't read that way, and copies left by earlier versions are deleted after the first successful start.
 - Library controls: B opens (and closes) the main menu and X cycles the theme Showcase / Grid / All in One; the button help bar shows the new buttons. Quit stays in the menu.
 - The library no longer competes with the open main menu for the controller focus, so Back from a settings page lands on the entry that was opened; closing the menu or changing the theme puts the selection back on the game selected last (it used to return to the game the screen had opened on).
 - Fixed controller focus restoration when returning from Settings or closing the main menu; stale focus state no longer leaves selection on box art behind the menu.

@@ -12,6 +12,17 @@
 
 #include <libchdr/chd.h>
 
+#if defined(__ANDROID__) || defined(__linux__)
+#define YMIR_CHD_FD_OPEN 1
+#include <fcntl.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#endif
+
 #include <charconv>
 #include <map>
 #include <span>
@@ -176,6 +187,110 @@ static bool SetTrackInfo(const chd_header *header, std::string_view typestring, 
     return true;
 }
 
+#ifdef YMIR_CHD_FD_OPEN
+namespace {
+
+// The Android app exposes documents picked through the Storage Access Framework as symlinks to /proc/self/fd/N (it keeps
+// the descriptors open). Reopening that link by path is refused on some devices (Anbernic RG DS: fopen fails, so libchdr
+// reports "file not found" although stat works). The CHD is therefore read through the descriptor itself, which needs no
+// reopen, using pread so the descriptor's own file offset is never touched.
+struct FdFile {
+    int fd;
+    uint64_t size;
+    uint64_t pos;
+};
+
+uint64_t FdSize(void *p) {
+    return static_cast<FdFile *>(p)->size;
+}
+
+size_t FdRead(void *buffer, size_t size, size_t count, void *p) {
+    auto *f = static_cast<FdFile *>(p);
+    const size_t total = size * count;
+    auto *out = static_cast<uint8_t *>(buffer);
+    size_t done = 0;
+    while (done < total) {
+        const ssize_t n = pread(f->fd, out + done, total - done, static_cast<off_t>(f->pos + done));
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            break;
+        }
+        done += static_cast<size_t>(n);
+    }
+    f->pos += done;
+    return size != 0 ? done / size : 0;
+}
+
+int FdClose(void *p) {
+    auto *f = static_cast<FdFile *>(p);
+    close(f->fd);
+    delete f;
+    return 0;
+}
+
+int FdSeek(void *p, int64_t offset, int whence) {
+    auto *f = static_cast<FdFile *>(p);
+    int64_t base = 0;
+    switch (whence) {
+    case SEEK_SET: base = 0; break;
+    case SEEK_CUR: base = static_cast<int64_t>(f->pos); break;
+    case SEEK_END: base = static_cast<int64_t>(f->size); break;
+    default: return -1;
+    }
+    const int64_t target = base + offset;
+    if (target < 0) {
+        return -1;
+    }
+    f->pos = static_cast<uint64_t>(target);
+    return 0;
+}
+
+const core_file_callbacks kFdCallbacks = {FdSize, FdRead, FdClose, FdSeek};
+
+// The descriptor number when `path` is a symlink to /proc/self/fd/N, otherwise -1.
+int ProcFdOf(const std::filesystem::path &path) {
+    char target[64];
+    const ssize_t n = readlink(path.c_str(), target, sizeof(target) - 1);
+    if (n <= 0) {
+        return -1;
+    }
+    target[n] = '\0';
+    static constexpr char kPrefix[] = "/proc/self/fd/";
+    constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
+    if (std::strncmp(target, kPrefix, kPrefixLen) != 0) {
+        return -1;
+    }
+    char *end = nullptr;
+    const long fd = std::strtol(target + kPrefixLen, &end, 10);
+    if (end == target + kPrefixLen || *end != '\0' || fd < 0) {
+        return -1;
+    }
+    return static_cast<int>(fd);
+}
+
+// Opens the CHD through a duplicate of descriptor `procFd` (libchdr closes the duplicate with the file; the app keeps
+// the original). Returns CHDERR_FILE_NOT_FOUND when the descriptor can't be used (not seekable, e.g. a pipe), so the
+// caller falls back to opening the path.
+chd_error OpenFromFd(int procFd, chd_file **out) {
+    const int fd = fcntl(procFd, F_DUPFD_CLOEXEC, 0);
+    if (fd < 0) {
+        return CHDERR_FILE_NOT_FOUND;
+    }
+    const off_t end = lseek(fd, 0, SEEK_END);
+    if (end <= 0) {
+        close(fd);
+        return CHDERR_FILE_NOT_FOUND;
+    }
+    // libchdr takes ownership of the file; if opening fails it has already closed it through FdClose
+    auto *file = new FdFile{fd, static_cast<uint64_t>(end), 0};
+    return chd_open_core_file_callbacks(&kFdCallbacks, file, CHD_OPEN_READ, nullptr, out);
+}
+
+} // namespace
+#endif
+
 bool Load(std::filesystem::path chdPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
 
@@ -185,7 +300,15 @@ bool Load(std::filesystem::path chdPath, Disc &disc, bool preloadToRAM, CbLoader
 
     chd_file *file = nullptr;
     try {
-        chd_error error = chd_open(chdPath.string().c_str(), CHD_OPEN_READ, nullptr, &file);
+        chd_error error = CHDERR_FILE_NOT_FOUND;
+#ifdef YMIR_CHD_FD_OPEN
+        if (const int procFd = ProcFdOf(chdPath); procFd >= 0) {
+            error = OpenFromFd(procFd, &file);
+        }
+#endif
+        if (file == nullptr && error == CHDERR_FILE_NOT_FOUND) {
+            error = chd_open(chdPath.string().c_str(), CHD_OPEN_READ, nullptr, &file);
+        }
         if (error != CHDERR_NONE) {
             if (error == CHDERR_INVALID_DATA) {
                 invFmtMsg(fmt::format("CHD: Failed to open file: {}", chd_error_string(error)));
