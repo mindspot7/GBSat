@@ -153,7 +153,6 @@ fun GameScreen(onQuitApp: () -> Unit) {
         }
 
         if (menu) GameMenu(
-            onQuitApp = onQuitApp,
             onDismiss = { menu = false; Emulator.pause(false) },
         )
     }
@@ -183,162 +182,261 @@ private fun VideoSurfaceInner(modifier: Modifier) {
     )
 }
 
-private enum class MenuPage(val title: String) { Root("Paused"), Save("Save state"), Load("Load state"), Video("Video"), Audio("Audio"), Performance("Performance"), Overlays("Overlays"), Game("Game") }
-
-private val MenuGold = Color(0xFFE8C26A)
-private val MenuDim = Color.White.copy(alpha = .65f)
-
-/**
- * In-game menu: a panel on the left side with submenus. Tapping outside the panel (or Back / B) closes it;
- * inside a submenu, Back returns to the main list.
- */
 @Composable
-private fun GameMenu(onQuitApp: () -> Unit, onDismiss: () -> Unit) {
-    var cheatsOpen by remember { mutableStateOf(false) }
-    var achievementsOpen by remember { mutableStateOf(false) }
-    var page by remember { mutableStateOf(MenuPage.Root) }
-    // When backing out of a submenu, restore focus to the root entry that opened it.
-    var returnFocusLabel by remember { mutableStateOf<String?>(null) }
-    fun openSubmenu(label: String, target: MenuPage) { returnFocusLabel = label; page = target }
-    BackHandler { when { cheatsOpen -> cheatsOpen = false; achievementsOpen -> achievementsOpen = false; page != MenuPage.Root -> page = MenuPage.Root; else -> onDismiss() } }
-    if (cheatsOpen) { CheatsScreen(onBack = { cheatsOpen = false }); return }
-    if (achievementsOpen) { AchievementsScreen(onBack = { achievementsOpen = false }); return }
-
-    val visible = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
-    Box(Modifier.fillMaxSize()) {
-        // Scrim: tapping anywhere outside the panel closes the menu
-        androidx.compose.animation.AnimatedVisibility(visible, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f))
-                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { onDismiss() })
+private fun GameMenu(onDismiss: () -> Unit) {
+    val savePage = remember {
+        QuickMenuPage("save", "Save state") {
+            StateSlots(save = true, onDone = { dismiss() })
         }
-        androidx.compose.animation.AnimatedVisibility(
-            visible, enter = androidx.compose.animation.slideInHorizontally { -it }, exit = androidx.compose.animation.slideOutHorizontally { -it },
-        ) {
-            Surface(
-                color = Color(0xFF1B1830).copy(alpha = .97f),
-                shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
-                modifier = Modifier.fillMaxHeight().widthIn(max = 340.dp).fillMaxWidth(0.85f),
+    }
+    val loadPage = remember {
+        QuickMenuPage("load", "Load state") {
+            StateSlots(save = false, onDone = { dismiss() })
+        }
+    }
+    val videoPage = remember {
+        QuickMenuPage("video", "Video") {
+            QuickMenuItemRow(
+                id = "display", icon = Icons.Default.AspectRatio, label = "Display",
+                value = listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)],
             ) {
-                Column(Modifier.fillMaxSize().safeDrawingPadding().padding(vertical = 12.dp)) {
-                    // Header: title, or back arrow + submenu title
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (page != MenuPage.Root) {
-                            IconButton(onClick = { page = MenuPage.Root }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MenuGold) }
-                        } else {
-                            Icon(Icons.Default.Pause, null, tint = MenuGold, modifier = Modifier.padding(12.dp))
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(page.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                            if (page == MenuPage.Root) Emulator.currentGame?.let {
-                                Text(it.substringAfterLast('/').substringBeforeLast('.'), style = MaterialTheme.typography.bodySmall,
-                                    color = MenuDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = MenuDim) }
-                    }
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Color.White.copy(alpha = .1f))
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
-                        CompositionLocalProvider(LocalMenuFirstItem provides remember(page, returnFocusLabel) { FirstItem(if (page == MenuPage.Root) returnFocusLabel else null) }) {
-                        when (page) {
-                            MenuPage.Root -> {
-                                MenuItem(Icons.Default.PlayArrow, "Resume", onClick = onDismiss)
-                                MenuItem(Icons.Default.Save, "Save state", sub = true) { openSubmenu("Save state", MenuPage.Save) }
-                                MenuItem(Icons.Default.Restore, "Load state", sub = true) { openSubmenu("Load state", MenuPage.Load) }
-                                // Hidden while the on-screen fast-forward button is shown
-                                if (!Emulator.showFfButton) MenuItem(Icons.Default.FastForward, "Fast-forward", value = if (Emulator.fastForward) "On" else "Off") { Emulator.toggleFastForward() }
-                                MenuItem(Icons.Default.Tv, "Video", sub = true) { openSubmenu("Video", MenuPage.Video) }
-                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Audio", sub = true) { openSubmenu("Audio", MenuPage.Audio) }
-                                MenuItem(Icons.Default.Speed, "Performance", sub = true) { openSubmenu("Performance", MenuPage.Performance) }
-                                MenuItem(Icons.Default.Layers, "Overlays", sub = true) { openSubmenu("Overlays", MenuPage.Overlays) }
-                                MenuItem(Icons.Default.SportsEsports, "Game", sub = true) { openSubmenu("Game", MenuPage.Game) }
-                                MenuItem(Icons.AutoMirrored.Filled.ExitToApp, "Exit") { Emulator.quitGame() } // back to the library
-                            }
-                            MenuPage.Save, MenuPage.Load -> StateSlots(save = page == MenuPage.Save, onDone = onDismiss)
-                            MenuPage.Video -> {
-                                MenuItem(Icons.Default.AspectRatio, "Display", value = listOf("4:3", "Fullscreen", "16:9")[Emulator.aspect.coerceIn(0, 2)]) {
-                                    Emulator.aspect = (Emulator.aspect + 1) % 3; Emulator.savePrefs(); Emulator.refreshCheats()
-                                    Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
-                                }
-                                MenuItem(Icons.Default.Memory, "Renderer", value = Emulator.rendererLabel) {
-                                    Emulator.renderer = if (Emulator.renderer == 4) 1 else 4
-                                    Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                if (Emulator.renderer == 4) {
-                                    MenuItem(Icons.Default.HighQuality, "Enhanced resolution", value = Emulator.resScaleLabel) {
-                                        // 1x → 2x → 3x → 4x → Native → 1x
-                                        Emulator.resScale = when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }; Emulator.savePrefs(); Emulator.applyOptions()
-                                    }
-                                }
-                                if (Emulator.renderer == 1 || Emulator.renderer == 4) {
-                                    MenuItem(Icons.Default.Gradient, "Shader", value = gb.frame.Shaders.name(Emulator.shader)) {
-                                        Emulator.shader = gb.frame.Shaders.next(Emulator.shader)
-                                        Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
-                                    }
-                                    MenuItem(Icons.Default.FilterAlt, "Filter", value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)]) {
-                                        Emulator.filter = (Emulator.filter + 1) % 2; Emulator.savePrefs(); NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
-                                    }
-                                }
-                            }
-                            MenuPage.Audio -> {
-                                MenuItem(Icons.AutoMirrored.Filled.VolumeDown, "Volume down", value = "${Emulator.volume}%") {
-                                    Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0); Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.AutoMirrored.Filled.VolumeUp, "Volume up", value = "${Emulator.volume}%") {
-                                    Emulator.volume = (Emulator.volume + 10).coerceAtMost(100); Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.FastForward, "Fast-forward audio", value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio]) {
-                                    Emulator.ffAudio = (Emulator.ffAudio + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                            }
-                            MenuPage.Performance -> {
-                                MenuItem(Icons.Default.SkipNext, "Frame skip", value = if (Emulator.frameSkip) "Auto" else "Off") {
-                                    Emulator.frameSkip = !Emulator.frameSkip; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.GraphicEq, "Threaded audio", value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" }) {
-                                    Emulator.scspMode = (Emulator.scspMode + 1) % 3; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                fun onOff(b: Boolean) = if (b) "On" else "Off"
-                                MenuItem(Icons.Default.FastForward, "Skip loading screens", value = onOff(Emulator.skipLoads)) {
-                                    Emulator.skipLoads = !Emulator.skipLoads; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.FastForward, "Skip transitions", value = onOff(Emulator.skipTransitions)) {
-                                    Emulator.skipTransitions = !Emulator.skipTransitions; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                                MenuItem(Icons.Default.FastForward, "Skip save waits", value = onOff(Emulator.skipSaves)) {
-                                    Emulator.skipSaves = !Emulator.skipSaves; Emulator.savePrefs(); Emulator.applyOptions()
-                                }
-                            }
-                            MenuPage.Overlays -> {
-                                fun onOff(b: Boolean) = if (b) "On" else "Off"
-                                MenuItem(Icons.Default.Insights, "Show all monitoring", value = onOff(Emulator.showAllStats)) { Emulator.showAllStats = !Emulator.showAllStats; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Speed, "Show FPS", value = onOff(Emulator.showFps)) { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Percent, "Show speed", value = onOff(Emulator.showSpeed)) { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Memory, "Show renderer", value = onOff(Emulator.showRenderer)) { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.PhotoSizeSelectLarge, "Show resolution", value = onOff(Emulator.showResolution)) { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.DeveloperBoard, "Show CPU", value = onOff(Emulator.showCpu)) { Emulator.showCpu = !Emulator.showCpu; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Videocam, "Show GPU", value = onOff(Emulator.showGpu)) { Emulator.showGpu = !Emulator.showGpu; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.Timer, "Show frame time", value = onOff(Emulator.showFrameTime)) { Emulator.showFrameTime = !Emulator.showFrameTime; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.FastForward, "Show fast-forward button", value = onOff(Emulator.showFfButton)) { Emulator.showFfButton = !Emulator.showFfButton; Emulator.savePrefs() }
-                                MenuItem(Icons.Default.TouchApp, "Touch controls", value = if (Emulator.showTouchControls) "Shown" else "Hidden") {
-                                    Emulator.showTouchControls = !Emulator.showTouchControls; Emulator.savePrefs()
-                                }
-                            }
-                            MenuPage.Game -> {
-                                MenuItem(Icons.Default.RestartAlt, "Reset") { Emulator.reset(true); onDismiss() }
-                                MenuItem(Icons.Default.Eject, "Disc tray", value = if (Emulator.trayOpen) "Open" else "Closed") { Emulator.toggleTray() }
-                                MenuItem(Icons.Default.Tune, "Cheats", sub = true) { cheatsOpen = true }
-                                if (gb.frame.RetroAchievements.enabled) {
-                                    MenuItem(Icons.Default.EmojiEvents, "Achievements", sub = true) { achievementsOpen = true }
-                                }
-                            }
-                        }
-                        }
-                    }
+                Emulator.aspect = (Emulator.aspect + 1) % 3
+                Emulator.savePrefs()
+                Emulator.refreshCheats()
+                Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
+            }
+            QuickMenuItemRow(
+                id = "renderer", icon = Icons.Default.Memory, label = "Renderer",
+                value = Emulator.rendererLabel,
+            ) {
+                Emulator.renderer = if (Emulator.renderer == 4) 1 else 4
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            if (Emulator.renderer == 4) {
+                QuickMenuItemRow(
+                    id = "enhanced_resolution", icon = Icons.Default.HighQuality, label = "Enhanced resolution",
+                    value = Emulator.resScaleLabel,
+                ) {
+                    // 1x → 2x → 3x → 4x → Native → 1x
+                    Emulator.resScale = when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }
+                    Emulator.savePrefs()
+                    Emulator.applyOptions()
+                }
+            }
+            if (Emulator.renderer == 1 || Emulator.renderer == 4) {
+                QuickMenuItemRow(
+                    id = "shader", icon = Icons.Default.Gradient, label = "Shader",
+                    value = Shaders.name(Emulator.shader),
+                ) {
+                    Emulator.shader = Shaders.next(Emulator.shader)
+                    Emulator.savePrefs()
+                    NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
+                }
+                QuickMenuItemRow(
+                    id = "filter", icon = Icons.Default.FilterAlt, label = "Filter",
+                    value = listOf("Nearest", "Bilinear")[Emulator.filter.coerceIn(0, 1)],
+                ) {
+                    Emulator.filter = (Emulator.filter + 1) % 2
+                    Emulator.savePrefs()
+                    NativeBridge.nativeSetDisplayOptions(Emulator.filter, Emulator.shader)
                 }
             }
         }
     }
+    val audioPage = remember {
+        QuickMenuPage("audio", "Audio") {
+            QuickMenuItemRow(
+                id = "volume_down", icon = Icons.AutoMirrored.Filled.VolumeDown, label = "Volume down",
+                value = "${Emulator.volume}%",
+            ) {
+                Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0)
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            QuickMenuItemRow(
+                id = "volume_up", icon = Icons.AutoMirrored.Filled.VolumeUp, label = "Volume up",
+                value = "${Emulator.volume}%",
+            ) {
+                Emulator.volume = (Emulator.volume + 10).coerceAtMost(100)
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            QuickMenuItemRow(
+                id = "fast_forward_audio", icon = Icons.Default.FastForward, label = "Fast-forward audio",
+                value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio.coerceIn(0, 2)],
+            ) {
+                Emulator.ffAudio = (Emulator.ffAudio + 1) % 3
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+        }
+    }
+    val performancePage = remember {
+        QuickMenuPage("performance", "Performance") {
+            QuickMenuItemRow(
+                id = "frame_skip", icon = Icons.Default.SkipNext, label = "Frame skip",
+                value = if (Emulator.frameSkip) "Auto" else "Off",
+            ) {
+                Emulator.frameSkip = !Emulator.frameSkip
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            QuickMenuItemRow(
+                id = "threaded_audio", icon = Icons.Default.GraphicEq, label = "Threaded audio",
+                value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" },
+            ) {
+                Emulator.scspMode = (Emulator.scspMode + 1) % 3
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            fun onOff(value: Boolean) = if (value) "On" else "Off"
+            QuickMenuItemRow(
+                id = "skip_loads", icon = Icons.Default.FastForward, label = "Skip loading screens",
+                value = onOff(Emulator.skipLoads),
+            ) {
+                Emulator.skipLoads = !Emulator.skipLoads
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            QuickMenuItemRow(
+                id = "skip_transitions", icon = Icons.Default.FastForward, label = "Skip transitions",
+                value = onOff(Emulator.skipTransitions),
+            ) {
+                Emulator.skipTransitions = !Emulator.skipTransitions
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+            QuickMenuItemRow(
+                id = "skip_saves", icon = Icons.Default.FastForward, label = "Skip save waits",
+                value = onOff(Emulator.skipSaves),
+            ) {
+                Emulator.skipSaves = !Emulator.skipSaves
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
+        }
+    }
+    val overlaysPage = remember {
+        QuickMenuPage("overlays", "Overlays") {
+            fun onOff(value: Boolean) = if (value) "On" else "Off"
+            QuickMenuItemRow(
+                id = "all_monitoring", icon = Icons.Default.Insights, label = "Show all monitoring",
+                value = onOff(Emulator.showAllStats),
+            ) { Emulator.showAllStats = !Emulator.showAllStats; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_fps", icon = Icons.Default.Speed, label = "Show FPS",
+                value = onOff(Emulator.showFps),
+            ) { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_speed", icon = Icons.Default.Percent, label = "Show speed",
+                value = onOff(Emulator.showSpeed),
+            ) { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_renderer", icon = Icons.Default.Memory, label = "Show renderer",
+                value = onOff(Emulator.showRenderer),
+            ) { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_resolution", icon = Icons.Default.PhotoSizeSelectLarge, label = "Show resolution",
+                value = onOff(Emulator.showResolution),
+            ) { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_cpu", icon = Icons.Default.DeveloperBoard, label = "Show CPU",
+                value = onOff(Emulator.showCpu),
+            ) { Emulator.showCpu = !Emulator.showCpu; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_gpu", icon = Icons.Default.Videocam, label = "Show GPU",
+                value = onOff(Emulator.showGpu),
+            ) { Emulator.showGpu = !Emulator.showGpu; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_frame_time", icon = Icons.Default.Timer, label = "Show frame time",
+                value = onOff(Emulator.showFrameTime),
+            ) { Emulator.showFrameTime = !Emulator.showFrameTime; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "show_fast_forward", icon = Icons.Default.FastForward, label = "Show fast-forward button",
+                value = onOff(Emulator.showFfButton),
+            ) { Emulator.showFfButton = !Emulator.showFfButton; Emulator.savePrefs() }
+            QuickMenuItemRow(
+                id = "touch_controls", icon = Icons.Default.TouchApp, label = "Touch controls",
+                value = if (Emulator.showTouchControls) "Shown" else "Hidden",
+            ) {
+                Emulator.showTouchControls = !Emulator.showTouchControls
+                Emulator.savePrefs()
+            }
+        }
+    }
+    val cheatsPage = remember {
+        QuickMenuPage("cheats", "Cheats", fullScreen = true) {
+            CheatsScreen(onBack = { back() })
+        }
+    }
+    val achievementsPage = remember {
+        QuickMenuPage("achievements", "Achievements", fullScreen = true) {
+            AchievementsScreen(onBack = { back() })
+        }
+    }
+    val gamePage = remember(cheatsPage, achievementsPage) {
+        QuickMenuPage("game", "Game") {
+            QuickMenuItemRow(id = "reset", icon = Icons.Default.RestartAlt, label = "Reset") {
+                Emulator.reset(true)
+                dismiss()
+            }
+            QuickMenuItemRow(
+                id = "disc_tray", icon = Icons.Default.Eject, label = "Disc tray",
+                value = if (Emulator.trayOpen) "Open" else "Closed",
+            ) { Emulator.toggleTray() }
+            QuickMenuItemRow(
+                id = "cheats", icon = Icons.Default.Tune, label = "Cheats", hasSubmenu = true,
+            ) { openPage(cheatsPage, returnFocusItemId = "cheats") }
+            if (RetroAchievements.enabled) {
+                QuickMenuItemRow(
+                    id = "achievements", icon = Icons.Default.EmojiEvents, label = "Achievements", hasSubmenu = true,
+                ) { openPage(achievementsPage, returnFocusItemId = "achievements") }
+            }
+        }
+    }
+    val rootPage = remember(savePage, loadPage, videoPage, audioPage, performancePage, overlaysPage, gamePage) {
+        QuickMenuPage("root", "Paused") {
+            QuickMenuItemRow(id = "resume", icon = Icons.Default.PlayArrow, label = "Resume") { dismiss() }
+            QuickMenuItemRow(
+                id = "save", icon = Icons.Default.Save, label = "Save state", hasSubmenu = true,
+            ) { openPage(savePage, returnFocusItemId = "save") }
+            QuickMenuItemRow(
+                id = "load", icon = Icons.Default.Restore, label = "Load state", hasSubmenu = true,
+            ) { openPage(loadPage, returnFocusItemId = "load") }
+            // Hidden while the on-screen fast-forward button is shown, as in the GBSat menu standard.
+            if (!Emulator.showFfButton) {
+                QuickMenuItemRow(
+                    id = "fast_forward", icon = Icons.Default.FastForward, label = "Fast-forward",
+                    value = if (Emulator.fastForward) "On" else "Off",
+                ) { Emulator.toggleFastForward() }
+            }
+            QuickMenuItemRow(
+                id = "video", icon = Icons.Default.Tv, label = "Video", hasSubmenu = true,
+            ) { openPage(videoPage, returnFocusItemId = "video") }
+            QuickMenuItemRow(
+                id = "audio", icon = Icons.AutoMirrored.Filled.VolumeUp, label = "Audio", hasSubmenu = true,
+            ) { openPage(audioPage, returnFocusItemId = "audio") }
+            QuickMenuItemRow(
+                id = "performance", icon = Icons.Default.Speed, label = "Performance", hasSubmenu = true,
+            ) { openPage(performancePage, returnFocusItemId = "performance") }
+            QuickMenuItemRow(
+                id = "overlays", icon = Icons.Default.Layers, label = "Overlays", hasSubmenu = true,
+            ) { openPage(overlaysPage, returnFocusItemId = "overlays") }
+            QuickMenuItemRow(
+                id = "game", icon = Icons.Default.SportsEsports, label = "Game", hasSubmenu = true,
+            ) { openPage(gamePage, returnFocusItemId = "game") }
+            QuickMenuItemRow(id = "exit", icon = Icons.AutoMirrored.Filled.ExitToApp, label = "Exit") {
+                Emulator.quitGame()
+            }
+        }
+    }
+
+    QuickMenuHost(
+        rootPage = rootPage,
+        gameTitle = Emulator.currentGame?.substringAfterLast('/')?.substringBeforeLast('.'),
+        onDismiss = onDismiss,
+    )
 }
 
 /** Save state slots with screenshots (save or load). */
@@ -350,71 +448,62 @@ private fun StateSlots(save: Boolean, onDone: () -> Unit) {
     var thumbs by remember { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
     LaunchedEffect(save) {
         times = withContext(Dispatchers.IO) { Emulator.slotTimes() }
-        thumbs = withContext(Dispatchers.IO) { (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() } }
+        thumbs = withContext(Dispatchers.IO) {
+            (0 until Emulator.STATE_SLOTS).map { runCatching { Emulator.slotThumbnail(it) }.getOrNull() }
+        }
     }
     for (slot in 0 until Emulator.STATE_SLOTS) {
-        val t = times.getOrNull(slot)
-        val enabled = save || t != null
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp))
-                .clickable(enabled = enabled) {
-                    scope.launch {
-                        val err = if (save) Emulator.saveState(slot) else Emulator.loadState(slot)
-                        if (err == null) onDone() else message = err
-                    }
-                }.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        val time = times.getOrNull(slot)
+        val enabled = save || time != null
+        QuickMenuItemContainer(
+            id = "slot-${slot + 1}",
+            enabled = enabled,
+            onClick = {
+                scope.launch {
+                    val error = if (save) Emulator.saveState(slot) else Emulator.loadState(slot)
+                    if (error == null) onDone() else message = error
+                }
+            },
         ) {
             val thumb = thumbs.getOrNull(slot)
-            Box(Modifier.size(width = 88.dp, height = 66.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
-                if (thumb != null) androidx.compose.foundation.Image(thumb.asImageBitmap(), contentDescription = null,
-                    modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
-                else Icon(Icons.Default.Image, null, tint = Color.White.copy(alpha = .3f), modifier = Modifier.align(Alignment.Center))
+            Box(
+                Modifier.size(width = 88.dp, height = 66.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black),
+            ) {
+                if (thumb != null) {
+                    androidx.compose.foundation.Image(
+                        thumb.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Image,
+                        null,
+                        tint = Color.White.copy(alpha = .3f),
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Slot ${slot + 1}", color = if (enabled) Color.White else MenuDim, fontWeight = FontWeight.SemiBold)
-                Text(t?.let { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)) } ?: "Empty",
-                    style = MaterialTheme.typography.bodySmall, color = MenuDim)
+                Text("Slot ${slot + 1}", color = if (enabled) Color.White else palette.dim, fontWeight = FontWeight.SemiBold)
+                Text(
+                    time?.let {
+                        java.text.DateFormat.getDateTimeInstance(
+                            java.text.DateFormat.SHORT,
+                            java.text.DateFormat.SHORT,
+                        ).format(java.util.Date(it))
+                    } ?: "Empty",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.dim,
+                )
             }
         }
     }
-    message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
-}
-
-private class FirstItem(val preferredLabel: String? = null) { var claimed = false }
-private val LocalMenuFirstItem = androidx.compose.runtime.compositionLocalOf<FirstItem?> { null }
-
-@Composable
-private fun MenuItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
-    value: String? = null, sub: Boolean = false, onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    // The first item of each menu page takes the focus, so the controller works as soon as the menu opens
-    val first = LocalMenuFirstItem.current
-    val fr = remember { androidx.compose.ui.focus.FocusRequester() }
-    val isFirst = remember(first, label) {
-        if (first == null) false
-        else if (first.preferredLabel != null) {
-            val match = label == first.preferredLabel && !first.claimed
-            if (match) first.claimed = true
-            match
-        } else (!first.claimed).also { first.claimed = true }
-    }
-    if (isFirst) LaunchedEffect(first) { kotlinx.coroutines.delay(60); runCatching { fr.requestFocus() } }
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(14.dp))
-            .then(if (isFirst) Modifier.focusRequester(fr) else Modifier)
-            .background(if (focused) Color.White.copy(alpha = .12f) else Color.Transparent)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = Color(0xFFB9A6FF))
-        Spacer(Modifier.width(16.dp))
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = Color.White)
-        if (value != null) Text(value, color = MenuGold, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-        if (sub) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MenuDim)
+    message?.let {
+        Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
     }
 }
