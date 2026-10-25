@@ -232,7 +232,8 @@ object Emulator {
         val hardcore = RetroAchievements.hardcoreActive
         val ws = if (aspect == 2 && running && !hardcore) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
         widescreenHack = ws?.first
-        val w = cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() } +
+        // Never apply cheats while RetroAchievements hardcore is active, including cheats enabled earlier.
+        val w = (if (hardcore) emptyList() else cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() }) +
             (ws?.let { CheatParser.parse(it.second).orEmpty() } ?: emptyList())
         NativeBridge.nativeSetCheats(w.map { it.addr }.toLongArray(), w.map { it.value }.toLongArray(), w.map { it.size }.toIntArray())
     }

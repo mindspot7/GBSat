@@ -367,7 +367,7 @@ private fun GameMenu(onDismiss: () -> Unit) {
     }
     val cheatsPage = remember {
         QuickMenuPage("cheats", "Cheats", fullScreen = true) {
-            CheatsScreen(onBack = { back() })
+            gb.frame.CheatsScreen(backend = GBSatCheatsBackend, onBack = { back() })
         }
     }
     val achievementsPage = remember {
@@ -388,11 +388,11 @@ private fun GameMenu(onDismiss: () -> Unit) {
             QuickMenuItemRow(
                 id = "cheats", icon = Icons.Default.Tune, label = "Cheats", hasSubmenu = true,
             ) { openPage(cheatsPage, returnFocusItemId = "cheats") }
-            if (RetroAchievements.enabled) {
-                QuickMenuItemRow(
-                    id = "achievements", icon = Icons.Default.EmojiEvents, label = "Achievements", hasSubmenu = true,
-                ) { openPage(achievementsPage, returnFocusItemId = "achievements") }
-            }
+            // Keep the shared achievements screen accessible even before login or when RA is disabled;
+            // it explains the current state and offers a consistent entry point across GB-family apps.
+            QuickMenuItemRow(
+                id = "achievements", icon = Icons.Default.EmojiEvents, label = "Achievements", hasSubmenu = true,
+            ) { openPage(achievementsPage, returnFocusItemId = "achievements") }
         }
     }
     val rootPage = remember(savePage, loadPage, videoPage, audioPage, performancePage, overlaysPage, gamePage) {
