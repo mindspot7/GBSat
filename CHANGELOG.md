@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- About: shows the Application id under the version, and the label is now "Sega Saturn Emulator for Android". The page comes from the GBFrame kit, so every app built on it has the same About layout and the label `<Manufacturer> <Console> Emulator for Android`.
 - CHD and ISO games are no longer copied to the app cache before starting, and CUE/BIN, MDS and CCD discs read their files the same way: the core reads straight through the descriptor the app already holds (reopening it by path is refused on devices like the Anbernic RG DS, which is why a copy was needed). Starting a game is immediate and uses no extra storage; a CHD/ISO copy is kept only as a fallback if a device can't read that way, and copies left by earlier versions are deleted after the first successful start.
 - Library controls: X opens the main menu, Start cycles the theme Showcase / Grid / All in One, B exits (Quit); the button help bar lists them from the right as A, Y, X, B.
 - Every cover is stretched to the same frame as the large ones (square and landscape art no longer keeps its proportions with bars), so all boxarts have the same size.

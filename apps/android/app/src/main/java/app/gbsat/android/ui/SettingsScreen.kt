@@ -123,7 +123,19 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                         SettingsPage.Performance -> PerformancePage()
                         SettingsPage.Controls -> ControlsPage()
                         SettingsPage.Extras -> ExtrasPage()
-                        SettingsPage.About -> AboutPage()
+                        // The kit's standard About page: "Sega Saturn Emulator for Android", version and Application id
+                        SettingsPage.About -> AboutPage(
+                            appName = "GBSat", manufacturer = "Sega", console = "Saturn",
+                            icon = painterResource(R.mipmap.ic_launcher),
+                            credits = listOf(
+                                AboutCredit("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)"),
+                                AboutCredit("rcheevos", "RetroAchievements client library"),
+                                AboutCredit("libretro-database", "Cheat database (CC BY-SA 4.0) and cover art (libretro-thumbnails)"),
+                                AboutCredit("SegaXtreme community", "Saturn widescreen codes"),
+                            ),
+                            license = "GBSat is a derivative work of Ymir and is released under the GNU General Public License v3. " +
+                                "Sega Saturn is a trademark of Sega; GBSat is not affiliated with Sega.",
+                        )
                     }
                     Spacer(Modifier.height(24.dp))
                 }
@@ -370,36 +382,6 @@ private fun ControlsPage() {
 @Composable
 private fun ExtrasPage() {
     RetroAchievementsSettings("GBSat")
-}
-
-@Composable
-private fun AboutPage() {
-    val ctx = LocalContext.current
-    val versionName = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?" }
-    SettingsGroup(null, null) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.mipmap.ic_launcher), null, Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)))
-            Spacer(Modifier.height(12.dp))
-            Text("GBSat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Sega Saturn emulation for Android", color = Dim)
-            Spacer(Modifier.height(4.dp))
-            Text("Version $versionName", color = Gold, style = MaterialTheme.typography.labelLarge)
-        }
-    }
-    SettingsGroup("Credits", Icons.Default.Favorite) {
-        InfoRow("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)")
-        SettingsDivider()
-        InfoRow("rcheevos", "RetroAchievements client library")
-        SettingsDivider()
-        InfoRow("libretro-database", "Cheat database (CC BY-SA 4.0) and cover art (libretro-thumbnails)")
-        SettingsDivider()
-        InfoRow("SegaXtreme community", "Saturn widescreen codes")
-    }
-    SettingsGroup("License", Icons.Default.Gavel) {
-        Text("GBSat is a derivative work of Ymir and is released under the GNU General Public License v3. " +
-            "Sega Saturn is a trademark of Sega; GBSat is not affiliated with Sega.",
-            style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(16.dp))
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
