@@ -2,6 +2,7 @@ package app.gbsat.android
 
 import gb.frame.HotkeyAction
 import gb.frame.Hotkeys
+import gb.frame.SaveData
 import gb.frame.RetroAchievements
 import android.content.Context
 import android.content.SharedPreferences
@@ -276,7 +277,7 @@ object Emulator {
     private fun saveKeyMap() = prefs.edit().putString("keyMap", keyMap.entries.joinToString(",") { "${it.key}:${it.value}" }).apply()
 
     // ---- Save states ----
-    const val STATE_SLOTS = 5
+    const val STATE_SLOTS = SaveData.MANUAL_SAVE_STATE_SLOTS
     const val QUICK_SLOT = 99
     const val AUTO_SLOT = 98
     private val statesDir get() = File(dataDir, "states")
