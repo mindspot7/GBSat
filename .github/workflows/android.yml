@@ -3,7 +3,7 @@ name: Android APK
 on:
   push:
     branches: [ main, master, android, android-port ]
-    paths: [ 'apps/android/**', 'libs/**', 'gbframe', 'vendor/**', 'CMakeLists.txt', '.github/workflows/android.yml' ]
+    paths: [ 'apps/android/**', 'libs/**', 'gbframe', 'vendor/**', 'CMakeLists.txt', 'CHANGELOG.md', '.github/workflows/android.yml' ]
   workflow_dispatch:
     inputs:
       bundle:
