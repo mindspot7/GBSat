@@ -137,15 +137,10 @@ fun LibraryScreen(
         gameMenu = null
     }
 
-    // B / Back: close the current menu; from the library, ask before quitting.
+    // B / Back (the kit's behavior, the same in every app): close what is open, from the library ask before quitting.
     // MainActivity deduplicates paired controller keycodes, so quick consecutive B presses must not be debounced.
     androidx.activity.compose.BackHandler {
-        when {
-            confirmQuit -> confirmQuit = false
-            achievementsFor != null -> achievementsFor = null
-            menuOpen -> menuOpen = false
-            else -> confirmQuit = true
-        }
+        LibraryBack.handle { if (achievementsFor != null) { achievementsFor = null; true } else false }
     }
 
     fun showLaunchLoading(action: () -> Unit) {
@@ -220,7 +215,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (!fullscreen && hasPad && HomeTheme.buttonHelp.value) HelpBar()
+            if (!fullscreen && hasPad && HomeTheme.buttonHelp.value) HomeHelpBar()
 
         }
         if (fullscreen && !menuOpen && !openingGame) {
@@ -289,25 +284,6 @@ private fun EmptyContent(kind: EmptyKind, toSystem: () -> Unit) = Panel(Modifier
     }
 }
 
-/** Library menu state that survives opening a settings page (the library screen is rebuilt on return). */
-internal object MenuState {
-    val open = mutableStateOf(false)
-    /** "Confirm Quit?" is open; A confirms from MainActivity, which works even when nothing has focus yet. */
-    val quitOpen = mutableStateOf(false)
-    var onQuit: (() -> Unit)? = null
-    var selected by mutableStateOf<SettingsPage?>(null)
-    /** The library is on screen (not a settings page or a game): MainActivity handles X and lost focus there. */
-    @Volatile var libraryShown = false
-    /** Something inside the library screen has the focus (a tap or a closed menu can leave nothing focused). */
-    @Volatile var hasFocus = false
-    /** Bumped to put the focus back on the library. */
-    val refocus = mutableIntStateOf(0)
-    /** Something inside the open main menu has the focus (opened with a tap, the focus can stay on the library behind). */
-    @Volatile var menuHasFocus = false
-    /** Bumped to put the focus back on the open menu. */
-    val menuRefocus = mutableIntStateOf(0)
-}
-
 private val SettingsEntries = listOf(
     Triple(MenuIcon.System, "System", SettingsPage.System), Triple(MenuIcon.Video, "Video", SettingsPage.Video),
     Triple(MenuIcon.Audio, "Audio", SettingsPage.Audio), Triple(MenuIcon.Performance, "Performance", SettingsPage.Performance),
@@ -356,39 +332,6 @@ private fun GameOptions(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
-}
-
-/** Fixed bottom line with the controller buttons, Nintendo-style colored glyphs. */
-@Composable
-private fun HelpBar() {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // The bar is right-aligned: from the right, A, Y, X, B
-        ButtonHint("B", Color(0xFFF2C230), "Quit")
-        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
-        ButtonHint("Y", Color(0xFF3BB273), "Game options")
-        ButtonHint("A", Color(0xFFE5483B), "Play")
-    }
-}
-
-
-@Composable
-private fun ButtonHint(letter: String, tint: Color, label: String) {
-    Row(
-        Modifier.padding(start = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            Modifier.size(28.dp).clip(RoundedCornerShape(50)).background(tint),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(letter, color = Color.White, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
-        }
-        Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-    }
 }
 
 @Composable

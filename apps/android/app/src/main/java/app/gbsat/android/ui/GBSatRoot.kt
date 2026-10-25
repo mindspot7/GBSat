@@ -1,5 +1,6 @@
 package app.gbsat.android.ui
 
+import gb.frame.MenuState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*

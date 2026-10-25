@@ -55,6 +55,8 @@ add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp)
 # Shared native helpers from the UI kit: OpenGL ES presenter, CPU tuning, PGO training support
 include("${YMIR_ROOT}/libs/gbframe/native/gb_native.cmake")
 gb_native_add(gbsat APP_ID "app.gbsat.android")
+# The emulation core reads disc files through the descriptor with the kit's gb_proc_fd.hpp
+gb_native_core(ymir-core)
 target_include_directories(gbsat PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_features(gbsat PRIVATE cxx_std_20)
 target_link_libraries(gbsat PRIVATE ymir::ymir-core rcheevos cereal::cereal android log nativewindow aaudio EGL GLESv3 vulkan)

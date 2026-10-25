@@ -1,5 +1,6 @@
 package app.gbsat.android
 
+import gb.frame.HomeKeys
 import gb.frame.HotkeyAction
 import gb.frame.Hotkeys
 import gb.frame.HomeTheme
@@ -107,43 +108,9 @@ class MainActivity : ComponentActivity() {
             return backKey(event)
         }
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && (!Emulator.running || Emulator.paused) && !captureActive) return backKey(event)
-        // Library: X opens/closes the main menu and Start cycles the theme (B is Back/Exit, handled by LibraryScreen), and a controller key that arrives while the focus is lost (after a tap, when
-        // a menu closed, or a menu opened by touch while the library behind it kept the focus) first puts the focus back
-        // where it belongs (the open menu, else the library), so the controller never gets stuck. Handled here because
-        // Compose key handlers only see events while something inside them is focused.
-        val menu = app.gbsat.android.ui.MenuState
-        if (!Emulator.running && menu.libraryShown && Emulator.remapTarget == null && Emulator.hotkeyCapture == null && !menu.quitOpen.value) {
-            // Select is the console-style shortcut for switching the library between Default and FullScreen.
-            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    HomeTheme.fullscreen.value = !HomeTheme.fullscreen.value
-                    // Reclaim focus after fullscreen changes the library's layout. Keep the menu selection if it is open.
-                    if (menu.open.value) menu.menuRefocus.intValue++ else menu.refocus.intValue++
-                }
-                return true
-            }
-            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_X) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    if (!menu.open.value) menu.selected = null // a fresh menu starts on its first entry (System)
-                    menu.open.value = !menu.open.value
-                }
-                return true
-            }
-            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) {
-                // The library takes the focus back on the selected game by itself when its layout changes (HomeLibrary),
-                // and with the menu open the focus stays on the menu entry.
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) HomeTheme.cycleStyle()
-                return true
-            }
-            val focusLost = if (menu.open.value) !menu.menuHasFocus else !menu.hasFocus
-            if (focusLost && (event.keyCode in dpadKeys || event.keyCode == KeyEvent.KEYCODE_BUTTON_A ||
-                    event.keyCode == KeyEvent.KEYCODE_BUTTON_Y || event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER)) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    if (menu.open.value) menu.menuRefocus.intValue++ else menu.refocus.intValue++
-                }
-                return true
-            }
-        }
+        // Library buttons are the kit's, the same in every app: X menu, Start theme, Select fullscreen, A on the quit dialog,
+        // and putting the focus back when a key arrives while nothing has it. B is Back/Exit (LibraryBack, via backKey above).
+        if (HomeKeys.dispatch(event, enabled = !Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null)) return true
         // Remap dialog is open: the next physical button press becomes the binding.
         Emulator.remapTarget?.let { target ->
             val fromPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0
@@ -204,15 +171,6 @@ class MainActivity : ComponentActivity() {
         // Outside games the menus are driven by the controller like a console: A selects, B goes back
         if (!Emulator.running) {
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
-            // Quit dialog: A confirms (right after start nothing may have focus, so the button can't take the press)
-            if (app.gbsat.android.ui.MenuState.quitOpen.value &&
-                (event.keyCode == KeyEvent.KEYCODE_BUTTON_A || event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    app.gbsat.android.ui.MenuState.quitOpen.value = false
-                    app.gbsat.android.ui.MenuState.onQuit?.invoke()
-                }
-                return true
-            }
             val mapped = when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_DPAD_CENTER
                 KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BACK
