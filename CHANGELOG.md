@@ -19,6 +19,9 @@
 - The Android `applicationId` and Gradle `namespace` are now both `app.gbsat.emulator`. This is a new app identity compared with older installations using `app.gbsat.android`; Android does not automatically migrate private data. Export saves/save states from the old installation and import them into the new one if needed.
 - Updated the manifest component names, generated resource imports, and performance-log directory for the new namespace and application ID.
 
+- Video settings: removed the Color correction option and its native processing path, and renamed the Enhanced resolution setting.
+- Improved resource use and disc startup: lower-memory cover loading, less redundant CPU copying in Vulkan frame readback, and a loading overlay that prevents accidental duplicate disc launches.
+
 ## 1.3.5
 - Faster with threaded VDP2 rendering: on progressive screens (and hi-res ones with one field) the render thread alternates between two framebuffers, so the emulation no longer waits for the previous frame at the start of each drawn frame, and skipped frames no longer wait for it either (Burning Rangers on the RG Rotate: 58.2 → 59.8 fps on average, no second below 58; Virtua Fighter 2 at 704x448: VDP2 wait from ~4 ms to ~0.9 ms per frame).
 - Faster SH-2 interpreter: the chained interpreter also runs on the frames the performance log measures, and the first instruction of each time slice no longer goes through the slower dispatch.
