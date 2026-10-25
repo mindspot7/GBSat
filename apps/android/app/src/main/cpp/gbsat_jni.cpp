@@ -694,9 +694,13 @@ std::mutex g_logSettingsMutex;
 std::string g_logSettings;
 
 // Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
-// Android/media/app.gbsat.emulator/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
+// Android/media/<applicationId>/perf-log.csv (readable over USB; tools/gbsat.ps1 PerfLog), restarted when over 2 MB.
+// GB_APP_ID comes from gb_native_add(... APP_ID ...) in CMakeLists.txt, so the path follows the applicationId.
+#ifndef GB_APP_ID
+#error "GB_APP_ID is defined by gb_native_add(gbsat APP_ID ...)"
+#endif
 void WritePerfLog(float fps, float presentedFps) {
-    static const char *kPath = "/sdcard/Android/media/app.gbsat.emulator/perf-log.csv";
+    static const char *kPath = "/sdcard/Android/media/" GB_APP_ID "/perf-log.csv";
     std::string title;
     {
         std::lock_guard lk(g->winMutex);

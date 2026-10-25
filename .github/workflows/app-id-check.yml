@@ -1,0 +1,19 @@
+name: App ID check
+
+# Cheap guard: the application ID and the launcher activity are repeated in Gradle, CMake, the manifest and the device tools
+on:
+  push:
+    branches: [ main, master, android, android-port ]
+    paths: [ 'tools/**', 'apps/android/app/build.gradle.kts', 'apps/android/app/src/main/cpp/**', 'apps/android/app/src/main/AndroidManifest.xml', '.github/workflows/app-id-check.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - run: bash tools/check-app-id.sh

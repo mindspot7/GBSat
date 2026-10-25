@@ -12,6 +12,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
 import app.gbsat.android.ui.*
 import com.github.takahirom.roborazzi.captureRoboImage
+import gb.frame.MenuState
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -59,7 +60,7 @@ abstract class ScreenTest {
         Emulator.gamesDir = games.path
         setState("iplLoaded", true)
         Emulator.setupDone = true
-        MenuState.open.value = false; MenuState.selected = null; MenuState.recent.value = false
+        MenuState.open.value = false; MenuState.selected = null
         gb.frame.HomeTheme.style.value = gb.frame.HomeStyle.Showcase
         Emulator.renderer = 4; Emulator.resScale = 4; Emulator.shader = 1; Emulator.filter = 1; Emulator.sh2Cache = true
     }
@@ -101,7 +102,6 @@ class ReadmeScreenshots : ScreenTest() {
             rule.onNodeWithText("Next").performClick(); rule.mainClock.advanceTimeBy(300); rule.waitForIdle()
         }
     }
-    @Test fun recent() { sampleStates(); MenuState.recent.value = true; shot("recent", { LibraryScreen({}, {}, {}, {}) }) }
     @Test fun video() = shot("settings-video", { SettingsScreen({}, {}, SettingsPage.Video) })
     @Test fun controls() = shot("settings-controls", { SettingsScreen({}, {}, SettingsPage.Controls) })
     @Test fun performance() = shot("settings-performance", { SettingsScreen({}, {}, SettingsPage.Performance) })
@@ -119,7 +119,7 @@ class DeviceScreens : ScreenTest() {
     private fun menu(d: String) = shot("$d-menu", { LibraryScreen({}, {}, {}, {}) }) { rule.onNodeWithText("GBSat").performClick() }
     private fun recentShot(d: String, style: gb.frame.HomeStyle) {
         gb.frame.HomeTheme.style.value = style
-        sampleStates(); MenuState.recent.value = true
+        sampleStates()
         shot("$d-recent-${style.name.lowercase()}", { LibraryScreen({}, {}, {}, {}) })
     }
     @Test @Config(qualifiers = "w427dp-h320dp-land-hdpi") fun r640Showcase() = recentShot("640x480-hdpi", gb.frame.HomeStyle.Showcase)

@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb devices:*)",
+      "Bash(adb get-state:*)",
+      "Bash(adb logcat:*)",
+      "Bash(adb pull:*)",
+      "Bash(adb install:*)",
+      "Bash(adb shell dumpsys:*)",
+      "Bash(adb shell getprop:*)",
+      "Bash(adb shell pidof:*)",
+      "Bash(adb shell screencap:*)",
+      "Bash(adb shell input:*)",
+      "Bash(adb shell am start:*)",
+      "Bash(adb shell am force-stop:*)",
+      "Bash(adb shell simpleperf:*)",
+      "Bash(adb shell wm:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File tools/gbsat.ps1:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File tools\\gbsat.ps1:*)",
+      "Bash(bash tools/check-app-id.sh:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(gh run download:*)",
+      "Bash(gh auth status:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git submodule status:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(adb shell setprop:*)",
+      "Bash(adb reboot:*)",
+      "Bash(gh workflow run:*)"
+    ],
+    "deny": [
+      "Bash(adb uninstall:*)",
+      "Bash(adb shell pm clear:*)",
+      "Bash(adb shell pm uninstall:*)",
+      "Bash(adb shell rm:*)",
+      "Bash(adb root:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo delete:*)"
+    ]
+  }
+}
