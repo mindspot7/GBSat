@@ -9,12 +9,13 @@ plugins {
 }
 
 android {
+    // Keep the source namespace independent from the install/package identity.
     namespace = "app.gbsat.android"
     compileSdk = 36
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
-        applicationId = "app.gbsat.android"
+        applicationId = "app.gbsat.emulator"
         minSdk = 28 // iconv in libc, AAudio, ANativeWindow
         targetSdk = 36
         versionCode = gbsatBuild
