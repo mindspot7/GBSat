@@ -11,6 +11,6 @@ class GBSatApp : Application() {
         gb.frame.Covers.init(Emulator.dataDir, "Sega - Saturn", mapOf(
             "sakura wars" to "sakura taisen", "sakura wars 2" to "sakura taisen 2", "dragon force 2" to "dragon force ii",
             "langrisser 3" to "langrisser iii",
-        ))
+        ), frameAspectRatio = 0.66f)
     }
 }
