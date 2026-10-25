@@ -64,11 +64,6 @@ enum class SettingsPage(val label: String, val icon: ImageVector) {
     About("About", Icons.Default.Info),
 }
 
-private val Gold = Color(0xFFE5C56A)
-private val CardColor = Color(0xFF1A1D27).copy(alpha = 0.9f)
-private val CardBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-private val Dim = Color.White.copy(alpha = 0.65f)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPage? = null) {
@@ -96,12 +91,12 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
     dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data") }, text = { Text(m) },
         confirmButton = { TextButton(onClick = { dataMsg = null }) { Text("OK") } }) }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF11131A), Color(0xFF202431), Color(0xFF0B0D12))))) {
+    Box(Modifier.fillMaxSize().background(palette.backgroundBrush)) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(current.icon, null, tint = Gold)
+                        Icon(current.icon, null, tint = palette.highlight)
                         Spacer(Modifier.width(12.dp))
                         Text(current.label, fontWeight = FontWeight.Bold)
                     }
@@ -259,13 +254,13 @@ private fun AudioPage() {
                 RowIcon(if (Emulator.volume == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp)
                 Spacer(Modifier.width(14.dp))
                 Text("Volume", style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
-                Text("${Emulator.volume}%", color = Gold, fontWeight = FontWeight.SemiBold)
+                Text("${Emulator.volume}%", color = palette.highlight, fontWeight = FontWeight.SemiBold)
             }
             Slider(
                 value = Emulator.volume.toFloat(), valueRange = 0f..100f, steps = 19,
                 onValueChange = { Emulator.volume = it.toInt(); NativeBridge.nativeSetAudio(Emulator.volume, Emulator.ffAudio) },
                 onValueChangeFinished = { Emulator.savePrefs() },
-                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Gold),
+                colors = SliderDefaults.colors(thumbColor = palette.accent, activeTrackColor = palette.accent),
             )
         }
     }
