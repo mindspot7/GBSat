@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Controls page (controller drawing, button mapping, hotkeys, touch) now comes from the GBFrame kit, so every app built on it has the same page; it follows the app's theme colors.
 
 ## 1.3.6
 - About: shows the Application id under the version, and the label is now "Sega Saturn Emulator for Android". The page comes from the GBFrame kit, so every app built on it has the same About layout and the label `<Manufacturer> <Console> Emulator for Android`.

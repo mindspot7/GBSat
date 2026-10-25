@@ -1,5 +1,7 @@
 package app.gbsat.android
 
+import app.gbsat.android.ui.SaturnControls
+import gb.frame.ControlsCapture
 import gb.frame.HomeKeys
 import gb.frame.HotkeyAction
 import gb.frame.Hotkeys
@@ -29,7 +31,6 @@ class MainActivity : ComponentActivity() {
     private var lastGamepadBDevice = -1
     private var pairedBackDevice = -1
     private var pairedBackDownTime = -1L
-    private val capHeld = HashSet<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,7 +84,7 @@ class MainActivity : ComponentActivity() {
             lastGamepadBAt = event.eventTime
             lastGamepadBDevice = event.deviceId
         }
-        val captureActive = Emulator.remapTarget != null || Emulator.hotkeyCapture != null
+        val captureActive = ControlsCapture.active(SaturnControls)
         if (event.keyCode == KeyEvent.KEYCODE_BACK && !captureActive) {
             // Some pads report one B press twice: as BUTTON_B and as KEYCODE_BACK. Pair only the duplicate
             // from the same device and same press; never swallow every controller Back during gameplay.
@@ -110,35 +111,9 @@ class MainActivity : ComponentActivity() {
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && (!Emulator.running || Emulator.paused) && !captureActive) return backKey(event)
         // Library buttons are the kit's, the same in every app: X menu, Start theme, Select fullscreen, A on the quit dialog,
         // and putting the focus back when a key arrives while nothing has it. B is Back/Exit (LibraryBack, via backKey above).
-        if (HomeKeys.dispatch(event, enabled = !Emulator.running && Emulator.remapTarget == null && Emulator.hotkeyCapture == null)) return true
-        // Remap dialog is open: the next physical button press becomes the binding.
-        Emulator.remapTarget?.let { target ->
-            val fromPad = event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0
-            if (fromPad && event.keyCode != KeyEvent.KEYCODE_BACK) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    Emulator.bindKey(target, event.keyCode); Emulator.remapTarget = null
-                }
-                return true
-            }
-        }
-        // Hotkey capture: remember every key held until all are released; that set becomes the binding.
-        Emulator.hotkeyCapture?.let { action ->
-            if (event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_DPAD or InputDevice.SOURCE_KEYBOARD) != 0 &&
-                event.keyCode != KeyEvent.KEYCODE_BACK
-            ) {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    capHeld += event.keyCode
-                    Emulator.hotkeyCaptureKeys = Emulator.hotkeyCaptureKeys + event.keyCode
-                } else if (event.action == KeyEvent.ACTION_UP) {
-                    capHeld -= event.keyCode
-                    if (capHeld.isEmpty() && Emulator.hotkeyCaptureKeys.isNotEmpty()) {
-                        Emulator.bindHotkey(action, Emulator.hotkeyCaptureKeys)
-                        Emulator.hotkeyCapture = null; Emulator.hotkeyCaptureKeys = emptySet()
-                    }
-                }
-                return true
-            }
-        }
+        if (HomeKeys.dispatch(event, enabled = !Emulator.running && !ControlsCapture.active(SaturnControls))) return true
+        // A remap/hotkey prompt is open: the kit's capture turns the next presses into bindings
+        if (ControlsCapture.dispatch(event, SaturnControls)) return true
         // Some handhelds report face buttons with a keyboard source; accept any gamepad button keycode
         // In-game menu open (emulation paused): the controller navigates the menu
         if (Emulator.running && Emulator.paused && event.keyCode != KeyEvent.KEYCODE_BACK &&

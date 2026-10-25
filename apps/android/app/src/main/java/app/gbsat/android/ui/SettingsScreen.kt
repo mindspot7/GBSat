@@ -121,7 +121,11 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                         SettingsPage.Video -> VideoPage()
                         SettingsPage.Audio -> AudioPage()
                         SettingsPage.Performance -> PerformancePage()
-                        SettingsPage.Controls -> ControlsPage()
+                        // The kit's standard Controls page; GBSat only adds the Saturn pad type and supplies the pad (SaturnControls)
+                        SettingsPage.Controls -> ControlsPage(SaturnControls) {
+                            ChoiceRow("Controller type", "The 3D Control Pad adds the analog stick and analog L/R used by some games",
+                                listOf("Control Pad", "3D Control Pad"), if (Emulator.analogPad) 1 else 0, ch<Int> { Emulator.analogPad = it == 1 })
+                        }
                         SettingsPage.Extras -> ExtrasPage()
                         // The kit's standard About page: "Sega Saturn Emulator for Android", version and Application id
                         SettingsPage.About -> AboutPage(
@@ -141,7 +145,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                 }
             }
         }
-        CapturePrompts()
+        ControlsCapturePrompts(SaturnControls)
     }
 }
 
@@ -313,200 +317,9 @@ private fun PerformancePage() {
 }
 
 @Composable
-private fun ControlsPage() {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("Controller" to Icons.Default.SportsEsports, "Hotkeys" to Icons.Default.Keyboard, "Touch" to Icons.Default.TouchApp)
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(CardColor).border(CardBorder, RoundedCornerShape(20.dp)).padding(4.dp)) {
-        tabs.forEachIndexed { i, (label, icon) ->
-            val sel = i == tab
-            Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (sel) Gold.copy(alpha = .22f) else Color.Transparent)
-                    .clickable { tab = i }.padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(icon, null, tint = if (sel) Gold else Dim, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(label, color = if (sel) Color.White else Dim, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
-    when (tab) {
-        0 -> {
-            SettingsGroup("Saturn controller", Icons.Default.SportsEsports) {
-                ChoiceRow("Controller type", "The 3D Control Pad adds the analog stick and analog L/R used by some games",
-                    listOf("Control Pad", "3D Control Pad"), if (Emulator.analogPad) 1 else 0, ch<Int> { Emulator.analogPad = it == 1 })
-            }
-            SettingsGroup("Button mapping", Icons.Default.Gamepad) {
-                Text("Tap a button on the pad or in the list, then press the button on your controller.",
-                    style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                SaturnPadDiagram(highlight = Emulator.remapTarget, onSelect = { Emulator.remapTarget = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).aspectRatio(2.1f))
-                Spacer(Modifier.height(8.dp))
-                val order = listOf(SaturnButton.Up, SaturnButton.Down, SaturnButton.Left, SaturnButton.Right, SaturnButton.A, SaturnButton.B,
-                    SaturnButton.C, SaturnButton.X, SaturnButton.Y, SaturnButton.Z, SaturnButton.L, SaturnButton.R, SaturnButton.Start)
-                order.forEachIndexed { i, b ->
-                    if (i > 0) SettingsDivider()
-                    val keys = Emulator.keysFor(b).joinToString(", ") { keyName(it) }
-                    MappingRow(b, keys.ifEmpty { "Unassigned" }, selected = Emulator.remapTarget == b) { Emulator.remapTarget = b }
-                }
-                SettingsDivider()
-                Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { Emulator.resetKeyMap() }) { Icon(Icons.Default.RestartAlt, null); Spacer(Modifier.width(6.dp)); Text("Reset to defaults") }
-                }
-            }
-        }
-        1 -> {
-            SettingsGroup("Hotkeys", Icons.Default.Keyboard) {
-                Text("Bind one button, or hold several together (a combination) and release. Buttons in a combination are not sent to the game.",
-                    style = MaterialTheme.typography.bodySmall, color = Dim, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                HotkeyAction.entries.forEachIndexed { i, a ->
-                    if (i > 0) SettingsDivider()
-                    val keys = Emulator.hotkeys[a].orEmpty()
-                    HotkeyRow(a, keys)
-                }
-            }
-            SettingsGroup("Fast-forward", Icons.Default.FastForward) {
-                ChoiceRow("Fast-forward hotkey", "Hold: fast while held · Toggle: press once to switch on or off",
-                    listOf("Hold", "Toggle"), if (Emulator.ffToggle) 1 else 0, ch<Int> { Emulator.ffToggle = it == 1 })
-            }
-        }
-        else -> {
-            SettingsGroup("On-screen controls", Icons.Default.TouchApp) {
-                ToggleRow(Icons.Default.TouchApp, "Show touch controls", "Hidden automatically while a controller is connected (handhelds included)",
-                    Emulator.showTouchControls, ch { Emulator.showTouchControls = it })
-            }
-        }
-    }
-}
-
-@Composable
 private fun ExtrasPage() {
     RetroAchievementsSettings("GBSat")
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Building blocks
-
-@Composable
-private fun MappingRow(b: SaturnButton, keys: String, selected: Boolean, onRemap: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(if (selected) Gold.copy(alpha = .12f) else Color.Transparent).clickable(onClick = onRemap)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ButtonBadge(b)
-        Spacer(Modifier.width(14.dp))
-        Text(saturnLabel(b), style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
-        Text(keys, style = MaterialTheme.typography.bodyMedium, color = if (keys == "Unassigned") Color(0xFFFFB199) else Gold)
-        Spacer(Modifier.width(8.dp))
-        Icon(Icons.Default.Edit, "Remap", tint = Dim, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun HotkeyRow(a: HotkeyAction, keys: Set<Int>) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        RowIcon(when (a) {
-            HotkeyAction.QuickSave -> Icons.Default.Save
-            HotkeyAction.QuickLoad -> Icons.Default.Restore
-            HotkeyAction.FastForward -> Icons.Default.FastForward
-            HotkeyAction.Menu -> Icons.Default.Menu
-        })
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(a.label, style = MaterialTheme.typography.titleSmall, color = Color.White)
-            if (keys.isEmpty()) Text("Not set", style = MaterialTheme.typography.bodySmall, color = Dim)
-            else Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                keys.forEachIndexed { i, k ->
-                    if (i > 0) Text("+", color = Dim)
-                    Text(keyName(k), color = Color.White, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.background(Color.White.copy(alpha = .12f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
-                }
-            }
-        }
-        if (keys.isNotEmpty()) TextButton(onClick = { Emulator.bindHotkey(a, emptySet()) }) { Text("Clear") }
-        FilledTonalButton(onClick = { Emulator.hotkeyCaptureKeys = emptySet(); Emulator.hotkeyCapture = a }) { Text("Set") }
-    }
-}
-
-private fun saturnLabel(b: SaturnButton) = when (b) {
-    SaturnButton.Up -> "D-pad up"; SaturnButton.Down -> "D-pad down"; SaturnButton.Left -> "D-pad left"; SaturnButton.Right -> "D-pad right"
-    SaturnButton.L -> "L shoulder"; SaturnButton.R -> "R shoulder"
-    else -> "${b.name} button"
-}
-
-@Composable
-private fun ButtonBadge(b: SaturnButton) {
-    val (text, icon) = when (b) {
-        SaturnButton.Up -> null to Icons.Default.KeyboardArrowUp
-        SaturnButton.Down -> null to Icons.Default.KeyboardArrowDown
-        SaturnButton.Left -> null to Icons.AutoMirrored.Filled.KeyboardArrowLeft
-        SaturnButton.Right -> null to Icons.AutoMirrored.Filled.KeyboardArrowRight
-        SaturnButton.Start -> "ST" to null
-        else -> b.name to null
-    }
-    Box(Modifier.size(34.dp).clip(CircleShape).background(faceColor(b)), contentAlignment = Alignment.Center) {
-        if (icon != null) Icon(icon, null, tint = Color.White) else Text(text!!, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-    }
-}
-
-private fun faceColor(b: SaturnButton) = when (b) {
-    SaturnButton.A, SaturnButton.B, SaturnButton.C -> Color(0xFF5E5A78)
-    SaturnButton.X, SaturnButton.Y, SaturnButton.Z -> Color(0xFF47435F)
-    SaturnButton.L, SaturnButton.R -> Color(0xFF3A3652)
-    SaturnButton.Start -> Color(0xFF6E58D8)
-    else -> Color(0xFF2E2A45)
-}
-
-/**
- * Schematic Saturn-style pad: D-pad on the left, A/B/C (bottom) and X/Y/Z (top) on the right, L/R shoulders and Start.
- * Tapping a button selects it for remapping; the selected button is highlighted.
- */
-@Composable
-private fun SaturnPadDiagram(highlight: SaturnButton?, onSelect: (SaturnButton) -> Unit, modifier: Modifier) =
-    PadDiagram(SaturnPad, highlight?.name, { id -> onSelect(SaturnButton.valueOf(id)) }, modifier)
-
-/** Saturn control pad for the shared controller diagram: D-pad, Start, L/R and the A B C / X Y Z face buttons. */
-private val SaturnPad = PadLayout(listOf(
-    PadButton("L", "L", x = .23f, y = .14f, w = .20f, h = .13f, wOfWidth = true, shape = padRect(10), color = faceColor(SaturnButton.L)),
-    PadButton("R", "R", x = .77f, y = .14f, w = .20f, h = .13f, wOfWidth = true, shape = padRect(10), color = faceColor(SaturnButton.R)),
-    PadButton("Up", icon = Icons.Default.KeyboardArrowUp, x = .23f, y = .33f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Up)),
-    PadButton("Down", icon = Icons.Default.KeyboardArrowDown, x = .23f, y = .67f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Down)),
-    PadButton("Left", icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft, x = .15f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Left)),
-    PadButton("Right", icon = Icons.AutoMirrored.Filled.KeyboardArrowRight, x = .31f, y = .50f, w = .17f, h = .17f, shape = padRect(), color = faceColor(SaturnButton.Right)),
-    PadButton("Start", "START", x = .50f, y = .62f, w = .11f, h = .10f, wOfWidth = true, shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = faceColor(SaturnButton.Start)),
-    PadButton("X", "X", x = .66f, y = .38f, w = .18f, h = .18f, color = faceColor(SaturnButton.X)),
-    PadButton("Y", "Y", x = .75f, y = .33f, w = .18f, h = .18f, color = faceColor(SaturnButton.Y)),
-    PadButton("Z", "Z", x = .84f, y = .38f, w = .18f, h = .18f, color = faceColor(SaturnButton.Z)),
-    PadButton("A", "A", x = .64f, y = .62f, w = .18f, h = .18f, color = faceColor(SaturnButton.A)),
-    PadButton("B", "B", x = .74f, y = .58f, w = .18f, h = .18f, color = faceColor(SaturnButton.B)),
-    PadButton("C", "C", x = .84f, y = .62f, w = .18f, h = .18f, color = faceColor(SaturnButton.C)),
-))
-
-/** Remap / hotkey capture prompts (drawn in this window, not a Dialog, so controller events reach MainActivity). */
-@Composable
-private fun CapturePrompts() {
-    val remap = Emulator.remapTarget
-    val hk = Emulator.hotkeyCapture
-    if (remap == null && hk == null) return
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 460.dp).padding(16.dp)) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (remap != null) {
-                    Text("Remap ${saturnLabel(remap)}", style = MaterialTheme.typography.titleLarge)
-                    SaturnPadDiagram(highlight = remap, onSelect = { Emulator.remapTarget = it }, modifier = Modifier.fillMaxWidth().aspectRatio(2.1f))
-                    Text("Press the button on your controller you want to use for it…", color = Dim, textAlign = TextAlign.Center)
-                    TextButton(onClick = { Emulator.remapTarget = null }) { Text("Cancel") }
-                } else if (hk != null) {
-                    Text("Set ${hk.label}", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        if (Emulator.hotkeyCaptureKeys.isEmpty()) "Press a button, or hold several buttons together, then release."
-                        else Emulator.hotkeyCaptureKeys.joinToString(" + ") { keyName(it) },
-                        textAlign = TextAlign.Center,
-                    )
-                    TextButton(onClick = { Emulator.hotkeyCapture = null }) { Text("Cancel") }
-                }
-            }
-        }
-    }
-}
