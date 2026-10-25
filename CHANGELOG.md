@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 1.3.6
 - About: shows the Application id under the version, and the label is now "Sega Saturn Emulator for Android". The page comes from the GBFrame kit, so every app built on it has the same About layout and the label `<Manufacturer> <Console> Emulator for Android`.
 - CHD and ISO games are no longer copied to the app cache before starting, and CUE/BIN, MDS and CCD discs read their files the same way: the core reads straight through the descriptor the app already holds (reopening it by path is refused on devices like the Anbernic RG DS, which is why a copy was needed). Starting a game is immediate and uses no extra storage; a CHD/ISO copy is kept only as a fallback if a device can't read that way, and copies left by earlier versions are deleted after the first successful start.
 - Library controls: X opens the main menu, Start cycles the theme Showcase / Grid / All in One, B exits (Quit); the button help bar lists them from the right as A, Y, X, B.
@@ -11,6 +13,11 @@
 - Removed the unintended All games / Recent library toggle and its persisted preference; save-state screenshots remain available in All in One.
 - Routed controller B and system Back through one debounced navigation path, and reset stale menu-focus state when returning from settings.
 - Sanitized saved display, audio-threading, filtering, and CD-speed settings against unsupported values; removed an unused Settings Extras callback.
+
+- Standardized the in-game quick menu on the shared GBFrame component, including controller navigation, submenu/back-stack behavior and focus restoration.
+- Unified Cheats and Achievements with GBFrame's shared screens. Saturn-specific code parsing, database lookup, persistence and core application remain in the GBSat adapter; cheats are not applied during RetroAchievements Hardcore mode, and the Achievements screen remains accessible when RetroAchievements is not configured or signed in.
+- The Android `applicationId` and Gradle `namespace` are now both `app.gbsat.emulator`. This is a new app identity compared with older installations using `app.gbsat.android`; Android does not automatically migrate private data. Export saves/save states from the old installation and import them into the new one if needed.
+- Updated the manifest component names, generated resource imports, and performance-log directory for the new namespace and application ID.
 
 ## 1.3.5
 - Faster with threaded VDP2 rendering: on progressive screens (and hi-res ones with one field) the render thread alternates between two framebuffers, so the emulation no longer waits for the previous frame at the start of each drawn frame, and skipped frames no longer wait for it either (Burning Rangers on the RG Rotate: 58.2 → 59.8 fps on average, no second below 58; Virtua Fighter 2 at 704x448: VDP2 wait from ~4 ms to ~0.9 ms per frame).
