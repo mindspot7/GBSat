@@ -48,7 +48,7 @@ import app.gbsat.android.Emulator
 import gb.frame.HotkeyAction
 import gb.frame.keyName
 import app.gbsat.android.NativeBridge
-import app.gbsat.android.R
+import app.gbsat.emulator.R
 import app.gbsat.android.SaturnButton
 import app.gbsat.android.Storage
 import kotlinx.coroutines.launch

@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.gbsat.android.Emulator
-import app.gbsat.android.R
+import app.gbsat.emulator.R
 import app.gbsat.android.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
