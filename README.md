@@ -85,7 +85,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 
 A release (`GBSat-v<version>.apk`) is published automatically when the version in `apps/android/VERSION` changes; its
 notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push are in the **Actions** tab (artifact
-`GBSat-v<version>-build<N>`). APKs built after the package-ID change use `app.gbsat.emulator` and are signed with the same key, so subsequent builds update that installation. They are installed as a separate app from older builds using `app.gbsat.android`; Android does not automatically migrate the old app's private data. Export important saves before switching, then import them into the new installation if needed. The two installations can coexist.
+`GBSat-v<version>-build<N>`). APKs built after the package-ID change use both the Gradle `applicationId` and `namespace` `app.gbsat.emulator`, and are signed with the same key, so subsequent builds update that installation. The Kotlin/JNI source package remains `app.gbsat.android`. They are installed separately from older builds whose **application ID** was `app.gbsat.android`; Android does not automatically migrate the old app's private data. Export important saves before switching, then import them into the new installation if needed. The two installations can coexist.
 
 ## Building
 

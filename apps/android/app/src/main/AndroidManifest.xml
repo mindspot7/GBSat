@@ -6,7 +6,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:name=".GBSatApp"
+        android:name="app.gbsat.android.GBSatApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="GBSat"
@@ -14,7 +14,7 @@
         <!-- Lets the on-device profiler (simpleperf, adb shell) sample GBSat; no effect for users -->
         <profileable android:shell="true" />
         <activity
-            android:name=".MainActivity"
+            android:name="app.gbsat.android.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|smallestScreenSize"
             android:launchMode="singleTask">

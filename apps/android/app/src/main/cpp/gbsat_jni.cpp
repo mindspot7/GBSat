@@ -694,9 +694,9 @@ std::mutex g_logSettingsMutex;
 std::string g_logSettings;
 
 // Performance log for device tests: one line per second while a game runs, with the settings that affect speed.
-// Android/media/app.gbsat.android/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
+// Android/media/app.gbsat.emulator/perf-log.csv (readable over USB; tools/perf-log.bat), restarted when over 2 MB.
 void WritePerfLog(float fps, float presentedFps) {
-    static const char *kPath = "/sdcard/Android/media/app.gbsat.android/perf-log.csv";
+    static const char *kPath = "/sdcard/Android/media/app.gbsat.emulator/perf-log.csv";
     std::string title;
     {
         std::lock_guard lk(g->winMutex);

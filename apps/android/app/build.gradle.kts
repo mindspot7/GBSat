@@ -9,8 +9,9 @@ plugins {
 }
 
 android {
-    // Keep the source namespace independent from the install/package identity.
-    namespace = "app.gbsat.android"
+    // Family convention: namespace must match the stable installed application ID.
+    // Kotlin/JNI implementation packages can remain app-specific and are not inferred from this namespace.
+    namespace = "app.gbsat.emulator"
     compileSdk = 36
     ndkVersion = "27.2.12479018"
 
