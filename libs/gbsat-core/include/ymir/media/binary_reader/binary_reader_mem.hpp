@@ -2,6 +2,8 @@
 
 #include "binary_reader.hpp"
 
+#include <ymir/media/proc_fd.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -36,7 +38,7 @@ public:
         error.clear();
 
         // Try opening the file for read
-        std::ifstream in{path, std::ios::binary};
+        InputFile in{path}; // reads /proc/self/fd links through the descriptor
         if (!in) {
             error.assign(errno, std::generic_category());
             return;

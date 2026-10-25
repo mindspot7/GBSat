@@ -1,5 +1,7 @@
 #include <ymir/media/loader/loader_bin_cue.hpp>
 
+#include <ymir/media/proc_fd.hpp>
+
 #include <ymir/media/binary_reader/binary_reader_impl.hpp>
 #include <ymir/media/frame_address.hpp>
 
@@ -92,7 +94,7 @@ struct CueSheet {
 };
 
 static std::optional<CueSheet> LoadSheet(std::filesystem::path cuePath, CbLoaderMessage cbMsg) {
-    std::ifstream in{cuePath, std::ios::binary};
+    InputFile in{cuePath}; // reads /proc/self/fd links through the descriptor
 
     auto invFmtMsg = [&](std::string message) { cbMsg(MessageType::InvalidFormat, message); };
     auto errorMsg = [&](std::string message) { cbMsg(MessageType::Error, message); };

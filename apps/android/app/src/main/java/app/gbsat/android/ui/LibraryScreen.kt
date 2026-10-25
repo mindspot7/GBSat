@@ -52,7 +52,7 @@ import kotlinx.coroutines.withContext
  * Home screen: top bar (app icon, name, clock, battery), the game library in the theme chosen in Settings → Extras
  * (gb.frame.HomeLibrary: Showcase by default, Grid or Continue) and the main menu (gb.frame.HomeMenuPanel: library view,
  * settings, quit), which slides in from the left. Works with touch and with a controller: the D-pad moves the
- * selection, A opens, B opens (and closes) the menu, X cycles the theme, and Y (or a long press) opens the game options.
+ * selection, A opens, B goes back (Exit dialog), X opens the menu, Start cycles the theme, and Y (or a long press) opens the game options.
  */
 @Composable
 fun LibraryScreen(
@@ -90,7 +90,7 @@ fun LibraryScreen(
         }
     }
     LaunchedEffect(MenuState.menuRefocus.intValue) { if (menuOpen && hasPad) focusMenu() }
-    // MainActivity handles X (theme) and gives the focus back to the library when a key comes while nothing has it
+    // MainActivity handles X (menu) and Start (theme) and gives the focus back to the library when a key comes while nothing has it
     DisposableEffect(Unit) {
         MenuState.libraryShown = true
         onDispose {
@@ -137,17 +137,14 @@ fun LibraryScreen(
         gameMenu = null
     }
 
-    // B / Back: close the current menu; from the library itself, open the main menu (Quit is one of its entries).
+    // B / Back: close the current menu; from the library, ask before quitting.
     // MainActivity deduplicates paired controller keycodes, so quick consecutive B presses must not be debounced.
     androidx.activity.compose.BackHandler {
         when {
             confirmQuit -> confirmQuit = false
             achievementsFor != null -> achievementsFor = null
             menuOpen -> menuOpen = false
-            else -> {
-                MenuState.selected = null // a fresh menu starts on its first entry (System)
-                menuOpen = true
-            }
+            else -> confirmQuit = true
         }
     }
 
@@ -175,10 +172,10 @@ fun LibraryScreen(
         onOpenSettings(it)
     }
     val actions = HomeActions(
-        play = { MenuState.selected = null; showLaunchLoading { launch(it.key) } },
-        fresh = { MenuState.selected = null; showLaunchLoading { open(it.key) } },
+        play = { LibraryView.lastGame = it.key; MenuState.selected = null; showLaunchLoading { launch(it.key) } },
+        fresh = { LibraryView.lastGame = it.key; MenuState.selected = null; showLaunchLoading { open(it.key) } },
         options = { if (!openingGame) gameMenu = it },
-        resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { MenuState.selected = null; showLaunchLoading { launchState(it) } } },
+        resume = { e -> states.firstOrNull { it.gamePath + "#" + it.slot == e.key }?.let { LibraryView.lastGame = it.gamePath; MenuState.selected = null; showLaunchLoading { launchState(it) } } },
         openMenu = { menuOpen = true },
     )
     val toSystem = { openPage(SettingsPage.System) }
@@ -236,7 +233,7 @@ fun LibraryScreen(
                 Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = Gold, modifier = Modifier.size(18.dp))
             }
         }
-        // Main menu: slides in from the left over everything (B, or a tap on the header/handle). It stays open while a settings
+        // Main menu: slides in from the left over everything (X, or a tap on the header/handle). It stays open while a settings
         // page is shown, so Back returns to it with that entry selected
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
@@ -368,10 +365,11 @@ private fun HelpBar() {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = .28f)).padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically,
     ) {
-        ButtonHint("A", Color(0xFFE5483B), "Play")
+        // The bar is right-aligned: from the right, A, Y, X, B
+        ButtonHint("B", Color(0xFFF2C230), "Quit")
+        ButtonHint("X", Color(0xFF3B7BE5), "Menu")
         ButtonHint("Y", Color(0xFF3BB273), "Game options")
-        ButtonHint("X", Color(0xFF3B7BE5), "Theme")
-        ButtonHint("B", Color(0xFFF2C230), "Menu")
+        ButtonHint("A", Color(0xFFE5483B), "Play")
     }
 }
 

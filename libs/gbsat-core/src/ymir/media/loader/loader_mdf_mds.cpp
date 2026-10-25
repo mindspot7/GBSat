@@ -1,5 +1,7 @@
 #include <ymir/media/loader/loader_mdf_mds.hpp>
 
+#include <ymir/media/proc_fd.hpp>
+
 #include <ymir/media/binary_reader/binary_reader_impl.hpp>
 #include <ymir/media/frame_address.hpp>
 
@@ -94,7 +96,7 @@ struct MDSFooter {
 static_assert(sizeof(MDSFooter) == 0x10);
 
 bool Load(std::filesystem::path mdsPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
-    std::ifstream in{mdsPath, std::ios::binary};
+    InputFile in{mdsPath}; // reads /proc/self/fd links through the descriptor
 
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
 

@@ -1,6 +1,7 @@
 #include <ymir/media/loader/loader_iso.hpp>
 
 #include <ymir/media/binary_reader/binary_reader_impl.hpp>
+#include <ymir/media/proc_fd.hpp>
 
 #include <ymir/util/scope_guard.hpp>
 
@@ -31,7 +32,7 @@ bool Load(std::filesystem::path isoPath, Disc &disc, bool preloadToRAM, CbLoader
         return false;
     }
 
-    std::ifstream in{isoPath, std::ios::binary};
+    InputFile in{isoPath}; // reads /proc/self/fd links through the descriptor
     if (!in) {
         errorMsg("ISO: Could not load ISO file");
         return false;

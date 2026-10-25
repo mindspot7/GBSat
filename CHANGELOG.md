@@ -1,8 +1,10 @@
 # Changelog
 
 ## Unreleased
-- CHD games are no longer copied to the app cache before starting: the core reads the file straight through the descriptor the app already holds (reopening it by path is refused on devices like the Anbernic RG DS, which is why a copy was needed). Starting a CHD is immediate and uses no extra storage; the copy is kept only as a fallback if a device can't read that way, and copies left by earlier versions are deleted after the first successful start.
-- Library controls: B opens (and closes) the main menu and X cycles the theme Showcase / Grid / All in One; the button help bar shows the new buttons. Quit stays in the menu.
+- CHD and ISO games are no longer copied to the app cache before starting, and CUE/BIN, MDS and CCD discs read their files the same way: the core reads straight through the descriptor the app already holds (reopening it by path is refused on devices like the Anbernic RG DS, which is why a copy was needed). Starting a game is immediate and uses no extra storage; a CHD/ISO copy is kept only as a fallback if a device can't read that way, and copies left by earlier versions are deleted after the first successful start.
+- Library controls: X opens the main menu, Start cycles the theme Showcase / Grid / All in One, B exits (Quit); the button help bar lists them from the right as A, Y, X, B.
+- Every cover is stretched to the same frame as the large ones (square and landscape art no longer keeps its proportions with bars), so all boxarts have the same size.
+- Leaving a game puts the selection back on that game's cover, expanded, also after leaving through the touch menu; the game being started is remembered even when it was started from a save state.
 - The library no longer competes with the open main menu for the controller focus, so Back from a settings page lands on the entry that was opened; closing the menu or changing the theme puts the selection back on the game selected last (it used to return to the game the screen had opened on).
 - Fixed controller focus restoration when returning from Settings or closing the main menu; stale focus state no longer leaves selection on box art behind the menu.
 - Removed the unintended All games / Recent library toggle and its persisted preference; save-state screenshots remain available in All in One.

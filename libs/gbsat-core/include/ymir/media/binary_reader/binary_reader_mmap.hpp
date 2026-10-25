@@ -2,6 +2,8 @@
 
 #include "binary_reader.hpp"
 
+#include <ymir/media/proc_fd.hpp>
+
 #include <mio/mmap.hpp>
 
 #include <filesystem>
@@ -20,6 +22,15 @@ public:
     // provided std::error_code object.
     MemoryMappedBinaryReader(std::filesystem::path path, std::error_code &error) {
         error.clear();
+        // A /proc/self/fd/N link (how the Android app exposes documents) is mapped through its descriptor: reopening the
+        // link by path is refused on some devices. The mapping outlives the descriptor, which mio does not close.
+        if (const int procFd = ProcFdOf(path); procFd >= 0) {
+            m_in = mio::make_mmap_source(procFd, error);
+            if (!error) {
+                return;
+            }
+            error.clear();
+        }
         m_in = mio::make_mmap_source(path.native(), error);
     }
 

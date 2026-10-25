@@ -601,11 +601,11 @@ object Emulator {
         android.util.Log.i("GBSat-Disc", "calling nativeLoadDisc path=" + disc.path + "; preload=" + preloadDisc)
         var err = NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
         android.util.Log.i("GBSat-Disc", "nativeLoadDisc result=" + (err ?: "success"))
-        val isChd = path.endsWith(".chd", ignoreCase = true)
+        val copyable = path.endsWith(".chd", ignoreCase = true) || path.endsWith(".iso", ignoreCase = true)
         var copied = false
-        if (err != null && isChd) {
-            // A CHD is read through its descriptor (no copy). If this device can't, fall back to a copy in the app cache.
-            android.util.Log.w("GBSat-Disc", "CHD descriptor read failed; retrying from a cached copy")
+        if (err != null && copyable) {
+            // A CHD or ISO is read through its descriptor (no copy). If this device can't, fall back to a copy in the app cache.
+            android.util.Log.w("GBSat-Disc", "Descriptor read failed; retrying from a cached copy")
             disc.close()
             Storage.open(path, stageCopy = true)?.let { copy ->
                 disc = copy
@@ -615,7 +615,7 @@ object Emulator {
             }
         }
         // Read straight through the descriptor: copies kept by earlier versions are not needed on this device
-        if (err == null && isChd && !copied) Storage.clearChdCopies()
+        if (err == null && copyable && !copied) Storage.clearDiscCopies()
         if (err != null) disc.close() else openDisc = disc
         if (err == null) {
             currentGame = path; running = true; loadCheats()

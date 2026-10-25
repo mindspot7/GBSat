@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
             return backKey(event)
         }
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && (!Emulator.running || Emulator.paused) && !captureActive) return backKey(event)
-        // Library: X cycles the theme (B, handled as Back by LibraryScreen, opens/closes the main menu), and a controller key that arrives while the focus is lost (after a tap, when
+        // Library: X opens/closes the main menu and Start cycles the theme (B is Back/Exit, handled by LibraryScreen), and a controller key that arrives while the focus is lost (after a tap, when
         // a menu closed, or a menu opened by touch while the library behind it kept the focus) first puts the focus back
         // where it belongs (the open menu, else the library), so the controller never gets stuck. Handled here because
         // Compose key handlers only see events while something inside them is focused.
@@ -123,8 +123,15 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    if (!menu.open.value) menu.selected = null // a fresh menu starts on its first entry (System)
+                    menu.open.value = !menu.open.value
+                }
+                return true
+            }
+            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) {
                 // The library takes the focus back on the selected game by itself when its layout changes (HomeLibrary),
-                // or when the open menu closes; with the menu open the focus stays on the menu entry.
+                // and with the menu open the focus stays on the menu entry.
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) HomeTheme.cycleStyle()
                 return true
             }

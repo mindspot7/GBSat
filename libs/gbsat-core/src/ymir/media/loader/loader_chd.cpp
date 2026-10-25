@@ -19,9 +19,9 @@
 #include <unistd.h>
 
 #include <cerrno>
-#include <cstdlib>
-#include <cstring>
 #endif
+
+#include <ymir/media/proc_fd.hpp>
 
 #include <charconv>
 #include <map>
@@ -248,27 +248,6 @@ int FdSeek(void *p, int64_t offset, int whence) {
 }
 
 const core_file_callbacks kFdCallbacks = {FdSize, FdRead, FdClose, FdSeek};
-
-// The descriptor number when `path` is a symlink to /proc/self/fd/N, otherwise -1.
-int ProcFdOf(const std::filesystem::path &path) {
-    char target[64];
-    const ssize_t n = readlink(path.c_str(), target, sizeof(target) - 1);
-    if (n <= 0) {
-        return -1;
-    }
-    target[n] = '\0';
-    static constexpr char kPrefix[] = "/proc/self/fd/";
-    constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
-    if (std::strncmp(target, kPrefix, kPrefixLen) != 0) {
-        return -1;
-    }
-    char *end = nullptr;
-    const long fd = std::strtol(target + kPrefixLen, &end, 10);
-    if (end == target + kPrefixLen || *end != '\0' || fd < 0) {
-        return -1;
-    }
-    return static_cast<int>(fd);
-}
 
 // Opens the CHD through a duplicate of descriptor `procFd` (libchdr closes the duplicate with the file; the app keeps
 // the original). Returns CHDERR_FILE_NOT_FOUND when the descriptor can't be used (not seekable, e.g. a pipe), so the
