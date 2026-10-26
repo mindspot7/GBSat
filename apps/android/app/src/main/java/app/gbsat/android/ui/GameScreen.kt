@@ -50,7 +50,10 @@ fun GameScreen(onQuitApp: () -> Unit) {
     var fps by remember { mutableFloatStateOf(0f) }
     var stats by remember { mutableStateOf(longArrayOf(0, 320, 224, 0, 1)) }
 
-    BackHandler(enabled = !menu) { menu = true; Emulator.pause(true) }
+    BackHandler(enabled = GbSatPausePolicy.shouldHandleBack(menu)) {
+        menu = true
+        Emulator.pause(true)
+    }
     LaunchedEffect(Unit) {
         var logged = ""
         while (true) {
@@ -61,7 +64,11 @@ fun GameScreen(onQuitApp: () -> Unit) {
         }
     }
     LaunchedEffect(Emulator.menuRequest) {
-        if (Emulator.menuRequest) { menu = true; Emulator.pause(true); Emulator.menuRequest = false }
+        if (Emulator.menuRequest) {
+            if (GbSatPausePolicy.shouldPauseForMenuRequest(menu)) Emulator.pause(true)
+            menu = true
+            Emulator.menuRequest = false
+        }
     }
     // Report if the GPU (Vulkan) renderer could not start (the CPU renderer keeps running), and fall back to the plain
     // window output if OpenGL ES can't start on this device.
@@ -80,7 +87,9 @@ fun GameScreen(onQuitApp: () -> Unit) {
         }
     }
     // Resume when returning from background.
-    LaunchedEffect(Unit) { if (Emulator.paused && !menu) Emulator.pause(false) }
+    LaunchedEffect(Unit) {
+        if (GbSatPausePolicy.shouldResumeOnEntry(Emulator.paused, menu)) Emulator.pause(false)
+    }
 
     // Touch controls only without a physical controller (handhelds have built-in ones)
     val hasPad = gb.frame.rememberHasGamepad()
