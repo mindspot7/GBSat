@@ -125,7 +125,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                         // The kit's standard About page: "Sega Saturn Emulator for Android", version and Application id
                         SettingsPage.About -> AboutPage(
                             appName = "GBSat", manufacturer = "Sega", console = "Saturn",
-                            icon = painterResource(R.mipmap.ic_launcher),
+                            icon = painterResource(R.drawable.ic_launcher_foreground),
                             credits = listOf(
                                 AboutCredit("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)"),
                                 AboutCredit("rcheevos", "RetroAchievements client library"),
