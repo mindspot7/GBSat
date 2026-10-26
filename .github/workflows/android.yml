@@ -237,51 +237,18 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "::notice title=APK::${NAME}.apk"
 
-      - name: Enforce 16 KB APK and native ELF alignment
+      - name: Validate APK 16 KB compatibility (GBFrame shared validator)
         shell: bash
         run: |
           set -euo pipefail
+          VALIDATOR="$RUNNER_TEMP/check-android-16kb.sh"
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/mindspot7/GBFrame/d8729d9bdb9e0cb61fe36ee34a34f2407fb40ca0/tools/check-android-16kb.sh" \
+            -o "$VALIDATOR"
           APK_DIR="apps/android/app/build/outputs/apk/release"
           APK=$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)
           test -n "$APK"
-          ZA=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name zipalign -print | sort -V | tail -n 1)
-          if [ -z "$ZA" ]; then
-            echo "::error::Android zipalign tool not found"
-            exit 1
-          fi
-          "$ZA" -c -P 16 -v 4 "$APK"
-
-          mkdir -p "$RUNNER_TEMP/gbsat-native-libs"
-          unzip -o -q "$APK" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/gbsat-native-libs"
-          shopt -s nullglob
-          LIBS=("$RUNNER_TEMP"/gbsat-native-libs/lib/arm64-v8a/*.so)
-          if [ "${#LIBS[@]}" -eq 0 ]; then
-            echo "::error title=16 KB ELF::No arm64-v8a shared libraries found in APK"
-            exit 1
-          fi
-          OD=$(find "$ANDROID_HOME/ndk" -path '*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump' -type f -print | sort -V | tail -n 1)
-          if [ -z "$OD" ]; then
-            echo "::error::llvm-objdump not found in Android NDK"
-            exit 1
-          fi
-          FAILURES=0
-          for so in "${LIBS[@]}"; do
-            ALIGNMENTS=$("$OD" -p "$so" | awk '/LOAD/ {print $NF}' | sort -u | tr '\n' ' ')
-            if [ -z "$ALIGNMENTS" ]; then
-              echo "::error title=16 KB ELF::Could not read LOAD alignment for $(basename "$so")"
-              FAILURES=$((FAILURES + 1))
-            elif [[ "$ALIGNMENTS" == *"2**12"* ]]; then
-              echo "::error title=16 KB ELF::$(basename "$so") has a LOAD segment aligned to 4 KB ($ALIGNMENTS)"
-              FAILURES=$((FAILURES + 1))
-            else
-              echo "::notice title=16 KB ELF::$(basename "$so") LOAD alignment: $ALIGNMENTS"
-            fi
-          done
-          echo "Inspected ${#LIBS[@]} arm64-v8a shared libraries; failures: $FAILURES"
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "::error::Native ELF alignment check failed"
-            exit 1
-          fi
+          bash "$VALIDATOR" "$APK"
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.ver.outputs.name }}
