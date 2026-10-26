@@ -245,21 +245,7 @@ fun LibraryScreen(
             onQuit = onQuit, header = { RaUserHeader() }, onFocusChanged = { MenuState.menuHasFocus = it },
         )
         if (openingGame) {
-            Box(
-                Modifier.fillMaxSize().zIndex(100f)
-                    .background(Color(0xE6171425))
-                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { }
-                    .onPreviewKeyEvent { true },
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    CircularProgressIndicator(color = Gold, strokeWidth = 4.dp, modifier = Modifier.size(54.dp))
-                    Text("Opening game…", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("Preparing the disc image. The first launch may take a little longer.", color = Color.White.copy(alpha = .78f),
-                        style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.widthIn(max = 320.dp).padding(horizontal = 20.dp))
-                }
-            }
+            gb.frame.LaunchLoadingOverlay("Preparing the disc image. The first launch may take a little longer.")
         }
         gameMenu?.let { g -> GameOptions(g, entries.firstOrNull { it.game == g.key },
             onDismiss = { gameMenu = null },
