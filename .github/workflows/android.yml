@@ -237,18 +237,51 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "::notice title=APK::${NAME}.apk"
 
-      - name: Check 16 KB page alignment
+      - name: Enforce 16 KB APK and native ELF alignment
+        shell: bash
         run: |
-          cd apps/android/app/build/outputs/apk/release
-          ZA="$ANDROID_HOME/build-tools/36.0.0/zipalign"
-          if "$ZA" -c -P 16 -v 4 *.apk > /tmp/za.log 2>&1; then echo "::notice title=16 KB::APK is 16 KB aligned"
-          else echo "::warning title=16 KB::$(grep -v ' (OK' /tmp/za.log | tail -5 | tr '\n' ' ')"; fi
-          unzip -o -q *.apk 'lib/arm64-v8a/*.so' -d /tmp/so
-          OD=$(ls $ANDROID_HOME/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump | head -1)
-          for so in /tmp/so/lib/arm64-v8a/*.so; do
-            al=$("$OD" -p "$so" | awk '/LOAD/ {print $NF}' | sort -u | tr '\n' ' ')
-            case "$al" in *"2**12"*) echo "::warning title=16 KB::$(basename $so) LOAD align $al";; esac
+          set -euo pipefail
+          APK_DIR="apps/android/app/build/outputs/apk/release"
+          APK=$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          ZA=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name zipalign -print | sort -V | tail -n 1)
+          if [ -z "$ZA" ]; then
+            echo "::error::Android zipalign tool not found"
+            exit 1
+          fi
+          "$ZA" -c -P 16 -v 4 "$APK"
+
+          mkdir -p "$RUNNER_TEMP/gbsat-native-libs"
+          unzip -o -q "$APK" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/gbsat-native-libs"
+          shopt -s nullglob
+          LIBS=("$RUNNER_TEMP"/gbsat-native-libs/lib/arm64-v8a/*.so)
+          if [ "${#LIBS[@]}" -eq 0 ]; then
+            echo "::error title=16 KB ELF::No arm64-v8a shared libraries found in APK"
+            exit 1
+          fi
+          OD=$(find "$ANDROID_HOME/ndk" -path '*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump' -type f -print | sort -V | tail -n 1)
+          if [ -z "$OD" ]; then
+            echo "::error::llvm-objdump not found in Android NDK"
+            exit 1
+          fi
+          FAILURES=0
+          for so in "${LIBS[@]}"; do
+            ALIGNMENTS=$("$OD" -p "$so" | awk '/LOAD/ {print $NF}' | sort -u | tr '\n' ' ')
+            if [ -z "$ALIGNMENTS" ]; then
+              echo "::error title=16 KB ELF::Could not read LOAD alignment for $(basename "$so")"
+              FAILURES=$((FAILURES + 1))
+            elif [[ "$ALIGNMENTS" == *"2**12"* ]]; then
+              echo "::error title=16 KB ELF::$(basename "$so") has a LOAD segment aligned to 4 KB ($ALIGNMENTS)"
+              FAILURES=$((FAILURES + 1))
+            else
+              echo "::notice title=16 KB ELF::$(basename "$so") LOAD alignment: $ALIGNMENTS"
+            fi
           done
+          echo "Inspected ${#LIBS[@]} arm64-v8a shared libraries; failures: $FAILURES"
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "::error::Native ELF alignment check failed"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.ver.outputs.name }}
