@@ -243,7 +243,7 @@ jobs:
           set -euo pipefail
           VALIDATOR="$RUNNER_TEMP/check-android-16kb.sh"
           curl --fail --silent --show-error --location \
-            "https://raw.githubusercontent.com/mindspot7/GBFrame/3c750cab990e0e31efca81898cd24ffaddbb65ee/tools/check-android-16kb.sh" \
+            "https://raw.githubusercontent.com/mindspot7/GBFrame/f494e5e9ae59ef2b6be9bf415f6ed841c6de36ec/tools/check-android-16kb.sh" \
             -o "$VALIDATOR"
           APK_DIR="apps/android/app/build/outputs/apk/release"
           APK=$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)
