@@ -132,7 +132,7 @@ jobs:
             echo "::warning title=Signing::GBSAT_KEYSTORE_BASE64 secret not set; APK signed with the cached debug key"
           fi
 
-      # Unit tests are run before packaging to gate pause-policy regressions.
+      # The pure pause-policy unit test is run before packaging; Robolectric screenshot suites require a separate graphics-capable validation.
       # The App Bundle (.aab, Google Play) is only built for a release (a VERSION without a GitHub release yet) or when
       # asked for in a manual run; everyday builds make the APK only
       - name: Bundle needed?
@@ -155,7 +155,7 @@ jobs:
           set +e
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
           ccache -z >/dev/null
-          gradle --no-daemon testReleaseUnitTest ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --build-cache --configuration-cache --configuration-cache-problems=warn -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1
+          gradle --no-daemon testReleaseUnitTest --tests 'app.gbsat.android.ui.GbSatPausePolicyTest' ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --build-cache --configuration-cache --configuration-cache-problems=warn -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
