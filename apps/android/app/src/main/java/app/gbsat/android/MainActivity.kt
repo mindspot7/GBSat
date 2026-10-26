@@ -31,6 +31,9 @@ class MainActivity : ComponentActivity() {
     private var lastGamepadBDevice = -1
     private var pairedBackDevice = -1
     private var pairedBackDownTime = -1L
+    // Remember whether gameplay was active before Android backgrounds the activity.
+    // Emulator.paused is set to true below, so the pre-pause state must be captured first.
+    private var resumeGameplayAfterForeground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,8 +43,19 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        // Capture intent before pausing. If the in-game menu was already open, do not
+        // resume automatically when Android returns to the activity.
+        resumeGameplayAfterForeground = Emulator.running && !Emulator.paused
         super.onPause()
         if (Emulator.running) Emulator.pause(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (resumeGameplayAfterForeground) {
+            resumeGameplayAfterForeground = false
+            if (Emulator.running) Emulator.pause(false)
+        }
     }
 
     // Leaving the app (Home, recents, another app) while in a game: write the auto save now, since Android may close
