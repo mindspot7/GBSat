@@ -6,6 +6,7 @@ import gb.frame.HomeKeys
 import gb.frame.HotkeyAction
 import gb.frame.Hotkeys
 import gb.frame.HomeTheme
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
     private var l2Key = false
     private var r2Key = false
 
+    @SuppressLint("RestrictedApi") // ComponentActivity's public override contract requires delegating unhandled keys to super.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // A controller can emit BUTTON_B and KEYCODE_BACK for the same press. In gameplay, B remains a Saturn button;
         // consume a paired synthetic Back rather than opening the emulator menu as a side effect.
@@ -187,6 +189,7 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    @SuppressLint("RestrictedApi") // Re-dispatch remapped gamepad keys through the Activity's normal event pipeline.
     private fun uiKey(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
         val mapped = when (event.keyCode) {
