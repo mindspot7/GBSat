@@ -40,6 +40,7 @@ extern "C" {
 #include <deque>
 #include <filesystem>
 #include <array>
+#include <bitset>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -176,6 +177,7 @@ struct Context {
     std::atomic<bool> fastBoot{false};
     std::atomic<bool> booting{false};
     int bootFrames = 0, bootGameFrames = 0, bootRegion = -1; // emulation thread only
+    std::bitset<256> biosPages; // 4 KiB pages of WRAM-H where the BIOS ran before IP.BIN was loaded
     std::chrono::steady_clock::time_point bootStart;
     // CD read speed: the user's choice, and the one applied (the original 2x while the game streams from the CD)
     uint8_t cdSpeedUser = 2, cdSpeedApplied = 2;
@@ -623,13 +625,17 @@ void StartBoot() {
     }
     g->bootFrames = g->bootGameFrames = 0;
     g->bootRegion = -1;
+    g->biosPages.reset();
     g->bootStart = std::chrono::steady_clock::now();
     g->booting = true;
     LOGI("Fast boot on");
 }
 
 // Once per emulated frame while booting (emulation thread). The BIOS loads the disc's IP.BIN to 06002000 and finally
-// jumps to the 1st read program at the address in its header (offset F0); the game runs from there.
+// jumps to the 1st read program (address in the header at offset F0). Its own intro code also runs from WRAM-H, even
+// above the 1st read address (06010000+ while the game starts at 06004000), so the address alone can't tell them
+// apart: the pages the BIOS ran in before IP.BIN was loaded are remembered, and the game is running once the CPU stays
+// in other WRAM-H pages after the header appeared.
 void BootFrame() {
     if (!g->booting.load(std::memory_order_relaxed)) {
         return;
@@ -639,13 +645,18 @@ void BootFrame() {
     const uint32_t pc = g->saturn->masterSH2.GetProbe().PC() & 0x07FFFFFF;
     const bool header = std::memcmp(&wram[0x2000], "SEGA SEGASATURN ", 16) == 0;
     const uint32_t firstRead = header ? util::ReadBE<uint32_t>(&wram[0x20F0]) & 0x07FFFFFF : 0;
-    const bool inGame = firstRead >= 0x06000000 && firstRead < 0x06100000 && pc >= firstRead && pc < 0x06100000;
-    // Where the master SH-2 runs, logged when it changes: 0 BIOS ROM, 1 low WRAM-H, 2 IP.BIN, 3 1st read area, 4 other
-    const int region = pc < 0x00100000 ? 0 : inGame ? 3 : (pc >= 0x06002000 && pc < 0x0600A000 && header) ? 2
-                     : (pc >= 0x06000000 && pc < 0x06100000) ? 1 : 4;
+    const bool inWramH = pc >= 0x06000000 && pc < 0x06100000;
+    const size_t page = (pc >> 12) & 0xFF;
+    if (inWramH && !header) {
+        g->biosPages.set(page);
+    }
+    const bool inGame = header && inWramH && !g->biosPages.test(page);
+    // Where the master SH-2 runs, logged when it changes: 0 BIOS ROM, 1 WRAM-H (BIOS), 2 WRAM-H (game), 3 other
+    const int region = pc < 0x00100000 ? 0 : inGame ? 2 : inWramH ? 1 : 3;
     if (region != g->bootRegion) {
         g->bootRegion = region;
-        LOGI("Fast boot frame %d pc %08x region %d header %d 1st read %08x", g->bootFrames, pc, region, header, firstRead);
+        LOGI("Fast boot frame %d pc %08x region %d header %d 1st read %08x bios pages %zu", g->bootFrames, pc, region,
+             header, firstRead, g->biosPages.count());
     }
     g->bootGameFrames = inGame ? g->bootGameFrames + 1 : 0;
     if (g->bootGameFrames >= 3) {
