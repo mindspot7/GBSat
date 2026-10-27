@@ -297,6 +297,11 @@ private fun GameOptions(
     g: HomeGame, latest: ResumeEntry?, onDismiss: () -> Unit, onContinue: (ResumeEntry) -> Unit, onOpen: () -> Unit,
     onAchievements: () -> Unit, onCover: () -> Unit,
 ) {
+    var coverOptions by remember(g.key) { mutableStateOf(false) }
+    if (coverOptions) {
+        CoverImageOptions(g.title, onLocalSearch = onCover, onDismiss = { coverOptions = false })
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(g.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
@@ -312,7 +317,7 @@ private fun GameOptions(
                 if (RetroAchievements.enabled && RetroAchievements.user != null) {
                     TextButton(onClick = onAchievements) { Icon(Icons.Default.EmojiEvents, null); Spacer(Modifier.width(8.dp)); Text("Achievements") }
                 }
-                TextButton(onClick = onCover) { Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Cover image") }
+                TextButton(onClick = { coverOptions = true }) { Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Cover Image") }
             }
         },
         confirmButton = {},

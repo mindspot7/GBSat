@@ -464,8 +464,11 @@ private fun StateSlots(save: Boolean, onDone: () -> Unit) {
     for (slot in 0 until Emulator.STATE_SLOTS) {
         val time = times.getOrNull(slot)
         val enabled = save || time != null
-        QuickMenuItemContainer(
+        QuickMenuStateSlot(
             id = "slot-${slot + 1}",
+            label = "Slot ${slot + 1}",
+            time = time,
+            thumbnail = thumbs.getOrNull(slot),
             enabled = enabled,
             onClick = {
                 scope.launch {
@@ -473,44 +476,7 @@ private fun StateSlots(save: Boolean, onDone: () -> Unit) {
                     if (error == null) onDone() else message = error
                 }
             },
-        ) {
-            val thumb = thumbs.getOrNull(slot)
-            Box(
-                Modifier.size(width = 88.dp, height = 66.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black),
-            ) {
-                if (thumb != null) {
-                    androidx.compose.foundation.Image(
-                        thumb.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.Image,
-                        null,
-                        tint = Color.White.copy(alpha = .3f),
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Slot ${slot + 1}", color = if (enabled) Color.White else palette.dim, fontWeight = FontWeight.SemiBold)
-                Text(
-                    time?.let {
-                        java.text.DateFormat.getDateTimeInstance(
-                            java.text.DateFormat.SHORT,
-                            java.text.DateFormat.SHORT,
-                        ).format(java.util.Date(it))
-                    } ?: "Empty",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.dim,
-                )
-            }
-        }
+        )
     }
     message?.let {
         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp))
