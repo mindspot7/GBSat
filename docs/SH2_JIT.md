@@ -1,16 +1,22 @@
 # SH-2 ARM64 JIT: design
 
-Status: October 2026, end of phase 1. Blocks run inside the chained interpreter (`RunChained<.., true>` ->
-`SH2::RunBlocks`). Host code: register/ALU/compare/shift instructions, MOV.B/W/L loads and stores (direct WRAM-H
-path, interpreter for other addresses), MAC.L/MAC.W (direct path when SR.S = 0), MUL/MULS/MULU/DMULS/DMULU, CLRMAC,
-STS/LDS MACH/MACL/PR with registers, and the branches (BT/BF/BT.S/BF.S/BRA/BSR/BRAF/BSRF/JMP/JSR/RTS) with their
-delay slot in host code when it is a register instruction. Everything else is a call to `InterpretNext` from the
-block. Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the interpreter for 300 frames.
-Blocks are compiled at jump targets only (compiling at slice starts made 96k blocks in Burning Rangers and was
-slower). Speed (sh2cmp, RG Rotate, ms per frame, interpreter -> JIT): Burning Rangers 21.2 -> 26.9, Daytona 21.0 ->
-22.8, VF2 29.5 -> 31.0, NiGHTS 24.1 -> 26.0. Most instructions are still dispatched by the chain (the start of each
-128-cycle slice, until a jump target) and each block run pays a fixed entry/exit cost: phase 2 links blocks
-directly in host code and keeps the registers between them.
+Status: October 2026, phase 2 started. Phase 1 (host code for ALU, MOV loads/stores with a direct WRAM-H path,
+MAC/MUL/STS/LDS, branches and delay slots; interpreter calls for the rest) plus: a fixed register mapping (R0-R15 in
+host registers in every block), blocks jumping to the next one directly (pipeline refill, end-of-slot interrupt
+check, idle-loop back jumps and the slice checked inline), a static cycle bound per block (no per-instruction slice
+check; a block starts only when the slice has more than its bound left) and block lookups only where the flow jumps.
+Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the interpreter for 300 frames.
+
+Not faster yet. Profile of sh2cmp (VF2, 200 frames, RG Rotate): the interpreter run spends 4.5% of the samples in
+`RunChained`; the JIT run 3.5% in `RunChained` (instructions still interpreted), 0.5% in `RunBlocks` and 1.6% in
+generated code, about twice the chain's cost per instruction. Reasons: each block entered from C++ pays ~100 host
+instructions (callee-saved registers, all 16 SH-2 registers in and out) for ~7 SH-2 instructions (VF2's basic blocks
+are short); with 128-cycle slices most blocks start from C++ (slices start mid-block, blocks that don't fit the rest
+of a slice are skipped), so linking helps little. Ymir's chained interpreter costs ~15-20 host instructions per SH-2
+instruction, a high bar. To pay off the JIT needs to stay in host code for whole slices: entries at any instruction
+(slices starting mid-block), exits at any instruction (the slice end) without leaving the block structure, cheaper
+entry/exit (registers loaded lazily), and longer blocks (following branches). sh2cmp's time per frame is not a good
+measure here: it renders VDP and runs the SCSP on its single thread; use simpleperf on it (SH-2 symbols).
 
 ## Why, and what it can gain
 

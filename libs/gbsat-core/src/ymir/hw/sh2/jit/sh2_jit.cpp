@@ -313,8 +313,11 @@ BranchKind BranchOf(OpcodeType op) {
 // call, so caller-saved ones are fine)
 constexpr uint32 kCtx = 19, kCycles = 20, kLimit = 21, kSR = 22, kT0 = 3, kT1 = 4;
 constexpr uint32 kTarget = 29; // delayed branch target (x29 is saved by the prologue)
-constexpr uint32 kHostList[] = {9, 10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 25, 26, 27, 28};
-constexpr uint32 kHostRegs = 15;
+constexpr uint32 kWram = 8;    // WRAM-H base (caller-saved: reloaded with the registers after calls)
+// Fixed mapping, the same in every block, so blocks jump to each other with the state in host registers. x30 too:
+// the prologue saved the link register and every call is followed by a reload.
+constexpr uint32 kHostList[] = {9, 10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 25, 26, 27, 28, 30};
+constexpr uint32 kHostRegs = 16;
 
 // Instructions after which a block ends (the chain re-checks for idle loops, delay slots, exceptions)
 enum class Flow { None, Branch, DelayedBranch, CondDelayed };
@@ -769,13 +772,36 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
     if (natives == 0) {
         return remember(kNoBlock, pc);
     }
+    // Most cycles each instruction takes in host code (interpreter calls count 0: the slice is checked after them).
+    // A block starts only when the slice has more than the whole bound left, so host code never reaches the end of
+    // the slice and needs no check after each instruction.
+    std::vector<uint32> maxAfter(items.size() + 1, 0); // bound for the instructions after index k
+    for (size_t k = items.size(); k-- > 0;) {
+        const Item &it = items[k];
+        uint32 c = 0;
+        if (it.native) {
+            c = 2; // 1 + load-use stall
+        } else if (it.mem) {
+            c = 1 + it.m.wbTimes;
+        } else if (it.special) {
+            c = it.sp.cycles + 1;
+        } else if (it.mac) {
+            c = 4;
+        } else if (it.branch != BranchKind::None) {
+            c = 4; // 3 (taken BT/BF) + stall
+        }
+        maxAfter[k] = maxAfter[k + 1] + c;
+    }
 
+    usedRegs = 0xFFFF;
+    usesT = true;
     Compiler c;
     Emitter &e = c.e;
     {
         uint32 next = 0;
         for (uint32 r = 0; r < 16; ++r) {
-            c.host[r] = (usedRegs >> r) & 1 ? kHostList[next++] : WZR;
+            c.host[r] = kHostList[r];
+            (void)next;
         }
     }
     auto loadRegs = [&] {
@@ -789,10 +815,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             e.LdrX(0, kCtx, offsetof(Context, SR));
             e.LdrW(kSR, 0, 0);
         }
+        e.LdrX(kWram, kCtx, offsetof(Context, wramHigh));
     };
     // Registers changed in host code since the SH2 object was last updated (stored before interpreter calls)
-    uint32 dirty = 0;
-    bool dirtyT = false;
+    uint32 dirty = 0xFFFF; // entered from another block: any register may differ from the SH2 object
+    bool dirtyT = true;
     auto storeRegsMask = [&](uint32 mask, bool t) {
         if (mask != 0) {
             e.LdrX(0, kCtx, offsetof(Context, R));
@@ -831,6 +858,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
     e.LdrX(kCycles, 0, 0);
     e.LdrX(kLimit, kCtx, offsetof(Context, limit));
     loadRegs();
+    const size_t linkedEntry = e.code.size(); // other blocks jump here
 
     // Compile-time state that the SH2 object only gets at calls and exits
     constexpr sint32 kWbUnknown = -1;    // m_wbReg: in the SH2 object (after a call or at the start)
@@ -852,7 +880,8 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         uint32 fetched;
         sint32 wb;
         bool allowFalse = false;
-        bool pcFromTarget = false; // PC = kTarget (end of a delay slot)
+        bool pcFromTarget = false; // PC = kTarget
+        bool slotTarget = false;   // also m_delaySlotTarget = kTarget (end of a delay slot)
         bool delay = false;        // stopped between a branch and its slot: m_delaySlot, target = kTarget
         uint8 post = 0;
     };
@@ -875,6 +904,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         sint32 wb;
         uint32 dirty; // registers to store (w5 holds a computed address; the base register may be pre-decremented)
         bool dirtyT;
+        uint32 bound = 0; // most cycles of the host code after it
     };
     std::vector<std::unique_ptr<SlowPath>> slowPaths;
     struct HitPath {
@@ -884,6 +914,102 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
     std::vector<std::unique_ptr<HitPath>> hitPaths;
     auto macOffset = [&](uint32 dst, uint32 addrReg, uint32 size) {
         e.AndRun(dst, addrReg, size == 4 ? 2 : 1, size == 4 ? 18 : 19);
+    };
+
+    // End of the block's flow at a known next PC: what the chain does between instructions, then a jump straight into
+    // the next block when it exists and fits the slice; otherwise out to RunBlocks. PC in kTarget.
+    //   refill: 0 none, 1 always (taken BT/BF), 2 when PC & 2 (end of a delay slot)
+    auto emitLink = [&](uint32 lastPC, bool pcStatic, uint32 pcValue, uint32 refill, bool slotEnd) {
+        if (pcStatic) {
+            e.MovImm(kTarget, pcValue);
+        }
+        auto out = [&](uint8 post) -> Emitter::Label & {
+            Exit &x = nativeExit(lastPC);
+            x.pcFromTarget = true;
+            x.post = post;
+            return x.label;
+        };
+        if (slotEnd) {
+            // the interpreter keeps the last delayed branch's target (it is in the save state)
+            e.LdrX(0, kCtx, offsetof(Context, delaySlotTarget));
+            e.StrW(kTarget, 0, 0);
+        }
+        if (fetchPending) {
+            storeConst32(offsetof(Context, fetched), fetchValue);
+            fetchPending = false;
+        }
+        if (refill == 1 || (refill == 2 && !(pcStatic && !(pcValue & 2)))) {
+            // RefillPipeline: the opcode pair at PC & ~3, read directly when in WRAM-H's cached area
+            Emitter::Label done;
+            if (refill == 2 && !pcStatic) {
+                e.Ubfm(1, kTarget, 1, 1);
+                e.CbzW(1, done);
+            }
+            e.Lsr(1, kTarget, 25);
+            e.CmpImm(1, 3);
+            e.BCond(NE, out(slotEnd ? 2 : 1));
+            e.AndRun(1, kTarget, 2, 18);
+            e.LdrWReg(3, kWram, 1);
+            e.Rev(3, 3);
+            e.LdrX(0, kCtx, offsetof(Context, fetched));
+            e.StrW(3, 0, 0);
+            e.Bind(done);
+        }
+        if (slotEnd) {
+            // m_intrFlags.pending = INTC.pending.level > SR.ILevel
+            e.LdrX(0, kCtx, offsetof(Context, intcLevel));
+            e.Ldrb(1, 0, 0);
+            e.Ubfm(2, kSR, 4, 7);
+            e.Cmp(1, 2);
+            e.Cset(1, HI);
+            e.LdrX(0, kCtx, offsetof(Context, intr));
+            e.Strb(1, 0, 0);
+        }
+        // an interrupt pending (allowed or not: the chain decides) or the end of the slice
+        e.LdrX(0, kCtx, offsetof(Context, intr));
+        e.Ldrb(1, 0, 0);
+        e.Cbnz(1, out(0));
+        e.CmpX(kCycles, kLimit);
+        e.BCond(HS, out(0));
+        // a short jump back: Advance's idle-loop logic looks at it
+        if (pcStatic) {
+            if (pcValue < lastPC && lastPC - pcValue <= 16) {
+                e.B(out(0));
+                return;
+            }
+        } else {
+            Emitter::Label fwd;
+            e.MovImm(1, lastPC);
+            e.Cmp(kTarget, 1);
+            e.BCond(HS, fwd);
+            e.Sub(2, 1, kTarget);
+            e.CmpImm(2, 16);
+            e.BCond(LS, out(0));
+            e.Bind(fwd);
+        }
+        if (wb != kWbUnknown) {
+            storeWb(static_cast<uint32>(wb));
+        }
+        // the next block: WRAM-H cached area, compiled, starting exactly there, fitting the slice
+        Emitter::Label &x = out(0);
+        e.Lsr(1, kTarget, 25);
+        e.CmpImm(1, 3);
+        e.BCond(NE, x);
+        e.Ubfm(1, kTarget, 1, 19);
+        e.LdrX(2, kCtx, offsetof(Context, slots));
+        e.AddXImmLsl12(2, 2, 0x800); // WRAM-H slots start at entry 0x100000 (8 bytes each)
+        e.LdrXRegScaled(3, 2, 1);
+        e.CmpXImm(3, 1);
+        e.BCond(LS, x);
+        e.LdrW(4, 3, offsetof(Block, startPC));
+        e.Cmp(4, kTarget);
+        e.BCond(NE, x);
+        e.LdrW(4, 3, offsetof(Block, maxCycles));
+        e.AddX(5, kCycles, 4);
+        e.CmpX(5, kLimit);
+        e.BCond(HS, x);
+        e.LdrX(6, 3, offsetof(Block, linked));
+        e.Br(6);
     };
 
     // Load-use stall of the registers in `mask` (counted `times` times)
@@ -920,8 +1046,8 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         e.LdrX(0, kCtx, offsetof(Context, cycles));
         e.StrX(kCycles, 0, 0);
         e.LdrX(0, kCtx, offsetof(Context, sh2));
-        e.LdrX(8, kCtx, offsetof(Context, interpret));
-        e.Blr(8);
+        e.LdrX(7, kCtx, offsetof(Context, interpret));
+        e.Blr(7);
         e.AddX(kCycles, kCycles, 0);
         if (reload) {
             loadRegs();
@@ -1054,7 +1180,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             const uint16 op = it.in.opcode;
             const uint32 rn = Rn(op), rm = Rm(op), size = it.macSize;
             auto slow = std::unique_ptr<SlowPath>(
-                new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty, dirtyT});
+                new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty, dirtyT, maxAfter[k + 1]});
             e.Mov(5, c.R(rn)); // operand 2 address (read first)
             if (rm == rn) {
                 e.AddImm(6, c.R(rn), size);
@@ -1070,20 +1196,19 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             e.Ubfm(1, kSR, 1, 1); // SR.S
             e.Cbnz(1, slow->label);
             stall((1u << rn) | (1u << rm), 1);
-            e.LdrX(2, kCtx, offsetof(Context, wramHigh));
             macOffset(1, 5, size);
             macOffset(4, 6, size);
             if (size == 4) {
-                e.LdrWReg(3, 2, 1);
+                e.LdrWReg(3, kWram, 1);
                 e.Rev(3, 3);
-                e.LdrWReg(7, 2, 4);
+                e.LdrWReg(7, kWram, 4);
                 e.Rev(7, 7);
                 e.Smull(1, 7, 3);
             } else {
-                e.LdrhReg(3, 2, 1);
+                e.LdrhReg(3, kWram, 1);
                 e.Rev16(3, 3);
                 e.Sxth(3, 3);
-                e.LdrhReg(7, 2, 4);
+                e.LdrhReg(7, kWram, 4);
                 e.Rev16(7, 7);
                 e.Sxth(7, 7);
                 e.Mul(1, 7, 3);
@@ -1115,9 +1240,6 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             if (b == BranchKind::BT || b == BranchKind::BF) {
                 // taken: 3 cycles, PC = target, pipeline refilled; not taken: 1 cycle
                 wb = 0xFF;
-                Exit &taken = nativeExit(addr);
-                taken.nextPC = addr + 4 + dispS8;
-                taken.post = 1;
                 e.Bit0(1, kSR);
                 if (b == BranchKind::BF) {
                     e.MovImm(2, 1);
@@ -1126,10 +1248,14 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 Emitter::Label notTaken;
                 e.CbzW(1, notTaken);
                 e.AddXImm(kCycles, kCycles, 3);
-                e.B(taken.label);
+                {
+                    const bool fp = fetchPending;
+                    emitLink(addr, true, addr + 4 + dispS8, 1, false);
+                    fetchPending = fp; // the other path starts from the same state
+                }
                 e.Bind(notTaken);
                 e.AddXImm(kCycles, kCycles, 1);
-                e.B(nativeExit(addr).label);
+                emitLink(addr, true, addr + 2, 0, false);
                 continue;
             }
             if (b == BranchKind::BTS || b == BranchKind::BFS) {
@@ -1149,7 +1275,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 e.B(taken.label);
                 e.Bind(notTaken);
                 e.AddXImm(kCycles, kCycles, 1);
-                e.B(nativeExit(addr).label);
+                emitLink(addr, true, addr + 2, 0, false);
                 continue;
             }
             // Unconditional delayed branches: target in kTarget, PR for calls, 2 cycles plus the load-use checks
@@ -1187,11 +1313,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             }
             e.AddXImm(kCycles, kCycles, 2);
             wb = 0xFF;
-            // the slice may end before the slot: leave with the delay slot pending
-            Exit &x = nativeExit(addr);
-            x.delay = true;
-            e.CmpX(kCycles, kLimit);
-            e.BCond(HS, x.label);
+            // the slot is within the block's bound: the slice can't end between them
             if (k + 1 == items.size()) {
                 e.B(nativeExit(addr).label); // no slot compiled: same as stopping before it
                 exits.back()->delay = true;
@@ -1222,7 +1344,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 e.SubImm(5, 5, m.size);
             }
             auto slow = std::unique_ptr<SlowPath>(
-                new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty | it.regs, dirtyT});
+                new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty | it.regs, dirtyT, maxAfter[k + 1]});
             // previous fetch state for the call: this instruction's fetch is the interpreter's (FetchInstruction)
             // direct path: cached area (partition 000) of WRAM-H, 06000000-07FFFFFF
             e.Lsr(1, 5, 25);
@@ -1230,18 +1352,18 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             e.BCond(NE, slow->label);
             stall(m.wbRegs, m.wbTimes); // uses x0-x2: before the offset and base
             e.AndRun(1, 5, m.size == 4 ? 2 : m.size == 2 ? 1 : 0, m.size == 4 ? 18 : m.size == 2 ? 19 : 20);
-            e.LdrX(2, kCtx, offsetof(Context, wramHigh));
+            const uint32 base = kWram;
             if (!m.store) {
                 const uint32 t = c.R(m.target);
                 if (m.size == 4) {
-                    e.LdrWReg(3, 2, 1);
+                    e.LdrWReg(3, base, 1);
                     e.Rev(t, 3);
                 } else if (m.size == 2) {
-                    e.LdrhReg(3, 2, 1);
+                    e.LdrhReg(3, base, 1);
                     e.Rev16(3, 3);
                     e.Sxth(t, 3);
                 } else {
-                    e.LdrbReg(3, 2, 1);
+                    e.LdrbReg(3, base, 1);
                     e.Sxtb(t, 3);
                 }
                 if (m.postInc) {
@@ -1251,12 +1373,12 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 const uint32 v = c.R(m.value);
                 if (m.size == 4) {
                     e.Rev(3, v);
-                    e.StrWReg(3, 2, 1);
+                    e.StrWReg(3, base, 1);
                 } else if (m.size == 2) {
                     e.Rev16(3, v);
-                    e.StrhReg(3, 2, 1);
+                    e.StrhReg(3, base, 1);
                 } else {
-                    e.StrbReg(v, 2, 1);
+                    e.StrbReg(v, base, 1);
                 }
                 if (m.preDec) {
                     e.Mov(c.R(m.baseReg), 5);
@@ -1320,37 +1442,39 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 continue;
             }
             afterCallChecks(addr, x);
-            e.CmpX(kCycles, kLimit);
+            e.AddXImm(1, kCycles, maxAfter[k + 1]);
+            e.CmpX(1, kLimit);
             e.BCond(HS, x);
             continue;
         }
 
         if (it.isSlot) {
-            // end of the delay slot: PC = target, the rest of AdvancePC<.., true> in RunBlocks
-            Exit &x = nativeExit(addr);
-            x.pcFromTarget = true;
-            x.post = 2;
-            e.B(x.label);
+            // end of the delay slot: PC = target and the rest of AdvancePC<.., true>, then the next block
+            emitLink(addr, false, 0, 2, true);
             continue;
         }
         // after a native or memory instruction
-        Emitter::Label &x = nativeExit(addr).label;
         if (afterCall) {
-            // an interrupt raised by the call (allowed again now) stops the chain after this instruction
+            // an interrupt raised by the call (allowed again now) stops the chain after this instruction; and the
+            // call may have used the slice the bound counted on
+            Emitter::Label &x = nativeExit(addr).label;
             e.LdrX(0, kCtx, offsetof(Context, intr));
             e.Ldrb(1, 0, 0);
             e.Cbnz(1, x);
+            e.AddXImm(1, kCycles, maxAfter[k + 1]);
+            e.CmpX(1, kLimit);
+            e.BCond(HS, x);
         }
-        e.CmpX(kCycles, kLimit);
-        e.BCond(HS, x);
         afterCall = false;
     }
     // Falling off the end (a native or memory instruction was last, or the length limit)
     {
         const Item &last = items.back();
-        Emitter::Label &x = last.native || last.mem || last.special || last.mac ? nativeExit(last.in.pc).label
-                                                                                   : callExit(last.in.pc);
-        e.B(x);
+        if (last.native || last.mem || last.special || last.mac) {
+            emitLink(last.in.pc, true, last.in.pc + 2, 0, false);
+        } else {
+            e.B(callExit(last.in.pc));
+        }
     }
 
     // Slow paths: the memory access through the interpreter, then back (or out where the chain would stop)
@@ -1365,6 +1489,9 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         beforeCall(p.addr, true, true);
         Emitter::Label &x = callExit(p.addr);
         afterCallChecks(p.addr, x);
+        e.AddXImm(1, kCycles, p.bound);
+        e.CmpX(1, kLimit);
+        e.BCond(HS, x);
         e.B(p.resume);
     }
     // Writes to compiled code: drop it (the address is in w5), then leave after the instruction
@@ -1373,8 +1500,8 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         storeRegs();
         e.LdrX(0, kCtx, offsetof(Context, cache));
         e.Mov(1, 5);
-        e.LdrX(8, kCtx, offsetof(Context, codeWritten));
-        e.Blr(8);
+        e.LdrX(7, kCtx, offsetof(Context, codeWritten));
+        e.Blr(7);
         loadRegs();
         e.B(*hp->exit);
     }
@@ -1403,10 +1530,12 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 e.MovImm(7, x.post);
                 e.Strb(7, kCtx, offsetof(Context, post));
             }
-            if (x.pcFromTarget) {
+            if (x.slotTarget) {
                 // the interpreter keeps the last delayed branch's target (it is in the save state)
                 e.LdrX(0, kCtx, offsetof(Context, delaySlotTarget));
                 e.StrW(kTarget, 0, 0);
+            }
+            if (x.pcFromTarget) {
                 e.Mov(1, kTarget);
             } else {
                 e.MovImm(1, x.nextPC);
@@ -1466,6 +1595,8 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
     block->code = reinterpret_cast<void (*)(Context *)>(dst);
     block->startPC = pc;
     block->instrs = static_cast<uint32>(items.size());
+    block->linked = dst + linkedEntry * 4;
+    block->maxCycles = maxAfter[0];
     Block *raw = block.get();
     m_blocks.push_back(std::move(block));
     ++stats.compiled;

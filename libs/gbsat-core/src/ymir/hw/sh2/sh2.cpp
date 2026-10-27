@@ -2998,7 +2998,7 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
             /* compiled blocks (prevPC: the instruction before, to tell where blocks may start); after each,  */       \
             /* the checks the chain makes before an instruction                                               */       \
             m_intrFlags.allow = true;                                                                                  \
-            while (RunBlocks(cycles, prevPC)) {                                                                        \
+            while (PC != prevPC + 2 && RunBlocks(cycles, prevPC)) {                                                    \
                 if (m_cyclesExecuted >= cycles ||                                                                      \
                     std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {                     \
                     return;                                                                                            \
@@ -6461,7 +6461,7 @@ bool SH2::RunBlocks(uint64 cycles, uint32 &prevPC) {
     }
     // Only when the slice is long enough to run it all (the rest of the slice is interpreted): a block left at the end
     // of a slice would make the next slice start mid-block, and every such address would get a block of its own
-    if (m_cyclesExecuted + block->instrs > cycles) {
+    if (m_cyclesExecuted + block->maxCycles >= cycles) {
         ++m_jit->stats.shortSlice;
         return false;
     }
@@ -6514,6 +6514,8 @@ void SH2::UseJit(jit::Cache *cache) {
     c.PR = &PR;
     c.delaySlot = &m_delaySlot;
     c.delaySlotTarget = &m_delaySlotTarget;
+    c.slots = cache->Slots();
+    c.intcLevel = &INTC.pending.level;
     c.wramHigh = m_bus.ArrayAt(0x600'0000);
     c.codeBits = cache->CodeBits();
     c.cache = cache;

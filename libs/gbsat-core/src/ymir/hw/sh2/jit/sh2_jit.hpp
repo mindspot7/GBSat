@@ -17,6 +17,8 @@
 
 namespace ymir::sh2::jit {
 
+struct Block;
+
 // The SH-2 state a block works on (pointers into the SH2 object, set once) and the per-run values. Standard layout:
 // the generated code uses the offsets.
 struct Context {
@@ -43,6 +45,8 @@ struct Context {
     uint32 startEpoch;               // epoch when the block started
     uint32 lastPC;                   // out: last instruction run (or attempted)
     uint8 post;                      // out: 1 refill the pipeline (taken branch), 2 a delay slot ended (see RunBlocks)
+    Block *const *slots;             // the cache's block table (blocks jump to the next one directly)
+    const uint8 *intcLevel;          // INTC.pending.level (end of a delay slot)
 };
 
 // A compiled block: code(&context) runs from startPC.
@@ -50,6 +54,8 @@ struct Block {
     void (*code)(Context *ctx);
     uint32 startPC;
     uint32 instrs; // instructions it runs to the end (each takes at least one cycle)
+    void *linked;  // entry from another block: registers, SR and cycles already in host registers
+    uint32 maxCycles; // most cycles it can take without interpreter calls: it starts only when the slice has more
 };
 
 class Cache {
@@ -79,6 +85,9 @@ public:
 
     const uint32 *Epoch() const {
         return &m_epoch;
+    }
+    Block *const *Slots() const {
+        return m_slots;
     }
     const uint64 *CodeBits() const {
         return m_codeBits.data();

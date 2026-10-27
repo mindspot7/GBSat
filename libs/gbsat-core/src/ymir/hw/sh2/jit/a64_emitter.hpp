@@ -206,6 +206,12 @@ public:
     void LdpPost(uint32 rt, uint32 rt2, uint32 xn, sint32 offset) {
         Emit(0xA8C00000 | ((static_cast<uint32>(offset / 8) & 0x7F) << 15) | (rt2 << 10) | (xn << 5) | rt);
     }
+    void Br(uint32 xn) {
+        Emit(0xD61F0000 | (xn << 5));
+    }
+    void CmpXImm(uint32 xn, uint32 imm12) {
+        Emit(0xF100001F | (imm12 << 10) | (xn << 5));
+    }
     void Blr(uint32 xn) {
         Emit(0xD63F0000 | (xn << 5));
     }
