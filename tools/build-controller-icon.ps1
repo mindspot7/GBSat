@@ -48,6 +48,7 @@ foreach ($density in $densities.Keys) {
     $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $graphics.DrawImage($canvas, 0, 0, $size, $size)
     $bitmap.Save((Join-Path $res "mipmap-$density/ic_launcher.png"), [Drawing.Imaging.ImageFormat]::Png)
+    $bitmap.Save((Join-Path $res "mipmap-$density/ic_controller_transparent.png"), [Drawing.Imaging.ImageFormat]::Png)
     $graphics.Dispose(); $bitmap.Dispose()
 }
 $canvas.Dispose()

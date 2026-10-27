@@ -252,7 +252,8 @@ fun LibraryScreen(
             onContinue = { e -> gameMenu = null; actions.resume(e) },
             onOpen = { gameMenu = null; actions.fresh(g) },
             onAchievements = { gameMenu = null; achievementsFor = g.key },
-            onCover = { picker.launch(arrayOf("image/*")) }) }
+            onCover = { picker.launch(arrayOf("image/*")) },
+            onCoverApplied = { coverVersion++; gameMenu = null }) }
         if (confirmQuit) QuitDialog(onConfirm = { confirmQuit = false; onQuit() }, onCancel = { confirmQuit = false })
     }
 }
@@ -296,10 +297,11 @@ private fun Panel(modifier: Modifier = Modifier, shape: RoundedCornerShape = Rou
 private fun GameOptions(
     g: HomeGame, latest: ResumeEntry?, onDismiss: () -> Unit, onContinue: (ResumeEntry) -> Unit, onOpen: () -> Unit,
     onAchievements: () -> Unit, onCover: () -> Unit,
+    onCoverApplied: () -> Unit,
 ) {
     var coverOptions by remember(g.key) { mutableStateOf(false) }
     if (coverOptions) {
-        CoverImageOptions(g.title, onLocalSearch = onCover, onDismiss = { coverOptions = false })
+        CoverImageOptions(g.title, onLocalSearch = onCover, onDismiss = { coverOptions = false }, onApplied = onCoverApplied)
         return
     }
     AlertDialog(

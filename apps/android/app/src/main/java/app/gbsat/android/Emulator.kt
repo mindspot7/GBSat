@@ -606,6 +606,7 @@ object Emulator {
         loaded.disc?.let { openDisc = it }
         if (err == null) {
             currentGame = path; running = true; loadCheats()
+            gb.frame.LibraryView.gameOpened(path)
             applyGameOptions(path)
             // Auto load: continue from the game's most recent save state (auto, quick or a numbered slot)
             if (useAutoLoad && autoLoad) latestState(path)?.let { st -> loadState(st.slot)?.let { showToast(it) } }
