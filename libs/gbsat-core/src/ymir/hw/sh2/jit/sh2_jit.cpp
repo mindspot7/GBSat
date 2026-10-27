@@ -16,8 +16,8 @@ namespace ymir::sh2::jit {
 
 namespace {
 
-constexpr size_t kCodeSize = 8u << 20; // RWX area; flushed when full
-constexpr uint32 kMaxInstrs = 32;      // instructions per block
+constexpr size_t kCodeSize = 32u << 20; // RWX area; flushed when full
+constexpr uint32 kMaxInstrs = 64;      // instructions per block
 
 // Only plain memory holds compiled code: BIOS ROM, WRAM-L, WRAM-H (cached and cache-through areas)
 bool CompilableAddress(uint32 pc) {
@@ -165,8 +165,128 @@ uint32 UsedRegs(Uses uses, uint16 opcode) {
     }
 }
 
-// Host registers: x0 = &R[0], x1 = &SR, w2 = SR, w3/w4 temporaries, w5..w17 hold the SH-2 registers the block uses
-constexpr uint32 kSR = 2, kT0 = 3, kT1 = 4, kFirstHost = 5, kHostRegs = 13;
+// MOV.B/W/L loads and stores compiled with a direct WRAM-H path (cached area); other addresses call the interpreter.
+// Mirrors the interpreter's handlers: address, value, the registers its WritebackCycles checks (and how many times),
+// post-increment / pre-decrement, and which register a load leaves pending.
+struct MemOp {
+    uint32 size;       // 1, 2, 4
+    bool store;
+    enum Base { kRn, kRm, kRmR0, kRnR0, kRmDisp, kRnDisp, kGBR, kPC } base;
+    uint32 disp;       // added to the base (scaled)
+    uint32 target;     // load: destination register
+    uint32 value;      // store: source register
+    uint32 baseReg;    // kRn/kRm.. : the register holding the address
+    bool postInc;      // load @Rm+ (when Rn != Rm)
+    bool preDec;       // store @-Rn
+    uint32 wbRegs;     // registers checked for the load-use stall
+    uint32 wbTimes;    // 1, or 2 for MOV.W @(disp,Rm),R0
+    uint32 regs;       // every register the instruction names
+};
+
+bool DescribeMem(OpcodeType op, uint16 opcode, uint32 pc, MemOp &m) {
+    const uint32 n = Rn(opcode), mm = Rm(opcode);
+    const uint32 d4 = opcode & 15, d8 = opcode & 0xFF;
+    m = {};
+    m.wbTimes = 1;
+    auto load = [&](uint32 size, MemOp::Base base, uint32 baseReg, uint32 disp, uint32 target, uint32 wb) {
+        m.size = size;
+        m.store = false;
+        m.base = base;
+        m.baseReg = baseReg;
+        m.disp = disp;
+        m.target = target;
+        m.wbRegs = wb;
+    };
+    auto store = [&](uint32 size, MemOp::Base base, uint32 baseReg, uint32 disp, uint32 value, uint32 wb) {
+        m.size = size;
+        m.store = true;
+        m.base = base;
+        m.baseReg = baseReg;
+        m.disp = disp;
+        m.value = value;
+        m.wbRegs = wb;
+    };
+    const uint32 bN = 1u << n, bM = 1u << mm, b0 = 1u;
+    switch (op) {
+    case OpcodeType::MOVB_L: load(1, MemOp::kRm, mm, 0, n, bM); break;
+    case OpcodeType::MOVW_L: load(2, MemOp::kRm, mm, 0, n, bM); break;
+    case OpcodeType::MOVL_L: load(4, MemOp::kRm, mm, 0, n, bM); break;
+    case OpcodeType::MOVB_P: load(1, MemOp::kRm, mm, 0, n, bM); m.postInc = n != mm; break;
+    case OpcodeType::MOVW_P: load(2, MemOp::kRm, mm, 0, n, bM); m.postInc = n != mm; break;
+    case OpcodeType::MOVL_P: load(4, MemOp::kRm, mm, 0, n, bM); m.postInc = n != mm; break;
+    case OpcodeType::MOVB_L0: load(1, MemOp::kRmR0, mm, 0, n, bM | b0); break;
+    case OpcodeType::MOVW_L0: load(2, MemOp::kRmR0, mm, 0, n, bM | b0); break;
+    case OpcodeType::MOVL_L0: load(4, MemOp::kRmR0, mm, 0, n, bM | b0); break;
+    case OpcodeType::MOVB_L4: load(1, MemOp::kRmDisp, mm, d4, 0, 0); break;
+    case OpcodeType::MOVW_L4: load(2, MemOp::kRmDisp, mm, d4 << 1, 0, bM); m.wbTimes = 2; break;
+    case OpcodeType::MOVL_L4: load(4, MemOp::kRmDisp, mm, d4 << 2, n, bM); break;
+    case OpcodeType::MOVB_LG: load(1, MemOp::kGBR, 0, d8, 0, 0); break;
+    case OpcodeType::MOVW_LG: load(2, MemOp::kGBR, 0, d8 << 1, 0, 0); break;
+    case OpcodeType::MOVL_LG: load(4, MemOp::kGBR, 0, d8 << 2, 0, 0); break;
+    case OpcodeType::MOVW_I: load(2, MemOp::kPC, 0, pc + (d8 << 1) + 4, n, 0); break;
+    case OpcodeType::MOVL_I: load(4, MemOp::kPC, 0, (pc & ~3u) + (d8 << 2) + 4, n, 0); break;
+    case OpcodeType::MOVB_S: store(1, MemOp::kRn, n, 0, mm, bM | bN); break;
+    case OpcodeType::MOVW_S: store(2, MemOp::kRn, n, 0, mm, bM | bN); break;
+    case OpcodeType::MOVL_S: store(4, MemOp::kRn, n, 0, mm, bM | bN); break;
+    case OpcodeType::MOVB_M: store(1, MemOp::kRn, n, 0, mm, bM | bN); m.preDec = true; break;
+    case OpcodeType::MOVW_M: store(2, MemOp::kRn, n, 0, mm, bM | bN); m.preDec = true; break;
+    case OpcodeType::MOVL_M: store(4, MemOp::kRn, n, 0, mm, bM | bN); m.preDec = true; break;
+    case OpcodeType::MOVB_S0: store(1, MemOp::kRnR0, n, 0, mm, bN | b0); break;
+    case OpcodeType::MOVW_S0: store(2, MemOp::kRnR0, n, 0, mm, bN | b0); break;
+    case OpcodeType::MOVL_S0: store(4, MemOp::kRnR0, n, 0, mm, bN | b0); break;
+    case OpcodeType::MOVB_S4: store(1, MemOp::kRnDisp, mm, d4, 0, bM | b0); break; // nd4: Rn in bits 4-7
+    case OpcodeType::MOVW_S4: store(2, MemOp::kRnDisp, mm, d4 << 1, 0, bM | b0); break;
+    case OpcodeType::MOVL_S4: store(4, MemOp::kRnDisp, n, d4 << 2, mm, bM | bN); break;
+    case OpcodeType::MOVB_SG: store(1, MemOp::kGBR, 0, d8, 0, b0); break;
+    case OpcodeType::MOVW_SG: store(2, MemOp::kGBR, 0, d8 << 1, 0, b0); break;
+    case OpcodeType::MOVL_SG: store(4, MemOp::kGBR, 0, d8 << 2, 0, b0); break;
+    default: return false;
+    }
+    uint32 regs = 0;
+    if (m.base != MemOp::kGBR && m.base != MemOp::kPC) {
+        regs |= 1u << m.baseReg;
+    }
+    if (m.base == MemOp::kRmR0 || m.base == MemOp::kRnR0) {
+        regs |= b0;
+    }
+    if (m.store) {
+        regs |= 1u << m.value;
+    } else {
+        regs |= 1u << m.target;
+    }
+    m.regs = regs | m.wbRegs;
+    return true;
+}
+
+// Host registers: x19 = Context, x20 = cycles executed, x21 = slice end, w22 = SR, w0-w8 temporaries (w3/w4 in the
+// native instructions), the SH-2 registers the block uses in w9-w17 and w23-w28 (reloaded after every interpreter
+// call, so caller-saved ones are fine)
+constexpr uint32 kCtx = 19, kCycles = 20, kLimit = 21, kSR = 22, kT0 = 3, kT1 = 4;
+constexpr uint32 kHostList[] = {9, 10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 25, 26, 27, 28};
+constexpr uint32 kHostRegs = 15;
+
+// Instructions after which a block ends (the chain re-checks for idle loops, delay slots, exceptions)
+enum class Flow { None, Branch, DelayedBranch, CondDelayed };
+Flow FlowOf(OpcodeType op) {
+    switch (op) {
+    case OpcodeType::BF:
+    case OpcodeType::BT:
+    case OpcodeType::TRAPA:
+    case OpcodeType::SLEEP:
+    case OpcodeType::Illegal: return Flow::Branch;
+    case OpcodeType::BFS:
+    case OpcodeType::BTS: return Flow::CondDelayed;
+    case OpcodeType::BRA:
+    case OpcodeType::BRAF:
+    case OpcodeType::BSR:
+    case OpcodeType::BSRF:
+    case OpcodeType::JMP:
+    case OpcodeType::JSR:
+    case OpcodeType::RTS:
+    case OpcodeType::RTE: return Flow::DelayedBranch;
+    default: return Flow::None;
+    }
+}
 
 class Compiler {
 public:
@@ -421,6 +541,7 @@ void Cache::CodeWritten(uint32 busAddress) {
             continue;
         }
         m_codeBits[i >> 6] &= ~(1ull << (i & 63));
+        ++m_epoch; // a running block that called the interpreter for this write stops after it
         // Drop every block (or "not compilable here" entry) covering h; the Block objects stay allocated until the
         // next flush (one may be running)
         const auto it = m_pages.find(h >> 12);
@@ -455,7 +576,7 @@ void Cache::CodeWritten(uint32 busAddress) {
     }
 }
 
-const Block *Cache::Get(uint32 pc, Fetch fetch, void *ctx) {
+const Block *Cache::Get(uint32 pc, Fetch fetch, void *ctx, bool compile) {
     if (m_slots == nullptr || !CompilableAddress(pc)) {
         return nullptr;
     }
@@ -465,13 +586,16 @@ const Block *Cache::Get(uint32 pc, Fetch fetch, void *ctx) {
     }
     // A block compiled through another mirror of the same memory (cached/cache-through) may embed its own PC (MOVA)
     if (block == nullptr || block->startPC != pc) {
+        if (!compile) {
+            return nullptr;
+        }
         block = Compile(pc, fetch, ctx);
     }
     return block == kNoBlock ? nullptr : block;
 }
 
 const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
-    // lastCovered: the last halfword the block depends on (its last instruction, or the opcode pair it prefetched)
+    // lastCovered: the last halfword the block depends on (its instructions and prefetched opcode pairs)
     auto remember = [&](Block *b, uint32 lastCovered) -> Block * {
         *Slot(pc) = b;
         const Range r{pc, Normalize(pc), Normalize(lastCovered)};
@@ -485,95 +609,488 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         return remember(kNoBlock, pc);
     }
 
-    // Collect the run of supported instructions
-    std::vector<Instr> instrs;
+    // Collect the block: native (host code) or called (interpreter) instructions, up to the end of its control flow
+    struct Item {
+        Instr in;
+        bool native;   // ALU in host code
+        bool mem;      // MOV memory access: direct WRAM-H path, interpreter otherwise
+        MemOp m;
+        uint32 regs;   // registers used (native/mem); for ALU also the load-use stall check
+        bool usesT;
+        Flow flow;
+    };
+    std::vector<Item> items;
     uint32 usedRegs = 0;
-    uint32 writtenRegs = 0;
     bool usesT = false;
-    uint32 firstRegs = 0;
-    for (uint32 addr = pc; instrs.size() < kMaxInstrs; addr += 2) {
+    uint32 natives = 0;
+    for (uint32 addr = pc; items.size() < kMaxInstrs; addr += 2) {
         if (!CompilableAddress(addr) || Normalize(addr) - Normalize(pc) != addr - pc || Page(addr) > Page(pc) + 1) {
             break;
         }
         const uint16 opcode = fetch(ctx, addr);
         const OpcodeType op = DecodeTable::s_instance.opcodes[0][opcode];
+        Item item{{op, opcode, addr}, false, false, {}, 0, false, FlowOf(op)};
         Uses uses;
         bool t;
-        if (!IsSupported(op, uses, t)) {
+        if (IsSupported(op, uses, t)) {
+            item.native = true;
+            item.regs = UsedRegs(uses, opcode);
+            item.usesT = t;
+        } else if (DescribeMem(op, opcode, addr, item.m)) {
+            item.mem = true;
+            item.regs = item.m.regs;
+        }
+        if (item.native || item.mem) {
+            if (std::popcount(usedRegs | item.regs) > (int)kHostRegs) {
+                break;
+            }
+            usedRegs |= item.regs;
+            usesT |= item.usesT;
+            ++natives;
+        }
+        items.push_back(item);
+        if (item.flow == Flow::DelayedBranch) {
+            // the delay slot instruction, run by the interpreter in its delay-slot form
+            if (CompilableAddress(addr + 2) && Page(addr + 2) <= Page(pc) + 1) {
+                const uint16 slot = fetch(ctx, addr + 2);
+                items.push_back({{DecodeTable::s_instance.opcodes[1][slot], slot, addr + 2}, false, false, {}, 0, false,
+                                 Flow::Branch});
+            }
             break;
         }
-        const uint32 regs = UsedRegs(uses, opcode);
-        if (std::popcount(usedRegs | regs) > (int)kHostRegs) {
+        if (item.flow != Flow::None) {
             break;
         }
-        if (instrs.empty()) {
-            firstRegs = regs;
-        }
-        usedRegs |= regs;
-        writtenRegs |= regs; // conservative: every register an instruction names is stored back
-        usesT |= t;
-        instrs.push_back({op, opcode, addr});
     }
-    if (instrs.empty()) {
+    // A block of only interpreter calls gains nothing over the chain
+    if (natives == 0) {
         return remember(kNoBlock, pc);
     }
 
     Compiler c;
-    uint32 next = kFirstHost;
-    for (uint32 r = 0; r < 16; ++r) {
-        c.host[r] = (usedRegs >> r) & 1 ? next++ : WZR;
-    }
-    for (uint32 r = 0; r < 16; ++r) {
-        if ((usedRegs >> r) & 1) {
-            c.e.LdrW(c.host[r], 0, r * 4);
+    Emitter &e = c.e;
+    {
+        uint32 next = 0;
+        for (uint32 r = 0; r < 16; ++r) {
+            c.host[r] = (usedRegs >> r) & 1 ? kHostList[next++] : WZR;
         }
     }
-    if (usesT) {
-        c.e.LdrW(kSR, 1, 0);
-    }
-    for (const Instr &in : instrs) {
-        c.Emit(in);
-    }
-    for (uint32 r = 0; r < 16; ++r) {
-        if ((writtenRegs >> r) & 1) {
-            c.e.StrW(c.host[r], 0, r * 4);
+    auto loadRegs = [&] {
+        e.LdrX(0, kCtx, offsetof(Context, R));
+        for (uint32 r = 0; r < 16; ++r) {
+            if ((usedRegs >> r) & 1) {
+                e.LdrW(c.host[r], 0, r * 4);
+            }
         }
-    }
-    if (usesT) {
-        c.e.StrW(kSR, 1, 0);
-    }
-    c.e.Ret();
+        if (usesT) {
+            e.LdrX(0, kCtx, offsetof(Context, SR));
+            e.LdrW(kSR, 0, 0);
+        }
+    };
+    // Registers changed in host code since the SH2 object was last updated (stored before interpreter calls)
+    uint32 dirty = 0;
+    bool dirtyT = false;
+    auto storeRegsMask = [&](uint32 mask, bool t) {
+        if (mask != 0) {
+            e.LdrX(0, kCtx, offsetof(Context, R));
+            for (uint32 r = 0; r < 16; ++r) {
+                if ((mask >> r) & 1) {
+                    e.StrW(c.host[r], 0, r * 4);
+                }
+            }
+        }
+        if (t) {
+            e.LdrX(0, kCtx, offsetof(Context, SR));
+            e.StrW(kSR, 0, 0);
+        }
+    };
+    auto storeRegs = [&] { storeRegsMask(usedRegs, usesT); };
+    auto storeConst32 = [&](size_t ptrField, uint32 value) {
+        e.MovImm(1, value);
+        e.LdrX(0, kCtx, ptrField);
+        e.StrW(1, 0, 0);
+    };
+    auto storeWb = [&](uint32 value) {
+        e.MovImm(1, value);
+        e.LdrX(0, kCtx, offsetof(Context, wbReg));
+        e.Strb(1, 0, 0);
+    };
 
-    const size_t bytes = c.e.code.size() * 4;
+    // Prologue: save x19-x30, load the state
+    e.StpPre(29, 30, 31, -96);
+    e.Stp(19, 20, 31, 16);
+    e.Stp(21, 22, 31, 32);
+    e.Stp(23, 24, 31, 48);
+    e.Stp(25, 26, 31, 64);
+    e.Stp(27, 28, 31, 80);
+    e.MovX(kCtx, 0);
+    e.LdrX(0, kCtx, offsetof(Context, cycles));
+    e.LdrX(kCycles, 0, 0);
+    e.LdrX(kLimit, kCtx, offsetof(Context, limit));
+    loadRegs();
+
+    // Compile-time state that the SH2 object only gets at calls and exits
+    constexpr sint32 kWbUnknown = -1;    // m_wbReg: in the SH2 object (after a call or at the start)
+    sint32 wb = kWbUnknown;              // otherwise the value it has now (0xFF: none)
+    bool afterCall = false;              // the previous instruction was an interpreter call
+    bool fetchPending = false;           // the pipeline holds this prefetched pair (not stored yet)
+    uint32 fetchValue = 0;
+    uint32 lastCovered = pc;
+    uint32 calls = 0;
+
+    // Exits. A native exit stores the host state; a call exit only the cycles (the interpreter keeps the rest in the
+    // SH2 object). Both record the last instruction run and return through the common epilogue.
+    struct Exit {
+        Emitter::Label label;
+        bool native;
+        uint32 lastPC, nextPC;
+        bool storeFetch;
+        uint32 fetched;
+        sint32 wb;
+    };
+    std::vector<std::unique_ptr<Exit>> exits;
+    auto nativeExit = [&](uint32 lastPC) -> Emitter::Label & {
+        exits.push_back(std::unique_ptr<Exit>(new Exit{{}, true, lastPC, lastPC + 2, fetchPending, fetchValue, wb}));
+        return exits.back()->label;
+    };
+    auto callExit = [&](uint32 lastPC) -> Emitter::Label & {
+        exits.push_back(std::unique_ptr<Exit>(new Exit{{}, false, lastPC, 0, false, 0, kWbUnknown}));
+        return exits.back()->label;
+    };
+    // Out-of-line interpreter calls for memory accesses outside the direct path (emitted after the exits)
+    struct SlowPath {
+        Emitter::Label label, resume;
+        uint32 addr;
+        bool fetchPending;
+        uint32 fetchValue;
+        sint32 wb;
+        uint32 dirty; // registers to store (w5 holds a computed address; the base register may be pre-decremented)
+        bool dirtyT;
+    };
+    std::vector<std::unique_ptr<SlowPath>> slowPaths;
+    struct HitPath {
+        Emitter::Label label;
+        Emitter::Label *exit;
+    };
+    std::vector<std::unique_ptr<HitPath>> hitPaths;
+
+    // Load-use stall of the registers in `mask` (counted `times` times)
+    auto stall = [&](uint32 mask, uint32 times) {
+        if (mask == 0) {
+            return;
+        }
+        if (wb == kWbUnknown) {
+            e.LdrX(0, kCtx, offsetof(Context, wbReg));
+            e.Ldrb(1, 0, 0);
+            e.MovImm(2, mask);
+            e.Lsrv(2, 2, 1);
+            e.And1(2, 2);
+            if (times == 2) {
+                e.Lsl(2, 2, 1);
+            }
+            e.AddX(kCycles, kCycles, 2);
+        } else if (wb < 16 && ((mask >> wb) & 1)) {
+            e.AddXImm(kCycles, kCycles, times);
+        }
+    };
+    // Everything an interpreter call needs in the SH2 object
+    auto beforeCall = [&](uint32 addr, bool setPC, bool reload) {
+        storeRegsMask(dirty, dirtyT);
+        if (fetchPending) {
+            storeConst32(offsetof(Context, fetched), fetchValue);
+        }
+        if (wb != kWbUnknown) {
+            storeWb(static_cast<uint32>(wb));
+        }
+        if (setPC) {
+            storeConst32(offsetof(Context, PC), addr);
+        }
+        e.LdrX(0, kCtx, offsetof(Context, cycles));
+        e.StrX(kCycles, 0, 0);
+        e.LdrX(0, kCtx, offsetof(Context, sh2));
+        e.LdrX(8, kCtx, offsetof(Context, interpret));
+        e.Blr(8);
+        e.AddX(kCycles, kCycles, 0);
+        if (reload) {
+            loadRegs();
+        }
+        dirty = 0;
+        dirtyT = false;
+    };
+    // After a call that may have accessed memory: stop where the chain would
+    auto afterCallChecks = [&](uint32 addr, Emitter::Label &x) {
+        // bus wait: the instruction didn't run and will be retried
+        e.LdrX(0, kCtx, offsetof(Context, PC));
+        e.LdrW(1, 0, 0);
+        e.MovImm(2, addr + 2);
+        e.Cmp(1, 2);
+        e.BCond(NE, x);
+        // an interrupt due now (pending and allowed)
+        e.LdrX(0, kCtx, offsetof(Context, intr));
+        e.Ldrh(1, 0, 0);
+        e.MovImm(2, 0x0101);
+        e.Cmp(1, 2);
+        e.BCond(EQ, x);
+        // a write that dropped compiled code (possibly this block's)
+        e.LdrX(0, kCtx, offsetof(Context, epoch));
+        e.LdrW(1, 0, 0);
+        e.LdrW(2, kCtx, offsetof(Context, startEpoch));
+        e.Cmp(1, 2);
+        e.BCond(NE, x);
+    };
+
+    for (size_t k = 0; k < items.size(); ++k) {
+        const Item &it = items[k];
+        const uint32 addr = it.in.pc;
+        lastCovered = std::max(lastCovered, addr);
+        if (it.native || it.mem) {
+            if (afterCall) {
+                // the chain allows interrupts again before every instruction
+                e.LdrX(0, kCtx, offsetof(Context, intr));
+                e.MovImm(1, 1);
+                e.Strb(1, 0, 1);
+            }
+            if ((addr & 2) == 0) {
+                fetchPending = true;
+                fetchValue = (static_cast<uint32>(fetch(ctx, addr)) << 16) | fetch(ctx, addr + 2);
+                lastCovered = std::max(lastCovered, addr + 2);
+            }
+        }
+
+        if (it.native) {
+            stall(it.regs, 1);
+            c.Emit(it.in);
+            e.AddXImm(kCycles, kCycles, 1);
+            wb = 0xFF;
+            dirty |= it.regs;
+            dirtyT |= it.usesT;
+        } else if (it.mem) {
+            const MemOp &m = it.m;
+            const uint32 rb = m.base == MemOp::kGBR || m.base == MemOp::kPC ? WZR : c.R(m.baseReg);
+            // address -> w5 (kept for the code-write check)
+            switch (m.base) {
+            case MemOp::kRm:
+            case MemOp::kRn: e.Mov(5, rb); break;
+            case MemOp::kRmR0:
+            case MemOp::kRnR0: e.Add(5, rb, c.R(0)); break;
+            case MemOp::kRmDisp:
+            case MemOp::kRnDisp: e.AddImm(5, rb, m.disp); break;
+            case MemOp::kGBR:
+                e.LdrX(0, kCtx, offsetof(Context, GBR));
+                e.LdrW(5, 0, 0);
+                e.AddImm(5, 5, m.disp);
+                break;
+            case MemOp::kPC: e.MovImm(5, m.disp); break;
+            }
+            if (m.preDec) {
+                e.SubImm(5, 5, m.size);
+            }
+            auto slow = std::unique_ptr<SlowPath>(
+                new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty | it.regs, dirtyT});
+            // previous fetch state for the call: this instruction's fetch is the interpreter's (FetchInstruction)
+            // direct path: cached area (partition 000) of WRAM-H, 06000000-07FFFFFF
+            e.Lsr(1, 5, 25);
+            e.CmpImm(1, 3);
+            e.BCond(NE, slow->label);
+            stall(m.wbRegs, m.wbTimes); // uses x0-x2: before the offset and base
+            e.AndRun(1, 5, m.size == 4 ? 2 : m.size == 2 ? 1 : 0, m.size == 4 ? 18 : m.size == 2 ? 19 : 20);
+            e.LdrX(2, kCtx, offsetof(Context, wramHigh));
+            if (!m.store) {
+                const uint32 t = c.R(m.target);
+                if (m.size == 4) {
+                    e.LdrWReg(3, 2, 1);
+                    e.Rev(t, 3);
+                } else if (m.size == 2) {
+                    e.LdrhReg(3, 2, 1);
+                    e.Rev16(3, 3);
+                    e.Sxth(t, 3);
+                } else {
+                    e.LdrbReg(3, 2, 1);
+                    e.Sxtb(t, 3);
+                }
+                if (m.postInc) {
+                    e.AddImm(c.R(m.baseReg), c.R(m.baseReg), m.size);
+                }
+            } else {
+                const uint32 v = c.R(m.value);
+                if (m.size == 4) {
+                    e.Rev(3, v);
+                    e.StrWReg(3, 2, 1);
+                } else if (m.size == 2) {
+                    e.Rev16(3, v);
+                    e.StrhReg(3, 2, 1);
+                } else {
+                    e.StrbReg(v, 2, 1);
+                }
+                if (m.preDec) {
+                    e.Mov(c.R(m.baseReg), 5);
+                }
+            }
+            e.AddXImm(kCycles, kCycles, 1);
+            const sint32 wbAfter = m.store ? 0xFF : static_cast<sint32>(m.target);
+            wb = wbAfter;
+            dirty |= it.regs;
+            if (m.store) {
+                // compiled code written? (code bitmap bits of the written halfwords; WRAM-H starts at bit 0x80000)
+                auto hit = std::make_unique<HitPath>();
+                e.Lsr(4, 1, 1);                  // halfword index in WRAM-H
+                e.LdrX(6, kCtx, offsetof(Context, codeBits));
+                e.AddXImmLsl12(6, 6, 0x10);      // + 0x80000 bits = 0x10000 bytes
+                e.Lsr(7, 4, 6);
+                e.LdrXRegScaled(7, 6, 7);
+                e.LsrvX(7, 7, 4);
+                e.AndXLow(7, 7, m.size == 4 ? 2 : 1);
+                e.CbnzX(7, hit->label);
+                hit->exit = &nativeExit(addr);
+                hitPaths.push_back(std::move(hit));
+            }
+            e.Bind(slow->resume);
+            slowPaths.push_back(std::move(slow));
+        } else {
+            // Interpreter call: state into the SH2 object, PC at this instruction (the delay slot's PC is already there)
+            ++calls;
+            ++stats.calledOps[static_cast<uint16>(it.in.op) & 511];
+            const bool slot = k > 0 && items[k - 1].flow == Flow::DelayedBranch;
+            const bool ends = it.flow == Flow::Branch || it.flow == Flow::CondDelayed || slot || k + 1 == items.size();
+            beforeCall(addr, !slot, !ends);
+            fetchPending = false;
+            wb = kWbUnknown;
+            afterCall = true;
+            Emitter::Label &x = callExit(addr);
+            if (ends) {
+                e.B(x); // end of the block's control flow
+                continue;
+            }
+            if (it.flow == Flow::DelayedBranch) {
+                // the delay slot follows: no interrupt can be pending (SetupDelaySlot) and no memory was written
+                e.LdrX(0, kCtx, offsetof(Context, PC));
+                e.LdrW(1, 0, 0);
+                e.MovImm(2, addr + 2);
+                e.Cmp(1, 2);
+                e.BCond(NE, x);
+                e.CmpX(kCycles, kLimit);
+                e.BCond(HS, x);
+                continue;
+            }
+            afterCallChecks(addr, x);
+            e.CmpX(kCycles, kLimit);
+            e.BCond(HS, x);
+            continue;
+        }
+
+        // after a native or memory instruction
+        Emitter::Label &x = nativeExit(addr);
+        if (afterCall) {
+            // an interrupt raised by the call (allowed again now) stops the chain after this instruction
+            e.LdrX(0, kCtx, offsetof(Context, intr));
+            e.Ldrb(1, 0, 0);
+            e.Cbnz(1, x);
+        }
+        e.CmpX(kCycles, kLimit);
+        e.BCond(HS, x);
+        afterCall = false;
+    }
+    // Falling off the end (a native or memory instruction was last, or the length limit)
+    {
+        const Item &last = items.back();
+        Emitter::Label &x = last.native || last.mem ? nativeExit(last.in.pc) : callExit(last.in.pc);
+        e.B(x);
+    }
+
+    // Slow paths: the memory access through the interpreter, then back (or out where the chain would stop)
+    for (auto &sp : slowPaths) {
+        SlowPath &p = *sp;
+        e.Bind(p.label);
+        fetchPending = p.fetchPending;
+        fetchValue = p.fetchValue;
+        wb = p.wb;
+        dirty = p.dirty;
+        dirtyT = p.dirtyT;
+        beforeCall(p.addr, true, true);
+        Emitter::Label &x = callExit(p.addr);
+        afterCallChecks(p.addr, x);
+        e.B(p.resume);
+    }
+    // Writes to compiled code: drop it (the address is in w5), then leave after the instruction
+    for (auto &hp : hitPaths) {
+        e.Bind(hp->label);
+        storeRegs();
+        e.LdrX(0, kCtx, offsetof(Context, cache));
+        e.Mov(1, 5);
+        e.LdrX(8, kCtx, offsetof(Context, codeWritten));
+        e.Blr(8);
+        loadRegs();
+        e.B(*hp->exit);
+    }
+
+    // Native exits: w1 = next PC, w2 = last PC, w3 = fetched pair, w4 = 1 to store it, w6 = m_wbReg (0x100: keep)
+    Emitter::Label epilogue, nativeTail;
+    for (auto &xp : exits) {
+        Exit &x = *xp;
+        e.Bind(x.label);
+        if (x.native) {
+            e.MovImm(1, x.nextPC);
+            e.MovImm(2, x.lastPC);
+            e.MovImm(4, x.storeFetch ? 1 : 0);
+            if (x.storeFetch) {
+                e.MovImm(3, x.fetched);
+            }
+            e.MovImm(6, x.wb == kWbUnknown ? 0x100 : static_cast<uint32>(x.wb));
+            e.B(nativeTail);
+        } else {
+            e.MovImm(1, x.lastPC);
+            e.StrW(1, kCtx, offsetof(Context, lastPC));
+            e.B(epilogue);
+        }
+    }
+    e.Bind(nativeTail);
+    e.StrW(2, kCtx, offsetof(Context, lastPC));
+    e.LdrX(0, kCtx, offsetof(Context, PC));
+    e.StrW(1, 0, 0);
+    {
+        Emitter::Label noFetch, keepWb;
+        e.CmpImm(4, 0);
+        e.BCond(EQ, noFetch);
+        e.LdrX(0, kCtx, offsetof(Context, fetched));
+        e.StrW(3, 0, 0);
+        e.Bind(noFetch);
+        e.Lsr(7, 6, 8);
+        e.Cbnz(7, keepWb);
+        e.LdrX(0, kCtx, offsetof(Context, wbReg));
+        e.Strb(6, 0, 0);
+        e.Bind(keepWb);
+    }
+    storeRegs();
+    e.Bind(epilogue);
+    e.LdrX(0, kCtx, offsetof(Context, cycles));
+    e.StrX(kCycles, 0, 0);
+    e.Ldp(19, 20, 31, 16);
+    e.Ldp(21, 22, 31, 32);
+    e.Ldp(23, 24, 31, 48);
+    e.Ldp(25, 26, 31, 64);
+    e.Ldp(27, 28, 31, 80);
+    e.LdpPost(29, 30, 31, 96);
+    e.Ret();
+
+    const size_t bytes = e.code.size() * 4;
     if (m_codeUsed + bytes > m_codeSize) {
         Flush();
     }
     uint8 *dst = m_code + m_codeUsed;
-    std::memcpy(dst, c.e.code.data(), bytes);
+    std::memcpy(dst, e.code.data(), bytes);
     __builtin___clear_cache(reinterpret_cast<char *>(dst), reinterpret_cast<char *>(dst + bytes));
     m_codeUsed += (bytes + 15) & ~size_t{15};
 
     auto block = std::make_unique<Block>();
-    block->code = reinterpret_cast<void (*)(uint32 *, uint32 *)>(dst);
+    block->code = reinterpret_cast<void (*)(Context *)>(dst);
     block->startPC = pc;
-    block->lastPC = instrs.back().pc;
-    block->count = static_cast<uint32>(instrs.size());
-    block->firstRegs = firstRegs;
-    block->setsFetch = false;
-    uint32 lastCovered = block->lastPC;
-    for (const Instr &in : instrs) {
-        if ((in.pc & 2) == 0) {
-            block->setsFetch = true;
-            block->fetched = (static_cast<uint32>(fetch(ctx, in.pc)) << 16) | fetch(ctx, in.pc + 2);
-            lastCovered = std::max(lastCovered, in.pc + 2);
-        }
-    }
-    block->pageFirst = Page(pc);
-    block->pageLast = Page(block->lastPC);
+    block->instrs = static_cast<uint32>(items.size());
     Block *raw = block.get();
     m_blocks.push_back(std::move(block));
     ++stats.compiled;
-    return remember(raw, lastCovered);
+    stats.nativeInstrs += natives;
+    stats.calledInstrs += calls;
+    return remember(raw, std::max(lastCovered, items.back().in.pc));
 }
 
 #else // no JIT on this platform
@@ -585,7 +1102,7 @@ Cache::Cache() = default;
 Cache::~Cache() = default;
 void Cache::Flush() {}
 void Cache::CodeWritten(uint32) {}
-const Block *Cache::Get(uint32, Fetch, void *) {
+const Block *Cache::Get(uint32, Fetch, void *, bool) {
     return nullptr;
 }
 const Block *Cache::Compile(uint32, Fetch, void *) {

@@ -5,6 +5,8 @@
 
 #include <ymir/core/types.hpp>
 
+#include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace ymir::sh2::jit::a64 {
@@ -20,6 +22,10 @@ public:
 
     void Emit(uint32 insn) {
         code.push_back(insn);
+        if (m_backPatch != nullptr) {
+            Patch(*m_backPatch, code.size() - 1);
+            m_backPatch = nullptr;
+        }
     }
 
     // Loads and stores (32-bit, unsigned offset scaled by 4)
@@ -157,6 +163,149 @@ public:
 
     void Ret() {
         Emit(0xD65F03C0);
+    }
+
+    // 64-bit (X register) helpers
+    void LdrX(uint32 rt, uint32 xn, uint32 offset) {
+        Emit(0xF9400000 | ((offset / 8) << 10) | (xn << 5) | rt);
+    }
+    void StrX(uint32 rt, uint32 xn, uint32 offset) {
+        Emit(0xF9000000 | ((offset / 8) << 10) | (xn << 5) | rt);
+    }
+    void Ldrb(uint32 rt, uint32 xn, uint32 offset) {
+        Emit(0x39400000 | (offset << 10) | (xn << 5) | rt);
+    }
+    void Strb(uint32 rt, uint32 xn, uint32 offset) {
+        Emit(0x39000000 | (offset << 10) | (xn << 5) | rt);
+    }
+    void Ldrh(uint32 rt, uint32 xn, uint32 offset) {
+        Emit(0x79400000 | ((offset / 2) << 10) | (xn << 5) | rt);
+    }
+    void MovX(uint32 rd, uint32 rm) {
+        Emit(0xAA0003E0 | (rm << 16) | rd);
+    }
+    void AddX(uint32 rd, uint32 rn, uint32 rm) {
+        Emit(0x8B000000 | (rm << 16) | (rn << 5) | rd);
+    }
+    void AddXImm(uint32 rd, uint32 rn, uint32 imm12) {
+        Emit(0x91000000 | (imm12 << 10) | (rn << 5) | rd);
+    }
+    void CmpX(uint32 rn, uint32 rm) {
+        Emit(0xEB00001F | (rm << 16) | (rn << 5));
+    }
+    // Register pairs: stp/ldp with a signed offset (multiple of 8), pre-indexed store / post-indexed load
+    void StpPre(uint32 rt, uint32 rt2, uint32 xn, sint32 offset) {
+        Emit(0xA9800000 | ((static_cast<uint32>(offset / 8) & 0x7F) << 15) | (rt2 << 10) | (xn << 5) | rt);
+    }
+    void Stp(uint32 rt, uint32 rt2, uint32 xn, sint32 offset) {
+        Emit(0xA9000000 | ((static_cast<uint32>(offset / 8) & 0x7F) << 15) | (rt2 << 10) | (xn << 5) | rt);
+    }
+    void Ldp(uint32 rt, uint32 rt2, uint32 xn, sint32 offset) {
+        Emit(0xA9400000 | ((static_cast<uint32>(offset / 8) & 0x7F) << 15) | (rt2 << 10) | (xn << 5) | rt);
+    }
+    void LdpPost(uint32 rt, uint32 rt2, uint32 xn, sint32 offset) {
+        Emit(0xA8C00000 | ((static_cast<uint32>(offset / 8) & 0x7F) << 15) | (rt2 << 10) | (xn << 5) | rt);
+    }
+    void Blr(uint32 xn) {
+        Emit(0xD63F0000 | (xn << 5));
+    }
+    void Lsrv(uint32 rd, uint32 rn, uint32 rm) {
+        Emit(0x1AC02400 | (rm << 16) | (rn << 5) | rd);
+    }
+    void And1(uint32 rd, uint32 rn) {
+        Emit(0x12000000 | (rn << 5) | rd); // and wd, wn, #1
+    }
+
+    // Register-offset loads and stores: [xn + xm]
+    void LdrWReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0xB8606800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void LdrhReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0x78606800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void LdrbReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0x38606800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void StrWReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0xB8206800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void StrhReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0x78206800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void StrbReg(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0x38206800 | (xm << 16) | (xn << 5) | rt);
+    }
+    // [xn + xm * 8]
+    void LdrXRegScaled(uint32 rt, uint32 xn, uint32 xm) {
+        Emit(0xF8607800 | (xm << 16) | (xn << 5) | rt);
+    }
+    void Rev(uint32 rd, uint32 rn) {
+        Emit(0x5AC00800 | (rn << 5) | rd);
+    }
+    // wd = wn & (len ones from bit lsb)
+    void AndRun(uint32 rd, uint32 rn, uint32 lsb, uint32 len) {
+        Emit(0x12000000 | (((32 - lsb) & 31) << 16) | ((len - 1) << 10) | (rn << 5) | rd);
+    }
+    void LsrvX(uint32 rd, uint32 rn, uint32 rm) {
+        Emit(0x9AC02400 | (rm << 16) | (rn << 5) | rd);
+    }
+    // xd = xn & ((1 << len) - 1), len 1..63
+    void AndXLow(uint32 rd, uint32 rn, uint32 len) {
+        Emit(0x92400000 | ((len - 1) << 10) | (rn << 5) | rd);
+    }
+    void AddXImmLsl12(uint32 rd, uint32 rn, uint32 imm12) {
+        Emit(0x91400000 | (imm12 << 10) | (rn << 5) | rd);
+    }
+    // Branches to labels (patched when the label is placed)
+    struct Label {
+        size_t pos = SIZE_MAX;
+        std::vector<std::pair<size_t, bool>> uses; // instruction index, conditional
+    };
+    void BCond(Cond c, Label &l) {
+        Use(l, true);
+        Emit(0x54000000 | c);
+    }
+    void B(Label &l) {
+        Use(l, false);
+        Emit(0x14000000);
+    }
+    void Cbnz(uint32 rt, Label &l) {
+        Use(l, true);
+        Emit(0x35000000 | rt);
+    }
+    void CbnzX(uint32 rt, Label &l) {
+        Use(l, true);
+        Emit(0xB5000000 | rt);
+    }
+    // The branch about to be emitted targets l: patched at Bind, or right after emission when l is already placed
+    void Use(Label &l, bool cond) {
+        l.uses.push_back({code.size(), cond});
+        if (l.pos != SIZE_MAX) {
+            m_backPatch = &l;
+        }
+    }
+    void Bind(Label &l) {
+        l.pos = code.size();
+        for (const auto &[at, cond] : l.uses) {
+            Patch(l, at);
+        }
+    }
+
+private:
+    struct Label *m_backPatch = nullptr;
+    void Patch(Label &l, size_t at) {
+        bool cond = true;
+        for (const auto &u : l.uses) {
+            if (u.first == at) {
+                cond = u.second;
+            }
+        }
+        const sint32 off = static_cast<sint32>(l.pos) - static_cast<sint32>(at);
+        if (cond) {
+            code[at] |= (static_cast<uint32>(off) & 0x7FFFF) << 5;
+        } else {
+            code[at] |= static_cast<uint32>(off) & 0x3FFFFFF;
+        }
     }
 };
 

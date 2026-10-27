@@ -161,6 +161,11 @@ public:
         }
     }
 
+    /// @brief The array mapped at @p address (start of its page), or nullptr if the page isn't array-mapped.
+    uint8 *ArrayAt(uint32 address) const {
+        return m_pages[(address & kAddressMask) >> pageGranularityBits].array;
+    }
+
     /// @brief Reports every write to the array-mapped pages in the range to @p fn (the SH-2 JIT drops the code it
     /// compiled from there). Pass nullptr to stop.
     void SetCodeWatch(uint32 start, uint32 end, FnCodeWrite fn, void *ctx) {

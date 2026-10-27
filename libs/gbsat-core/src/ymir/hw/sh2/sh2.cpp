@@ -330,6 +330,8 @@ SH2::SH2(sys::SH2Bus &bus, bool master)
     Reset(true);
 }
 
+SH2::~SH2() = default;
+
 void SH2::Reset(bool hard, bool watchdogInitiated) {
     // Initial values:
     // - R0-R14 = undefined
@@ -2992,17 +2994,24 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
         if (PC < prevPC && prevPC - PC <= kIdleLoopSpan && !loopBack()) [[unlikely]] {                                 \
             return;                                                                                                    \
         }                                                                                                             \
-        prevPC = PC;                                                                                                   \
-        m_intrFlags.allow = true;                                                                                      \
         if constexpr (jit) {                                                                                           \
-            if (RunBlocks(cycles)) {                                                                                   \
-                if (m_cyclesExecuted >= cycles) {                                                                      \
+            /* compiled blocks (prevPC: the instruction before, to tell where blocks may start); after each,  */       \
+            /* the checks the chain makes before an instruction                                               */       \
+            m_intrFlags.allow = true;                                                                                  \
+            while (RunBlocks(cycles, prevPC)) {                                                                        \
+                if (m_cyclesExecuted >= cycles ||                                                                      \
+                    std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {                     \
                     return;                                                                                            \
                 }                                                                                                      \
-                prevPC = PC;                                                                                           \
+                if (PC < prevPC && prevPC - PC <= kIdleLoopSpan && !loopBack()) [[unlikely]] {                         \
+                    return;                                                                                            \
+                }                                                                                                      \
+                m_intrFlags.allow = true;                                                                              \
             }                                                                                                          \
             ++m_jit->stats.interpreted;                                                                                \
         }                                                                                                              \
+        prevPC = PC;                                                                                                   \
+        m_intrFlags.allow = true;                                                                                      \
         instr = FetchInstruction<emulateCache>(PC);                                                                    \
         goto *kOps[static_cast<uint16>(DecodeTable::s_instance.opcodes[m_delaySlot][instr])];                          \
     } while (false)
@@ -6434,36 +6443,65 @@ uint16 SH2::JitFetch(void *ctx, uint32 address) {
     return static_cast<SH2 *>(ctx)->PeekInstruction<false>(address);
 }
 
-// Called by RunChained<.., true> where it would fetch the next instruction: runs the compiled blocks starting there,
-// with the chain's results. A block only runs when the chain would run all of its instructions in this slice (no
-// delay slot or interrupt pending, the slice doesn't end before its last instruction); they take 1 cycle each, plus
-// the load-use stall of the first one, and leave no pending load (m_wbReg). Returns whether any block ran.
-bool SH2::RunBlocks(uint64 cycles) {
-    bool ran = false;
-    while (!m_delaySlot && !m_intrFlags.pending) {
-        const jit::Block *block = m_jit->Get(PC, &JitFetch, this);
-        if (block == nullptr) {
-            break;
-        }
-        const uint64 stall = m_wbReg < 16 && ((block->firstRegs >> m_wbReg) & 1) ? 1 : 0;
-        if (m_cyclesExecuted + stall + block->count - 1 >= cycles) {
-            break;
-        }
-        block->code(R.data(), &SR.u32);
-        PC = block->lastPC + 2;
-        m_cyclesExecuted += block->count + stall;
-        m_wbReg = kWBRegNone;
-        if (block->setsFetch) {
-            m_fetchedOpcodes = block->fetched;
-        }
-        ++m_jit->stats.blocksRun;
-        m_jit->stats.instrsRun += block->count;
-        ran = true;
-        if (m_cyclesExecuted >= cycles) {
-            break;
-        }
+// Called by RunChained<.., true> where it would fetch the next instruction: runs the compiled block starting there
+// (see jit/sh2_jit.hpp), which leaves the SH-2 exactly as the chain would at the point it stops. prevPC gets the last
+// instruction it ran. No block runs in a delay slot or with an interrupt pending (the chain would stop after one
+// instruction). Returns whether a block ran.
+bool SH2::RunBlocks(uint64 cycles, uint32 &prevPC) {
+    if (m_delaySlot || m_intrFlags.pending) {
+        return false;
     }
-    return ran;
+    // Blocks are compiled where execution enters code: a jump target, the start of a slice (prevPC is then PC). Not
+    // where it just went on (the instructions interpreted at the end of a slice, after a block left early): an existing
+    // block runs there, but none is compiled, or every address would get one.
+    const bool entry = PC != prevPC + 2 && PC != prevPC; // prevPC == PC: a slice starting wherever the last one ended
+    const jit::Block *block = m_jit->Get(PC, &JitFetch, this, entry);
+    if (block == nullptr) {
+        return false;
+    }
+    // Only when the slice is long enough to run it all (the rest of the slice is interpreted): a block left at the end
+    // of a slice would make the next slice start mid-block, and every such address would get a block of its own
+    if (m_cyclesExecuted + block->instrs > cycles) {
+        ++m_jit->stats.shortSlice;
+        return false;
+    }
+    m_jitCtx->limit = cycles;
+    m_jitCtx->startEpoch = *m_jitCtx->epoch;
+    block->code(m_jitCtx.get());
+    prevPC = m_jitCtx->lastPC;
+    ++m_jit->stats.blocksRun;
+    return true;
+}
+
+uint64 SH2::JitInterpret(void *ctx) {
+    return static_cast<SH2 *>(ctx)->InterpretNext<false, false>();
+}
+
+void SH2::UseJit(jit::Cache *cache) {
+    m_jit = cache;
+    if (cache == nullptr) {
+        m_jitCtx.reset();
+        return;
+    }
+    if (!m_jitCtx) {
+        m_jitCtx = std::make_unique<jit::Context>();
+    }
+    jit::Context &c = *m_jitCtx;
+    c.R = R.data();
+    c.SR = &SR.u32;
+    c.PC = &PC;
+    c.wbReg = &m_wbReg;
+    c.intr = reinterpret_cast<uint8 *>(&m_intrFlags);
+    c.fetched = &m_fetchedOpcodes;
+    c.cycles = &m_cyclesExecuted;
+    c.sh2 = this;
+    c.interpret = &JitInterpret;
+    c.epoch = cache->Epoch();
+    c.GBR = &GBR;
+    c.wramHigh = m_bus.ArrayAt(0x600'0000);
+    c.codeBits = cache->CodeBits();
+    c.cache = cache;
+    c.codeWritten = &jit::Cache::CodeWrittenThunk;
 }
 
 } // namespace ymir::sh2

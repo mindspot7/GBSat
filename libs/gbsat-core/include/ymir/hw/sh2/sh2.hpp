@@ -35,6 +35,7 @@
 #include <ymir/util/virtual_memory.hpp>
 
 #include <array>
+#include <memory>
 #include <bitset>
 #include <iosfwd>
 #include <map>
@@ -44,6 +45,7 @@ namespace ymir::sh2 {
 
 namespace jit {
     class Cache;
+    struct Context;
 } // namespace jit
 
 // -----------------------------------------------------------------------------
@@ -51,6 +53,7 @@ namespace jit {
 class SH2 {
 public:
     SH2(sys::SH2Bus &bus, bool master);
+    ~SH2();
 
     void Reset(bool hard, bool watchdogInitiated = false);
 
@@ -108,9 +111,7 @@ public:
     /// @brief SH-2 JIT (docs/SH2_JIT.md): runs compiled blocks of code with the interpreter's exact results. nullptr
     /// interprets everything. The cache is shared by both SH-2s and owned by the caller. Not used with SH-2 cache
     /// emulation or in debug slices.
-    void UseJit(jit::Cache *cache) {
-        m_jit = cache;
-    }
+    void UseJit(jit::Cache *cache);
 
     /// @brief Idle-loop skipping: when the CPU spins in a tight loop that only reads memory and tests the value (polling
     /// a flag set by the other CPU, an interrupt handler or a device), it jumps to the end of its time slice instead of
@@ -848,8 +849,10 @@ private:
     // SH-2 JIT (see UseJit): RunChained<.., true> runs the compiled blocks at PC (RunBlocks) where the chain would run
     // their instructions
     jit::Cache *m_jit = nullptr;
-    bool RunBlocks(uint64 cycles);
+    std::unique_ptr<jit::Context> m_jitCtx;
+    bool RunBlocks(uint64 cycles, uint32 &prevPC);
     static uint16 JitFetch(void *ctx, uint32 address);
+    static uint64 JitInterpret(void *ctx);
 
     template <mem_primitive T, bool poke, bool debug, bool emulateCache>
     void MemWrite(uint32 address, T value);

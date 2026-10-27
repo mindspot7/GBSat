@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -231,13 +232,22 @@ int main(int argc, char **argv) {
     const auto jitStats = [&] {
         if (const auto *jit = runB->GetSH2Jit()) {
             const auto &s = jit->stats;
-            const double total = double(s.instrsRun + s.interpreted);
-            std::printf("JIT: %llu blocks run (%.1f instr avg), %llu instr compiled = %.1f%%, %llu interpreted; "
-                        "%llu blocks compiled, %llu invalidated, %llu flushes\n",
-                        (unsigned long long)s.blocksRun, s.blocksRun ? double(s.instrsRun) / s.blocksRun : 0.0,
-                        (unsigned long long)s.instrsRun, total > 0 ? 100.0 * s.instrsRun / total : 0.0,
-                        (unsigned long long)s.interpreted, (unsigned long long)s.compiled,
-                        (unsigned long long)s.invalidated, (unsigned long long)s.flushes);
+            std::printf("JIT: %llu blocks run, %llu instructions dispatched by the chain; %llu blocks compiled "
+                        "(%.1f native + %.1f interpreter calls avg), %llu invalidated, %llu flushes, %llu left for "
+                        "short slices\n",
+                        (unsigned long long)s.blocksRun, (unsigned long long)s.interpreted,
+                        (unsigned long long)s.compiled, s.compiled ? double(s.nativeInstrs) / s.compiled : 0.0,
+                        s.compiled ? double(s.calledInstrs) / s.compiled : 0.0, (unsigned long long)s.invalidated,
+                        (unsigned long long)s.flushes, (unsigned long long)s.shortSlice);
+            // Interpreter calls in compiled blocks, by OpcodeType index (most frequent first)
+            std::vector<std::pair<uint32_t, int>> ops;
+            for (int i = 0; i < 512; ++i) {
+                if (s.calledOps[i] != 0) ops.push_back({s.calledOps[i], i});
+            }
+            std::sort(ops.rbegin(), ops.rend());
+            std::printf("calls by opcode type:");
+            for (size_t i = 0; i < ops.size() && i < 24; ++i) std::printf(" %d:%u", ops[i].second, ops[i].first);
+            std::printf("\n");
         }
     };
 

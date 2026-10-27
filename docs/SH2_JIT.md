@@ -1,10 +1,12 @@
 # SH-2 ARM64 JIT: design
 
-Status: October 2026. Phase 1 in progress: emitter, block cache with exact per-halfword invalidation, blocks run
-inside the chained interpreter (`RunChained<.., true>` -> `SH2::RunBlocks`), register/ALU/compare/shift instructions.
-Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the interpreter for 300 frames
-(sh2cmp, virtual RTC). ~45% of instructions run compiled, in blocks of ~1.7 instructions, so still slower than the
-interpreter: memory accesses and branches come next.
+Status: October 2026, phase 1. Blocks run inside the chained interpreter (`RunChained<.., true>` ->
+`SH2::RunBlocks`): register/ALU/compare/shift instructions in host code, MOV.B/W/L loads and stores with a direct
+WRAM-H path (other addresses call the interpreter), everything else (branches, delay slots, MAC/MUL, LDC/STS...) as
+calls to `InterpretNext`. Exact per-halfword invalidation. Blocks are compiled at jump targets only and run only
+when the slice fits them. Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the
+interpreter for 300 frames. Still slower than the interpreter (sh2cmp, RG Rotate: Burning Rangers 27.7 vs 21.4 ms,
+VF2 31.9 vs 29.6 ms per frame): the interpreter calls left (MAC.L, CLRMAC, STS MACH/MACL, branches, DMULS) come next.
 
 ## Why, and what it can gain
 
