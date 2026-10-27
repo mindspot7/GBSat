@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private fun quitApp() {
         Emulator.autoSaveBlocking()
         NativeBridge.nativeShutdown()
+        Emulator.dataFolder.syncNow()
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid()) // emulator state lives in the process; start clean next time
     }
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("RestrictedApi") // ComponentActivity's public override contract requires delegating unhandled keys to super.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (!Emulator.initialized) return super.dispatchKeyEvent(event)
         // A controller can emit BUTTON_B and KEYCODE_BACK for the same press. In gameplay, B remains a Saturn button;
         // consume a paired synthetic Back rather than opening the emulator menu as a side effect.
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B && event.action == KeyEvent.ACTION_DOWN) {

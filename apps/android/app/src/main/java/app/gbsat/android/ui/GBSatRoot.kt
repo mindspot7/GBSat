@@ -17,6 +17,16 @@ private enum class Screen { Library, Settings }
 @Composable
 fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
     GBSatTheme {
+        if (!Emulator.initialized) {
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (Emulator.initializationError == null) CircularProgressIndicator()
+                    Text(Emulator.initializationError ?: "Preparing data folder…")
+                }
+            }
+            return@GBSatTheme
+        }
+        gb.frame.DataFolderWarning(Emulator.dataFolder)
         var screen by remember { mutableStateOf(Screen.Library) }
         var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
         val snackbar = remember { SnackbarHostState() }

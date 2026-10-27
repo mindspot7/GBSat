@@ -101,6 +101,8 @@ notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push a
 Local build: Android Studio with SDK 36, NDK 27.2.12479018 and CMake 3.31.6, plus the DirectX Shader Compiler
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.
 
+For a locally signed Windows APK, use `tools/build-local.ps1 -BuildNumber <N> -Install` with credentials in an external folder configured through `GBSAT_SIGNING_DIR`. The [Android build guide](apps/android/README.md#locally-signed-apk-on-windows) documents setup, version numbering and the included Gradle wrapper. This path builds and signs locally without GitHub Actions.
+
 ## Privacy
 
 GBSat collects no personal data; see the [privacy policy](PRIVACY.md).

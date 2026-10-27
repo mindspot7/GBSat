@@ -34,6 +34,7 @@ fun SetupWizard(onFinish: () -> Unit) {
         steps = listOf(
             WizardStep(Icons.Default.SportsEsports, "Welcome to GBSat", listOf(Color(0xFF8B7CFF), Color(0xFFE85CC4)),
                 "A Saturn emulator for Android. A few steps and you're ready to play."),
+            gb.frame.dataFolderWizardStep(Emulator.dataFolder),
             WizardStep(Icons.Default.Memory, "Saturn BIOS", listOf(Color(0xFFFFB347), Color(0xFFFF6B6B)),
                 "GBSat needs your own Saturn BIOS (IPL ROM, 512 KiB). None is included.") {
                 Button(onClick = { biosPicker.launch(arrayOf("*/*")) }) { Text(if (Emulator.iplLoaded) "Replace BIOS" else "Choose BIOS file") }

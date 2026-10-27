@@ -328,43 +328,7 @@ private fun GameMenu(onDismiss: () -> Unit) {
     }
     val overlaysPage = remember {
         QuickMenuPage("overlays", "Overlays") {
-            fun onOff(value: Boolean) = if (value) "On" else "Off"
-            QuickMenuItemRow(
-                id = "all_monitoring", icon = Icons.Default.Insights, label = "Show all monitoring",
-                value = onOff(Emulator.showAllStats),
-            ) { Emulator.showAllStats = !Emulator.showAllStats; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_fps", icon = Icons.Default.Speed, label = "Show FPS",
-                value = onOff(Emulator.showFps),
-            ) { Emulator.showFps = !Emulator.showFps; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_speed", icon = Icons.Default.Percent, label = "Show speed",
-                value = onOff(Emulator.showSpeed),
-            ) { Emulator.showSpeed = !Emulator.showSpeed; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_renderer", icon = Icons.Default.Memory, label = "Show renderer",
-                value = onOff(Emulator.showRenderer),
-            ) { Emulator.showRenderer = !Emulator.showRenderer; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_resolution", icon = Icons.Default.PhotoSizeSelectLarge, label = "Show resolution",
-                value = onOff(Emulator.showResolution),
-            ) { Emulator.showResolution = !Emulator.showResolution; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_cpu", icon = Icons.Default.DeveloperBoard, label = "Show CPU",
-                value = onOff(Emulator.showCpu),
-            ) { Emulator.showCpu = !Emulator.showCpu; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_gpu", icon = Icons.Default.Videocam, label = "Show GPU",
-                value = onOff(Emulator.showGpu),
-            ) { Emulator.showGpu = !Emulator.showGpu; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_frame_time", icon = Icons.Default.Timer, label = "Show frame time",
-                value = onOff(Emulator.showFrameTime),
-            ) { Emulator.showFrameTime = !Emulator.showFrameTime; Emulator.savePrefs() }
-            QuickMenuItemRow(
-                id = "show_fast_forward", icon = Icons.Default.FastForward, label = "Show fast-forward button",
-                value = onOff(Emulator.showFfButton),
-            ) { Emulator.showFfButton = !Emulator.showFfButton; Emulator.savePrefs() }
+            MonitoringQuickMenuRows(GBSatMonitoring)
             QuickMenuItemRow(
                 id = "touch_controls", icon = Icons.Default.TouchApp, label = "Touch controls",
                 value = if (Emulator.showTouchControls) "Shown" else "Hidden",
@@ -413,13 +377,7 @@ private fun GameMenu(onDismiss: () -> Unit) {
             QuickMenuItemRow(
                 id = "load", icon = Icons.Default.Restore, label = "Load state", hasSubmenu = true,
             ) { openPage(loadPage, returnFocusItemId = "load") }
-            // Hidden while the on-screen fast-forward button is shown, as in the GBSat menu standard.
-            if (!Emulator.showFfButton) {
-                QuickMenuItemRow(
-                    id = "fast_forward", icon = Icons.Default.FastForward, label = "Fast-forward",
-                    value = if (Emulator.fastForward) "On" else "Off",
-                ) { Emulator.toggleFastForward() }
-            }
+            FastForwardQuickMenuAction(GBSatMonitoring, Emulator.fastForward) { Emulator.toggleFastForward() }
             QuickMenuItemRow(
                 id = "video", icon = Icons.Default.Tv, label = "Video", hasSubmenu = true,
             ) { openPage(videoPage, returnFocusItemId = "video") }

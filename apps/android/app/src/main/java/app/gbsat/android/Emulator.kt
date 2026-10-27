@@ -20,6 +20,8 @@ import java.io.File
 
 /** Process-wide emulator controller: owns persistent settings and merges all input sources into one pad. */
 object Emulator {
+    var initialized by mutableStateOf(false)
+    var initializationError by mutableStateOf<String?>(null)
     private lateinit var prefs: SharedPreferences
     private lateinit var appContext: Context
 
@@ -369,22 +371,10 @@ object Emulator {
     // ---- Emulator data location (BIOS, saves, states, cheats, covers) ----
     /** Folder holding the emulator data. Defaults to the app's private storage. */
     lateinit var dataDir: File; private set
+    lateinit var dataFolder: gb.frame.AppDataFolder; private set
     private val dataSubdirs = listOf("bios", "saves", "states", "cheats", "covers")
     /** Folder used by an older version for the data, when it couldn't be read after the update (shown in Settings). */
     var legacyDataDir by mutableStateOf<String?>(null); private set
-
-    /** Copies saves and save states to a "GBSat backup" folder. */
-    suspend fun exportData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        gb.frame.SaveData.export(appContext, dataDir, tree, "GBSat backup")
-    }
-
-    /**
-     * Copies data from the picked folder: a GBSat backup or an older GBSat data folder (with bios, saves, states...
-     * inside, or one level down). Existing files are replaced. Restart GBSat afterwards.
-     */
-    suspend fun importData(tree: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        gb.frame.SaveData.import(appContext, dataDir, tree, dataSubdirs + "carts").also { if (it == null) legacyDataDir = null }
-    }
 
     /** Stores a ROM cartridge dump picked by the user (KOF95 or Ultraman), used automatically by the games that need it. */
     suspend fun importCartRom(uri: android.net.Uri, fileName: String): String? = withContext(Dispatchers.IO) {
@@ -419,7 +409,7 @@ object Emulator {
         Storage.init(appContext)
         Thread { gb.frame.DeviceTier.detect() }.start() // GPU name from a throwaway OpenGL ES context, off the main thread
         // Data lives in the app's storage. Older versions could keep it in a folder of the user's choice, which needed
-        // the all-files permission; that data can be brought back with Settings → System → Import data.
+        // the all-files permission; select that folder in System → Data folder to restore it through SAF.
         val oldDir = prefs.getString("dataDir", null)
         dataDir = appContext.filesDir
         if (oldDir != null) {
@@ -428,6 +418,9 @@ object Emulator {
             else legacyDataDir = oldDir
             prefs.edit().remove("dataDir").apply()
         }
+        dataFolder = gb.frame.AppDataFolder(appContext, "GBSat", (dataSubdirs + "carts").associateWith { File(dataDir, it) })
+        dataFolder.restoreAtStartup()
+        dataFolder.watch()
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)

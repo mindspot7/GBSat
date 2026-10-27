@@ -1,6 +1,9 @@
 // Version: apps/android/VERSION holds the release version (x.y.z); CI adds the build number (GitHub run number).
 val gbsatVersion = rootProject.file("VERSION").readText().trim()
-val gbsatBuild = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+val gbsatBuild = (providers.gradleProperty("gbsatVersionCode").orNull
+    ?: System.getenv("GBSAT_VERSION_CODE") ?: System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt().also {
+    require(it in 1..2100000000) { "gbsatVersionCode must be a positive Android version code" }
+}
 
 plugins {
     id("com.android.application")

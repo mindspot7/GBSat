@@ -3,9 +3,15 @@ name: Android APK
 on:
   push:
     branches: [ main, master, android, android-port ]
-    paths: [ 'apps/android/**', 'libs/**', 'gbframe', 'vendor/**', 'CMakeLists.txt', 'CHANGELOG.md', '.github/workflows/android.yml' ]
+    # Repository updates are independent from cloud APK builds. Trigger only after local validation.
+    paths: [ '.github/workflows/run-build.trigger' ]
   workflow_dispatch:
     inputs:
+      version_code:
+        description: Android version code (must be at least the latest locally installed build)
+        type: string
+        required: false
+        default: ''
       bundle:
         description: Also build the App Bundle (.aab) for Google Play
         type: boolean
@@ -13,6 +19,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  GBSAT_VERSION_CODE: ${{ inputs.version_code || github.run_number }}
 
 # A newer push makes the build of the previous one pointless
 concurrency:
@@ -231,7 +240,7 @@ jobs:
         id: ver
         run: |
           VER=$(tr -d '[:space:]' < apps/android/VERSION)
-          NAME="GBSat-v${VER}-build${GITHUB_RUN_NUMBER}"
+          NAME="GBSat-v${VER}-build${GBSAT_VERSION_CODE}"
           cd apps/android/app/build/outputs/apk/release
           mv *.apk "${NAME}.apk"
           if ls ../../bundle/release/*.aab >/dev/null 2>&1; then mv ../../bundle/release/*.aab "${NAME}.aab"; fi

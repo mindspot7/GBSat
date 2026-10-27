@@ -77,19 +77,10 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs() }
     }
-    var dataMsg by remember { mutableStateOf<String?>(null) }
-    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let { scope.launch { dataMsg = Emulator.exportData(it) ?: "Data copied to the \"GBSat backup\" folder." } }
-    }
-    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        uri?.let { scope.launch { dataMsg = Emulator.importData(it) ?: "Data imported. Restart GBSat to load it." } }
-    }
     var cartFile by remember { mutableStateOf("") }
     val cartPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { scope.launch { toast(Emulator.importCartRom(it, cartFile) ?: "Cartridge ROM saved") } }
     }
-    dataMsg?.let { m -> AlertDialog(onDismissRequest = { dataMsg = null }, title = { Text("Data") }, text = { Text(m) },
-        confirmButton = { TextButton(onClick = { dataMsg = null }) { Text("OK") } }) }
 
     Box(Modifier.fillMaxSize().background(palette.backgroundBrush)) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -111,7 +102,6 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                 Column(Modifier.widthIn(max = 760.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     when (current) {
                         SettingsPage.System -> SystemPage({ biosPicker.launch(arrayOf("*/*")) }, { folderPicker.launch(null) },
-                            onExport = { exportPicker.launch(null) }, onImport = { importPicker.launch(null) },
                             onCart = { cartFile = it; cartPicker.launch(arrayOf("*/*")) })
                         SettingsPage.Video -> VideoPage()
                         SettingsPage.Audio -> AudioPage()
@@ -152,7 +142,7 @@ private fun <T> ch(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.save
 
 @Composable
 private fun SystemPage(
-    onBios: () -> Unit, onGamesFolder: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onCart: (String) -> Unit,
+    onBios: () -> Unit, onGamesFolder: () -> Unit, onCart: (String) -> Unit,
 ) {
     SettingsGroup("Getting started", Icons.Default.PlayCircle) {
         ActionRow(Icons.Default.Memory, "Saturn BIOS", if (Emulator.iplLoaded) "Loaded" else "Required: choose your IPL ROM (512 KiB)",
@@ -162,14 +152,10 @@ private fun SystemPage(
             "Choose", onGamesFolder, warn = Emulator.gamesDir.isBlank())
     }
     SettingsGroup("Data", Icons.Default.Storage) {
+        gb.frame.DataFolderControls(Emulator.dataFolder)
         Emulator.legacyDataDir?.let { old ->
-            ActionRow(Icons.Default.Warning, "Data from the previous version",
-                "Your saves were in $old. Import that folder to bring them back.", "Import", onImport, warn = true)
-            SettingsDivider()
+            InfoRow("Data from the previous version", "Choose $old as the Data folder to restore its files after reopening.")
         }
-        ActionRow(Icons.Default.Upload, "Export data", "Copy saves and save states to a folder (backup)", "Export", onExport)
-        SettingsDivider()
-        ActionRow(Icons.Default.Download, "Import data", "Restore a GBSat backup or an older GBSat data folder", "Import", onImport)
     }
     SettingsGroup("Cartridge ROMs", Icons.Default.SdCard) {
         ActionRow(Icons.Default.SdCard, "King of Fighters '95", if (Emulator.hasCartRom("kof95.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
@@ -219,26 +205,7 @@ private fun VideoPage() {
         }
     }
     SettingsGroup("Overlay", Icons.Default.Layers) {
-        ToggleRow(Icons.Default.Insights, "Show all monitoring", "FPS, speed, CPU, GPU, renderer, resolution and frame time at the top right",
-            Emulator.showAllStats) { Emulator.showAllStats = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "Show FPS", "Frames per second", Emulator.showFps) { Emulator.showFps = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.Percent, "Show speed", "Emulation speed in percent (100% = full speed)", Emulator.showSpeed) { Emulator.showSpeed = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.Memory, "Show renderer", "CPU (OpenGL) or GPU (Vulkan)", Emulator.showRenderer) { Emulator.showRenderer = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.PhotoSizeSelectLarge, "Show resolution", "Output resolution (including the internal resolution scale)",
-            Emulator.showResolution) { Emulator.showResolution = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.DeveloperBoard, "Show CPU", "Chip name and GBSat's CPU usage", Emulator.showCpu) { Emulator.showCpu = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.Videocam, "Show GPU", "GPU name and load (when the device reports it)", Emulator.showGpu) { Emulator.showGpu = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.Timer, "Show frame time", "Time spent emulating each frame (16.7 ms or less = full speed)", Emulator.showFrameTime) { Emulator.showFrameTime = it; Emulator.savePrefs() }
-        SettingsDivider()
-        ToggleRow(Icons.Default.FastForward, "Show fast-forward button", "On-screen button to turn fast-forward on and off",
-            Emulator.showFfButton) { Emulator.showFfButton = it; Emulator.savePrefs() }
+        gb.frame.MonitoringSettingsRows(GBSatMonitoring)
     }
 }
 
