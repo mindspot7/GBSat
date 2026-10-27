@@ -85,10 +85,11 @@ class MonitoringAndDataFolderUiTest {
         val folder = AppDataFolder(context, "Test", mapOf("saves" to java.io.File(context.filesDir, "system-test")))
         compose.setContent {
             Column { SystemSettings(folder, SystemFolderSetting("SD/Games", "Choose games", {}),
-                SystemBiosFolderSetting("SD/Data/bios", "Choose firmware", listOf(SystemBiosFile("bios.bin", true)), {}), false, false, {}, {}) }
+                SystemBiosFolderSetting("SD/Data/bios", "Choose firmware", listOf(SystemBiosFile("bios.bin", true)), {}), false, false, {}, {},
+                startup = SystemStartupOptions(SystemToggleSetting(true, {}))) }
         }
         compose.onNodeWithText("HLE BIOS").assertDoesNotExist()
-        compose.onNodeWithText("Fast boot").assertDoesNotExist()
+        compose.onNodeWithText("Fast boot").assertExists() // mandatory in every app
         compose.onNodeWithText("Skip loading screens").assertDoesNotExist()
         compose.onNodeWithText("SD/Games").assertExists()
         compose.onNodeWithText("SD/Data/bios\nbios.bin — Loaded").assertExists()
