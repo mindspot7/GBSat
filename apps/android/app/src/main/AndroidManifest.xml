@@ -8,7 +8,8 @@
     <application
         android:name="app.gbsat.android.GBSatApp"
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_gbsat_controller"
+        android:roundIcon="@mipmap/ic_gbsat_controller"
         android:label="GBSat"
         android:theme="@style/Theme.GBSat">
         <!-- Lets the on-device profiler (simpleperf, adb shell) sample GBSat; no effect for users -->
