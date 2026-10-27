@@ -1566,6 +1566,16 @@ JNI_FN(void, nativeSetSH2Cache)(JNIEnv *, jclass, jboolean on) {
         Post([on] { g->saturn->EnableSH2CacheEmulation(on); });
     }
 }
+JNI_FN(void, nativeSetSH2Dynarec)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        Post([on] {
+            if (g->saturn->IsSH2DynarecEnabled() != on) {
+                const bool active = g->saturn->EnableSH2Dynarec(on);
+                __android_log_print(ANDROID_LOG_WARN, LOG_TAG, "CPU core: %s", active ? "recompiler" : "interpreter");
+            }
+        });
+    }
+}
 JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {

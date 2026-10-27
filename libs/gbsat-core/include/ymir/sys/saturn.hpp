@@ -194,6 +194,17 @@ struct Saturn {
         configuration.system.emulateSH2Cache = enable;
     }
 
+    /// @brief Enables or disables the SH-2 dynamic recompiler (experimental, ARM64 builds only; see
+    /// sh2::SH2::SetDynarec). Applies to both SH-2s.
+    /// @param[in] enable whether to run compiled code instead of the interpreter
+    /// @return whether the recompiler is now in use
+    bool EnableSH2Dynarec(bool enable);
+
+    /// @brief Determines if the SH-2 dynamic recompiler is in use.
+    [[nodiscard]] bool IsSH2DynarecEnabled() const noexcept {
+        return masterSH2.IsDynarecEnabled();
+    }
+
     /// @brief Determines if SH-2 cache emulation is enabled.
     /// @return the SH-2 cache emulation state
     [[nodiscard]] bool IsSH2CacheEmulationEnabled() const noexcept {

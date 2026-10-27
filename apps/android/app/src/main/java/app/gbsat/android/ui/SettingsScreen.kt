@@ -152,6 +152,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
                             icon = rememberAppIconPainter(R.drawable.ic_launcher_foreground),
                             credits = listOf(
                                 AboutCredit("Ymir", "Saturn emulator core by StrikerX3 and contributors (GPLv3)"),
+                                AboutCredit("YabaSanshiro", "SH-2 dynamic recompiler (DynarecSh2) by devMiyax (GPLv2 or later)"),
                                 AboutCredit("rcheevos", "RetroAchievements client library"),
                                 AboutCredit("libretro-database", "Cheat database (CC BY-SA 4.0) and cover art (libretro-thumbnails)"),
                                 AboutCredit("SegaXtreme community", "Saturn widescreen codes"),
@@ -303,6 +304,9 @@ private fun PerformancePage() {
             listOf("Auto", "On", "Off"), Emulator.scspMode, ch { Emulator.scspMode = it })
         SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
+        SettingsDivider()
+        ChoiceRow("CPU core", "Recompiler (experimental): runs the SH-2 code compiled to ARM, faster but with less exact timing. Use Interpreter if a game misbehaves",
+            listOf("Interpreter", "Recompiler"), if (Emulator.sh2Dynarec) 1 else 0, ch<Int> { Emulator.sh2Dynarec = it == 1 })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
         ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })

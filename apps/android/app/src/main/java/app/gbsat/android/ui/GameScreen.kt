@@ -299,6 +299,14 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 Emulator.savePrefs()
                 Emulator.applyOptions()
             }
+            QuickMenuItemRow(
+                id = "cpu_core", icon = Icons.Default.Memory, label = "CPU core",
+                value = if (Emulator.sh2Dynarec) "Recompiler" else "Interpreter",
+            ) {
+                Emulator.sh2Dynarec = !Emulator.sh2Dynarec
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
             fun onOff(value: Boolean) = if (value) "On" else "Off"
             QuickMenuItemRow(
                 id = "skip_loads", icon = Icons.Default.FastForward, label = "Skip loading screens",

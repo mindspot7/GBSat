@@ -1,5 +1,7 @@
 #include <ymir/hw/sh2/sh2.hpp>
 
+#include "jit/sh2_jit.hpp"
+
 #include <ymir/util/wait_stats.hpp>
 #include <ymir/util/bit_ops.hpp>
 #include <ymir/util/data_ops.hpp>
@@ -326,6 +328,10 @@ SH2::SH2(sys::SH2Bus &bus, bool master)
 
     BCR1.MASTER = !master;
     Reset(true);
+}
+
+SH2::~SH2() {
+    delete m_dynarec;
 }
 
 void SH2::Reset(bool hard, bool watchdogInitiated) {
@@ -777,6 +783,14 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
             PC += 2;
         } else {
             return cycles;
+        }
+    }
+
+    if constexpr (!debug) {
+        if (m_dynarec != nullptr) {
+            AdvanceDynarec<emulateCache>(cycles);
+            AdvanceDMA<debug, emulateCache>(m_cyclesExecuted - spilloverCycles);
+            return m_cyclesExecuted;
         }
     }
 
@@ -6406,5 +6420,119 @@ void SH2::Probe::ExecuteDiv32() {
 void SH2::Probe::ExecuteDiv64() {
     m_sh2.ExecuteDiv64<true>();
 }
+
+// -----------------------------------------------------------------------------
+// Dynamic recompiler
+
+bool SH2::DynarecSupported() {
+    return jit::Supported();
+}
+
+bool SH2::SetDynarec(bool enable) {
+    if (!enable || !jit::Supported()) {
+        delete m_dynarec;
+        m_dynarec = nullptr;
+        return false;
+    }
+    if (m_dynarec == nullptr) {
+        const jit::Memory memory{
+            .ctx = this,
+            .read8 = &DynarecRead<uint8>,
+            .read16 = &DynarecRead<uint16>,
+            .read32 = &DynarecRead<uint32>,
+            .write8 = &DynarecWrite<uint8>,
+            .write16 = &DynarecWrite<uint16>,
+            .write32 = &DynarecWrite<uint32>,
+            .fetch16 = &DynarecFetch,
+            .peek32 = &DynarecPeek,
+        };
+        // Compiled code reads WRAM-H (06000000-060FFFFF) straight from the array
+        m_dynarec = new jit::Cpu(!IsMaster(), memory, m_bus.ArrayAt(0x6000000));
+        m_parked = false;
+    }
+    return true;
+}
+
+template <mem_primitive T>
+T SH2::DynarecRead(void *ctx, uint32 address, uint32 &cycles) {
+    SH2 &sh2 = *static_cast<SH2 *>(ctx);
+    if (*sh2.m_emulateCache) {
+        cycles += sh2.AccessCycles<T, false, true>(address);
+        return sh2.MemRead<T, false, false, true>(address);
+    }
+    cycles += sh2.AccessCycles<T, false, false>(address);
+    return sh2.MemRead<T, false, false, false>(address);
+}
+
+template <mem_primitive T>
+void SH2::DynarecWrite(void *ctx, uint32 address, T value, uint32 &cycles) {
+    SH2 &sh2 = *static_cast<SH2 *>(ctx);
+    if (*sh2.m_emulateCache) {
+        cycles += sh2.AccessCycles<T, true, true>(address);
+        sh2.MemWrite<T, false, false, true>(address, value);
+    } else {
+        cycles += sh2.AccessCycles<T, true, false>(address);
+        sh2.MemWrite<T, false, false, false>(address, value);
+    }
+}
+
+uint16 SH2::DynarecFetch(void *ctx, uint32 address) {
+    SH2 &sh2 = *static_cast<SH2 *>(ctx);
+    return *sh2.m_emulateCache ? sh2.PeekInstruction<true>(address) : sh2.PeekInstruction<false>(address);
+}
+
+uint32 SH2::DynarecPeek(void *ctx, uint32 address) {
+    SH2 &sh2 = *static_cast<SH2 *>(ctx);
+    return *sh2.m_emulateCache ? sh2.MemPeekLong<true>(address) : sh2.MemPeekLong<false>(address);
+}
+
+// One time slice with the recompiler. Registers move to the compiled code and back around each run, so everything
+// else (save states, the debugger probe, the on-chip modules, interrupts) keeps seeing the interpreter's state.
+template <bool emulateCache>
+void SH2::AdvanceDynarec(uint64 cycles) {
+    m_parked = false;
+    while (m_cyclesExecuted < cycles) {
+        // Interrupts, and delay slots left by Step or the interpreter, go through the interpreter
+        if (m_delaySlot || std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) {
+            m_cyclesExecuted += InterpretNext<false, emulateCache>();
+            continue;
+        }
+
+        jit::Regs regs;
+        std::copy(R.begin(), R.end(), regs.R);
+        regs.SR = SR.u32;
+        regs.GBR = GBR;
+        regs.VBR = VBR;
+        regs.MACH = MAC.H;
+        regs.MACL = MAC.L;
+        regs.PR = PR;
+        regs.PC = PC;
+        m_dynarec->Load(regs);
+        bool looped = false;
+        m_cyclesExecuted += m_dynarec->Run(cycles - m_cyclesExecuted, &INTC.pending.level, looped);
+        m_dynarec->Store(regs);
+        std::copy(std::begin(regs.R), std::end(regs.R), R.begin());
+        SR.u32 = regs.SR;
+        GBR = regs.GBR;
+        VBR = regs.VBR;
+        MAC.H = regs.MACH;
+        MAC.L = regs.MACL;
+        PR = regs.PR;
+        PC = regs.PC;
+        RefillPipeline<emulateCache>();
+        m_intrFlags.pending = INTC.pending.level > SR.ILevel;
+        m_intrFlags.allow = true;
+
+        // The compiled SLEEP stays on itself; enter the interpreter's sleep (or standby) so an interrupt wakes it
+        // past the instruction, as Advance does
+        if (looped && !m_intrFlags.pending && PeekInstruction<emulateCache>(PC) == 0x001B) {
+            SLEEP();
+            m_cyclesExecuted = std::max(m_cyclesExecuted, cycles);
+        }
+    }
+}
+
+template void SH2::AdvanceDynarec<false>(uint64);
+template void SH2::AdvanceDynarec<true>(uint64);
 
 } // namespace ymir::sh2
