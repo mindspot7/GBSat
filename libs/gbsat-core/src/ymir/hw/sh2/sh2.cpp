@@ -6445,9 +6445,14 @@ bool SH2::SetDynarec(bool enable) {
             .write32 = &DynarecWrite<uint32>,
             .fetch16 = &DynarecFetch,
             .peek32 = &DynarecPeek,
+            .wramLow = m_bus.ArrayAt(0x020'0000),
+            .wramHigh = m_bus.ArrayAt(0x600'0000),
+            .wramLowCycles = static_cast<uint32>(AccessCycles<uint32, false, false>(0x020'0000)),
+            .wramHighCycles = static_cast<uint32>(AccessCycles<uint32, false, false>(0x600'0000)),
+            .emulateCache = m_emulateCache,
         };
         // Compiled code reads WRAM-H (06000000-060FFFFF) straight from the array
-        m_dynarec = new jit::Cpu(!IsMaster(), memory, m_bus.ArrayAt(0x6000000));
+        m_dynarec = new jit::Cpu(!IsMaster(), memory, memory.wramHigh);
         m_parked = false;
     }
     return true;

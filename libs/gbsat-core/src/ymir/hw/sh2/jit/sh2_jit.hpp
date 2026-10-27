@@ -26,6 +26,12 @@ struct Memory {
     void (*write32)(void *ctx, uint32 address, uint32 value, uint32 &cycles);
     uint16 (*fetch16)(void *ctx, uint32 address); // instruction words for the compiler (no side effects)
     uint32 (*peek32)(void *ctx, uint32 address);
+
+    // Work RAMs, accessed directly (no call into the SH-2) while SH-2 cache emulation is off
+    uint8 *wramLow;  // 00200000-002FFFFF
+    uint8 *wramHigh; // 06000000-07FFFFFF (1 MiB, mirrored)
+    uint32 wramLowCycles, wramHighCycles; // bus cycles of a 32-bit access
+    const bool *emulateCache;
 };
 
 bool Supported();

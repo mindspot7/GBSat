@@ -22,6 +22,43 @@ inline void AddCycles(uint32 cycles) {
     }
 }
 
+// Direct work RAM access for the cached (000) and cache-through (001, 101) areas while cache emulation is off: the same
+// result as Ymir's MemRead/MemWrite and bus, without the calls. Returns the RAM byte, or nullptr for anything else.
+// lowRam tells which RAM it is (WRAM-L, for code invalidation).
+inline uint8 *Wram(uint32 addr, bool &lowRam) {
+    const uint32 partition = addr >> 29;
+    if ((partition != 0b000 && partition != 0b001 && partition != 0b101) || *g_mem->emulateCache) {
+        return nullptr;
+    }
+    const uint32 bus = addr & 0x7FFFFFF;
+    if (bus >= 0x6000000) {
+        lowRam = false;
+        return g_mem->wramHigh != nullptr ? g_mem->wramHigh + (bus & 0xFFFFF) : nullptr;
+    }
+    if ((bus & 0x7F00000) == 0x0200000) {
+        lowRam = true;
+        return g_mem->wramLow != nullptr ? g_mem->wramLow + (bus & 0xFFFFF) : nullptr;
+    }
+    return nullptr;
+}
+
+inline void WramCycles(bool lowRam) {
+    AddCycles(lowRam ? g_mem->wramLowCycles : g_mem->wramHighCycles);
+}
+
+// Compiled code written to: drop it (what the bus's code watch does for writes from everything else)
+inline void WramWritten(uint32 addr, bool lowRam, uint32 size) {
+    CompileBlocks *blocks = CompileBlocks::getInstance();
+    for (uint32 i = 0; i < size; i += 2) {
+        const uint32 a = (addr + i) & 0xFFFFF;
+        if (lowRam) {
+            blocks->LookupTableLow[a >> 1] = nullptr;
+        } else {
+            blocks->setDirty(0x06000000 | a);
+        }
+    }
+}
+
 // Writes to the cache data array (C0000000-C0000FFF, mirrored) can replace code compiled from there
 inline void CacheArrayWritten(uint32 addr) {
     if ((addr & 0xE0000000) == 0xC0000000) {
@@ -49,36 +86,78 @@ int DebugDelayClock() {
 }
 
 u8 memGetByteNoCache(u32 addr) {
+    bool low;
+    if (const uint8 *p = Wram(addr, low)) {
+        WramCycles(low);
+        return *p;
+    }
     uint32 cycles = 0;
     const u8 value = g_mem->read8(g_mem->ctx, addr, cycles);
     AddCycles(cycles);
     return value;
 }
 u16 memGetWordNoCache(u32 addr) {
+    bool low;
+    if (const uint8 *p = Wram(addr & ~1u, low)) {
+        WramCycles(low);
+        uint16 v;
+        std::memcpy(&v, p, 2);
+        return __builtin_bswap16(v);
+    }
     uint32 cycles = 0;
     const u16 value = g_mem->read16(g_mem->ctx, addr, cycles);
     AddCycles(cycles);
     return value;
 }
 u32 memGetLongNoCache(u32 addr) {
+    bool low;
+    if (const uint8 *p = Wram(addr & ~3u, low)) {
+        WramCycles(low);
+        uint32 v;
+        std::memcpy(&v, p, 4);
+        return __builtin_bswap32(v);
+    }
     uint32 cycles = 0;
     const u32 value = g_mem->read32(g_mem->ctx, addr, cycles);
     AddCycles(cycles);
     return value;
 }
 void memSetByteNoCache(u32 addr, u8 data) {
+    bool low;
+    if (uint8 *p = Wram(addr, low)) {
+        WramCycles(low);
+        *p = data;
+        WramWritten(addr & ~1u, low, 2);
+        return;
+    }
     uint32 cycles = 0;
     CacheArrayWritten(addr);
     g_mem->write8(g_mem->ctx, addr, data, cycles);
     AddCycles(cycles);
 }
 void memSetWordNoCache(u32 addr, u16 data) {
+    bool low;
+    if (uint8 *p = Wram(addr & ~1u, low)) {
+        WramCycles(low);
+        const uint16 v = __builtin_bswap16(data);
+        std::memcpy(p, &v, 2);
+        WramWritten(addr & ~1u, low, 2);
+        return;
+    }
     uint32 cycles = 0;
     CacheArrayWritten(addr);
     g_mem->write16(g_mem->ctx, addr, data, cycles);
     AddCycles(cycles);
 }
 void memSetLongNoCache(u32 addr, u32 data) {
+    bool low;
+    if (uint8 *p = Wram(addr & ~3u, low)) {
+        WramCycles(low);
+        const uint32 v = __builtin_bswap32(data);
+        std::memcpy(p, &v, 4);
+        WramWritten(addr & ~3u, low, 4);
+        return;
+    }
     uint32 cycles = 0;
     CacheArrayWritten(addr);
     g_mem->write32(g_mem->ctx, addr, data, cycles);
