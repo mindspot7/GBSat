@@ -40,4 +40,27 @@ class AppIconResourcesTest {
             assertTrue(Color.alpha(bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)) > 0)
         } finally { bitmap.recycle() }
     }
+
+    @Test fun standaloneLauncherDoesNotReuseAdaptiveSafeZonePaddingOrStretchArtwork() {
+        val options = BitmapFactory.Options().apply { inScaled = false }
+        val launcher = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_controller_transparent, options)
+        val foreground = BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_foreground, options)
+        fun bounds(bitmap: android.graphics.Bitmap): Pair<Int, Int> {
+            var left = bitmap.width; var right = -1; var top = bitmap.height; var bottom = -1
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                if (Color.alpha(bitmap.getPixel(x, y)) > 8) {
+                    left = minOf(left, x); right = maxOf(right, x)
+                    top = minOf(top, y); bottom = maxOf(bottom, y)
+                }
+            }
+            return (right - left + 1) to (bottom - top + 1)
+        }
+        try {
+            val (width, height) = bounds(launcher)
+            val (sourceWidth, sourceHeight) = bounds(foreground)
+            assertTrue("Launcher artwork shrank into adaptive padding", width.toFloat() / launcher.width in .80f.. .90f)
+            assertEquals("Controller must retain its proportions", sourceWidth.toFloat() / sourceHeight, width.toFloat() / height, .08f)
+            assertEquals(0, Color.alpha(launcher.getPixel(0, 0)))
+        } finally { launcher.recycle(); foreground.recycle() }
+    }
 }

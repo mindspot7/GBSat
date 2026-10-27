@@ -40,16 +40,6 @@ $graphics.DrawImageUnscaled($scaled, $left, $top)
 $graphics.Dispose(); $scaled.Dispose()
 $res = Join-Path $PSScriptRoot '../apps/android/app/src/main/res'
 $canvas.Save((Join-Path $res 'drawable/ic_launcher_foreground.png'), [Drawing.Imaging.ImageFormat]::Png)
-$densities = @{mdpi=48; hdpi=72; xhdpi=96; xxhdpi=144; xxxhdpi=192}
-foreach ($density in $densities.Keys) {
-    $size = [int]$densities[$density]
-    $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $graphics = [Drawing.Graphics]::FromImage($bitmap)
-    $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $graphics.DrawImage($canvas, 0, 0, $size, $size)
-    $bitmap.Save((Join-Path $res "mipmap-$density/ic_launcher.png"), [Drawing.Imaging.ImageFormat]::Png)
-    $bitmap.Save((Join-Path $res "mipmap-$density/ic_controller_transparent.png"), [Drawing.Imaging.ImageFormat]::Png)
-    $graphics.Dispose(); $bitmap.Dispose()
-}
 $canvas.Dispose()
+& (Join-Path $PSScriptRoot 'build-transparent-launcher-icons.ps1')
 Write-Output "Source content: ${sourceWidth}x${sourceHeight}; scaled content: ${width}x${height}; canvas: 432x432"
