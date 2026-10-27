@@ -20,9 +20,7 @@ class AppIconResourcesTest {
 
     @Test fun launcherDefaultsToTransparencyAndKeepsBlackOnlyAsExplicitFallback() {
         assertEquals(R.mipmap.ic_controller_transparent, context.applicationInfo.icon)
-        val launcher = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_controller_transparent)
-        try { assertEquals(0, Color.alpha(launcher.getPixel(0, 0))) } finally { launcher.recycle() }
-        for (resource in listOf(R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller)) {
+        for (resource in listOf(R.mipmap.ic_controller_transparent, R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller)) {
             val icon = context.getDrawable(resource) as AdaptiveIconDrawable
             assertEquals(0, Color.alpha((icon.background as ColorDrawable).color))
         }
@@ -43,7 +41,7 @@ class AppIconResourcesTest {
 
     @Test fun standaloneLauncherKeepsUserApprovedLegacySizeAndProportions() {
         val options = BitmapFactory.Options().apply { inScaled = false }
-        val launcher = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_controller_transparent, options)
+        val launcher = BitmapFactory.decodeFile("src/main/res/mipmap-xxxhdpi/ic_controller_transparent.png", options)
         val foreground = BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_foreground, options)
         fun bounds(bitmap: android.graphics.Bitmap): Pair<Int, Int> {
             var left = bitmap.width; var right = -1; var top = bitmap.height; var bottom = -1

@@ -25,3 +25,9 @@
 - Repository pushes are independent of APK generation; cloud Android builds now
   require manual dispatch or a dedicated trigger-file commit. Manual version_code
   can be set to at least the latest local build to preserve update compatibility.
+
+## Launcher correction - build 381
+- Added adaptive override matching the manifest icon resource; transparent background, original foreground and legacy PNGs preserved.
+- Local signed build and icon/startup/pause plus shared regression tests passed; installed with adb install -r.
+- RG Rotate: current app.gbsat.emulator icon has no white backing on the second launcher page, alongside GBCast. First-page white icon belongs to legacy app.gbsat.android build 329; confirmed by launching each. Legacy installation/data preserved.
+- Adopted GBFrame 4d392ec launcher resource rule. No GitHub APK build triggered.
