@@ -291,6 +291,9 @@ add_library(ymir-core
     src/ymir/hw/sh2/sh2.cpp
     src/ymir/hw/sh2/sh2_decode.cpp
     src/ymir/hw/sh2/sh2_disasm.cpp
+    src/ymir/hw/sh2/jit/a64_emitter.hpp
+    src/ymir/hw/sh2/jit/sh2_jit.cpp
+    src/ymir/hw/sh2/jit/sh2_jit.hpp
 
     src/ymir/hw/vdp/vdp.cpp
 

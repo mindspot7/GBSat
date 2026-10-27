@@ -1,6 +1,10 @@
 # SH-2 ARM64 JIT: design
 
-Status: October 2026. Comparison tool done (phase 1 step 1); JIT not started.
+Status: October 2026. Phase 1 in progress: emitter, block cache with exact per-halfword invalidation, blocks run
+inside the chained interpreter (`RunChained<.., true>` -> `SH2::RunBlocks`), register/ALU/compare/shift instructions.
+Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the interpreter for 300 frames
+(sh2cmp, virtual RTC). ~45% of instructions run compiled, in blocks of ~1.7 instructions, so still slower than the
+interpreter: memory accesses and branches come next.
 
 ## Why, and what it can gain
 
@@ -62,7 +66,9 @@ validation mechanical (see below). Ymir's timing makes this possible because it 
    `LD_LIBRARY_PATH=. ./sh2cmp --bios <ipl.bin> --disc <game.chd> --state <0.savestate> --frames 600 [--sync 128]
    [--sync-b N]`. It compares MSH2, SSH2, WRAM-L, WRAM-H, system, VDP, sound RAM and SMPC (the SCU and SCSP
    serializers refuse to save some states, so those are left out). Checked: two interpreter runs of the Burning
-   Rangers state stay identical for 300 frames; sync 32 against 128 differs in the first frames.
+   Rangers state stay identical for 300 frames; sync 32 against 128 differs in the first frames. The tool runs the RTC
+   in virtual mode from a fixed time: with the host clock Daytona USA differs between two interpreter runs.
+   `--jit-b` runs B with the JIT, `--jit-b-nocompile` with the JIT path but no blocks (same as the interpreter).
 2. **Per-block check** (debug builds): after each compiled block, re-run the same instructions with the interpreter
    on a copy of the state and compare.
 3. Game tests: the owner's save states (Burning Rangers, Daytona USA, Virtua Fighter 2, NiGHTS) and the perf log.

@@ -1,5 +1,7 @@
 #include <ymir/hw/sh2/sh2.hpp>
 
+#include "jit/sh2_jit.hpp"
+
 #include <ymir/util/wait_stats.hpp>
 #include <ymir/util/bit_ops.hpp>
 #include <ymir/util/data_ops.hpp>
@@ -814,8 +816,16 @@ FLATTEN uint64 SH2::Advance(uint64 cycles, uint64 spilloverCycles) {
             // see the same loop heads as with one instruction at a time. Running the plain interpreter there made the
             // performance log time the old interpreter (msh2_ms/ssh2_ms) and slowed one frame in 7 in normal play.
             if (util::waitstats::g_sh2Chained.load(std::memory_order_relaxed)) [[likely]] {
-                RunChained<emulateCache>(cycles, prevPC); // runs one or more instructions (see RunChained)
-                chained = true;
+                if constexpr (!emulateCache) {
+                    if (m_jit != nullptr) {
+                        RunChained<false, true>(cycles, prevPC); // with compiled blocks (SH-2 JIT)
+                        chained = true;
+                    }
+                }
+                if (!chained) {
+                    RunChained<emulateCache>(cycles, prevPC); // runs one or more instructions (see RunChained)
+                    chained = true;
+                }
             }
         }
         if (!chained) {
@@ -2654,7 +2664,7 @@ FORCE_INLINE uint64 SH2::EnterException(uint8 vectorNumber) {
 // Burning Rangers). Same work per instruction as InterpretNext + the Advance loop: stops (back to Advance) when the time
 // slice ends, after a short backward jump that Advance's idle-loop detection must look at and before a pending interrupt
 // (InterpretNext services it). [prevPC] is the PC of the last instruction run.
-template <bool emulateCache>
+template <bool emulateCache, bool jit>
 void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
     static const void *const kOps[] = {
         &&op_NOP,
@@ -2984,6 +2994,15 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
         }                                                                                                             \
         prevPC = PC;                                                                                                   \
         m_intrFlags.allow = true;                                                                                      \
+        if constexpr (jit) {                                                                                           \
+            if (RunBlocks(cycles)) {                                                                                   \
+                if (m_cyclesExecuted >= cycles) {                                                                      \
+                    return;                                                                                            \
+                }                                                                                                      \
+                prevPC = PC;                                                                                           \
+            }                                                                                                          \
+            ++m_jit->stats.interpreted;                                                                                \
+        }                                                                                                              \
         instr = FetchInstruction<emulateCache>(PC);                                                                    \
         goto *kOps[static_cast<uint16>(DecodeTable::s_instance.opcodes[m_delaySlot][instr])];                          \
     } while (false)
@@ -3813,6 +3832,7 @@ op_IllegalSlot:
 
 template void SH2::RunChained<false>(uint64, uint32 &);
 template void SH2::RunChained<true>(uint64, uint32 &);
+template void SH2::RunChained<false, true>(uint64, uint32 &);
 
 
 template <bool debug, bool emulateCache>
@@ -6405,6 +6425,45 @@ void SH2::Probe::ExecuteDiv32() {
 
 void SH2::Probe::ExecuteDiv64() {
     m_sh2.ExecuteDiv64<true>();
+}
+
+// -----------------------------------------------------------------------------
+// JIT
+
+uint16 SH2::JitFetch(void *ctx, uint32 address) {
+    return static_cast<SH2 *>(ctx)->PeekInstruction<false>(address);
+}
+
+// Called by RunChained<.., true> where it would fetch the next instruction: runs the compiled blocks starting there,
+// with the chain's results. A block only runs when the chain would run all of its instructions in this slice (no
+// delay slot or interrupt pending, the slice doesn't end before its last instruction); they take 1 cycle each, plus
+// the load-use stall of the first one, and leave no pending load (m_wbReg). Returns whether any block ran.
+bool SH2::RunBlocks(uint64 cycles) {
+    bool ran = false;
+    while (!m_delaySlot && !m_intrFlags.pending) {
+        const jit::Block *block = m_jit->Get(PC, &JitFetch, this);
+        if (block == nullptr) {
+            break;
+        }
+        const uint64 stall = m_wbReg < 16 && ((block->firstRegs >> m_wbReg) & 1) ? 1 : 0;
+        if (m_cyclesExecuted + stall + block->count - 1 >= cycles) {
+            break;
+        }
+        block->code(R.data(), &SR.u32);
+        PC = block->lastPC + 2;
+        m_cyclesExecuted += block->count + stall;
+        m_wbReg = kWBRegNone;
+        if (block->setsFetch) {
+            m_fetchedOpcodes = block->fetched;
+        }
+        ++m_jit->stats.blocksRun;
+        m_jit->stats.instrsRun += block->count;
+        ran = true;
+        if (m_cyclesExecuted >= cycles) {
+            break;
+        }
+    }
+    return ran;
 }
 
 } // namespace ymir::sh2

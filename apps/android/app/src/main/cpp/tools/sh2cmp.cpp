@@ -3,12 +3,14 @@
 // save state of each run is hashed per component; the first frame that differs is reported with the components and
 // SH-2 registers that differ. No UI, no threads: runs on the device through adb.
 //
-//   sh2cmp --bios ipl.bin --disc game.chd --state 0.savestate [--frames 600] [--sync 128] [--sync-b 128]
+//   sh2cmp --bios ipl.bin --disc game.chd --state 0.savestate [--frames 600] [--sync 128] [--sync-b 128] [--jit-b]
 //
 // Exit code: 0 identical, 1 different, 2 setup error.
 
 #include <ymir/ymir.hpp>
 #include <ymir/util/wait_stats.hpp>
+
+#include "../../../../../../../libs/gbsat-core/src/ymir/hw/sh2/jit/sh2_jit.hpp"
 
 #include <serdes/cereal_savestate.hpp>
 
@@ -33,6 +35,8 @@ struct Options {
     int frames = 600;
     int sync = 128;
     int syncB = -1; // same as sync
+    bool jitB = false;
+    bool jitNoCompile = false;
 };
 
 std::unique_ptr<ymir::Saturn> MakeRun(const Options &o, int sync, const std::vector<uint8_t> &ipl, std::string &err) {
@@ -43,6 +47,9 @@ std::unique_ptr<ymir::Saturn> MakeRun(const Options &o, int sync, const std::vec
     cfg.swRenderer.threadedVDP2 = false;
     cfg.swRenderer.threadedDeinterlacer = false;
     cfg.audio.threadedSCSP = false;
+    // Emulated clock from a fixed time: with the host clock, games that read the RTC (Daytona USA) differ between runs
+    cfg.rtc.mode = ymir::core::config::rtc::Mode::Virtual;
+    cfg.rtc.virtHardResetStrategy = ymir::core::config::rtc::HardResetStrategy::ResetToFixedTime;
     saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(const_cast<uint8_t *>(ipl.data()), ymir::sys::kIPLSize));
 
     ymir::media::Disc disc;
@@ -178,6 +185,8 @@ int main(int argc, char **argv) {
         else if (a == "--frames") o.frames = std::atoi(next().c_str());
         else if (a == "--sync") o.sync = std::atoi(next().c_str());
         else if (a == "--sync-b") o.syncB = std::atoi(next().c_str());
+        else if (a == "--jit-b") o.jitB = true;
+        else if (a == "--jit-b-nocompile") o.jitB = o.jitNoCompile = true; // the JIT path, interpreting only
         else {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             return 2;
@@ -211,7 +220,26 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "run B: %s\n", err.c_str());
         return 2;
     }
-    std::printf("A: sync %d   B: sync %d   %d frames\n", o.sync, o.syncB, o.frames);
+    if (o.jitB && !runB->EnableSH2Jit(true)) {
+        std::fprintf(stderr, "the SH-2 JIT is not supported here\n");
+        return 2;
+    }
+    if (o.jitNoCompile) {
+        runB->GetSH2Jit()->compileEnabled = false;
+    }
+    std::printf("A: sync %d   B: sync %d%s   %d frames\n", o.sync, o.syncB, o.jitB ? " JIT" : "", o.frames);
+    const auto jitStats = [&] {
+        if (const auto *jit = runB->GetSH2Jit()) {
+            const auto &s = jit->stats;
+            const double total = double(s.instrsRun + s.interpreted);
+            std::printf("JIT: %llu blocks run (%.1f instr avg), %llu instr compiled = %.1f%%, %llu interpreted; "
+                        "%llu blocks compiled, %llu invalidated, %llu flushes\n",
+                        (unsigned long long)s.blocksRun, s.blocksRun ? double(s.instrsRun) / s.blocksRun : 0.0,
+                        (unsigned long long)s.instrsRun, total > 0 ? 100.0 * s.instrsRun / total : 0.0,
+                        (unsigned long long)s.interpreted, (unsigned long long)s.compiled,
+                        (unsigned long long)s.invalidated, (unsigned long long)s.flushes);
+        }
+    };
 
     auto stA = std::make_unique<ymir::savestate::SaveState>();
     auto stB = std::make_unique<ymir::savestate::SaveState>();
@@ -246,6 +274,7 @@ int main(int argc, char **argv) {
             PrintFirstDiff("WRAM-H", stA->system.WRAMHigh.data(), stB->system.WRAMHigh.data(),
                            stA->system.WRAMHigh.size(), 0x06000000);
             std::printf("time per frame: A %.2f ms, B %.2f ms\n", msA / frame, msB / frame);
+            jitStats();
             return 1;
         }
         if (frame % 60 == 0) {
@@ -255,5 +284,6 @@ int main(int argc, char **argv) {
     }
     std::printf("IDENTICAL for %d frames. Time per frame: A %.2f ms, B %.2f ms\n", o.frames, msA / o.frames,
                 msB / o.frames);
+    jitStats();
     return 0;
 }

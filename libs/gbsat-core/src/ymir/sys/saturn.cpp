@@ -1,4 +1,6 @@
 #include <ymir/sys/saturn.hpp>
+
+#include "../hw/sh2/jit/sh2_jit.hpp"
 #include <ymir/util/wait_stats.hpp>
 
 #include <ymir/db/game_db.hpp>
@@ -179,6 +181,9 @@ void Saturn::Reset(bool hard) {
 
     masterSH2.Reset(hard);
     slaveSH2.Reset(hard);
+    if (m_sh2Jit) {
+        m_sh2Jit->Flush(); // a hard reset clears the work RAMs directly
+    }
     slaveSH2Enabled = false;
     m_msh2SpilloverCycles = 0;
     m_ssh2SpilloverCycles = 0;
@@ -385,6 +390,25 @@ void Saturn::SaveState(savestate::SaveState &state) const {
     m_cdif.SaveState(state.cdif);
 }
 
+Saturn::~Saturn() = default;
+
+bool Saturn::EnableSH2Jit(bool enable) {
+    if (enable && !m_sh2Jit && sh2::jit::Cache::Supported()) {
+        m_sh2Jit = std::make_unique<sh2::jit::Cache>();
+    } else if (!enable) {
+        m_sh2Jit.reset();
+    }
+    masterSH2.UseJit(m_sh2Jit.get());
+    slaveSH2.UseJit(m_sh2Jit.get());
+    // Every write to the work RAMs (both SH-2s, SCU and SH-2 DMA, the CD block) drops the code compiled from there
+    const sys::FnCodeWrite watch =
+        m_sh2Jit ? [](uint32 address, void *ctx) { static_cast<sh2::jit::Cache *>(ctx)->CodeWritten(address); }
+                 : nullptr;
+    mainBus.SetCodeWatch(0x020'0000, 0x02F'FFFF, watch, m_sh2Jit.get());
+    mainBus.SetCodeWatch(0x600'0000, 0x7FF'FFFF, watch, m_sh2Jit.get());
+    return m_sh2Jit != nullptr;
+}
+
 bool Saturn::LoadState(const savestate::SaveState &state, bool skipROMChecks) {
     if (!m_scheduler.ValidateState(state.scheduler)) {
         return false;
@@ -442,6 +466,9 @@ bool Saturn::LoadState(const savestate::SaveState &state, bool skipROMChecks) {
     m_scheduler.LoadState(state.scheduler);
     m_system.LoadState(state.system);
     mem.LoadState(state.system);
+    if (m_sh2Jit) {
+        m_sh2Jit->Flush(); // work RAMs replaced
+    }
     slaveSH2Enabled = state.system.slaveSH2Enabled;
     m_msh2SpilloverCycles = state.msh2SpilloverCycles;
     m_ssh2SpilloverCycles = state.ssh2SpilloverCycles;

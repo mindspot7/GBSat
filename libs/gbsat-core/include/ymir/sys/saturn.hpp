@@ -32,6 +32,12 @@ See @ref index for instructions on how to use the emulator.
 
 #include <ymir/media/cd_interface.hpp>
 
+#include <memory>
+
+namespace ymir::sh2::jit {
+class Cache;
+} // namespace ymir::sh2::jit
+
 namespace ymir {
 
 /// @brief Represents an emulated Sega Saturn system.
@@ -45,6 +51,7 @@ struct Saturn {
     /// The emulator comes with no disc, no peripherals, no cartridge, and a basic IPL ROM that puts the master SH-2
     /// into an infinite do-nothing loop.
     Saturn();
+    ~Saturn(); // defined where sh2::jit::Cache is complete
 
     /// @brief Performs a soft or hard reset of the system.
     /// @param[in] hard `true` to do a hard reset, `false` for a soft reset
@@ -200,6 +207,15 @@ struct Saturn {
     /// @param[in] cycles the step length in master SH-2 cycles
     void SetSH2SyncStep(uint64 cycles) {
         m_sh2SyncStep = cycles > 0 ? cycles : 1;
+    }
+
+    /// @brief Enables or disables the SH-2 JIT (docs/SH2_JIT.md), for both SH-2s. Results are the same as the
+    /// interpreter's. Returns whether it is in use (false where it isn't supported).
+    bool EnableSH2Jit(bool enable);
+
+    /// @brief The SH-2 JIT's block cache (statistics), or nullptr when it is off.
+    [[nodiscard]] sh2::jit::Cache *GetSH2Jit() const noexcept {
+        return m_sh2Jit.get();
     }
 
     /// @brief Determines if SH-2 cache emulation is enabled.
@@ -465,6 +481,7 @@ private:
     media::CDInterface m_cdif;  ///< CD interface containing currently loaded disc
     media::fs::Filesystem m_fs; ///< Filesystem contained in the disc
 
+    std::unique_ptr<sh2::jit::Cache> m_sh2Jit; ///< SH-2 JIT block cache (nullptr: interpreter only)
     uint64 m_sh2SyncStep = 32;    ///< Cycles per master/slave SH-2 sync step (see SetSH2SyncStep)
     uint64 m_msh2SpilloverCycles; ///< Master SH-2 execution cycles spilled over between executions
     uint64 m_ssh2SpilloverCycles; ///< Slave SH-2 execution cycles spilled over between executions
