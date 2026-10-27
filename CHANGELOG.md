@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fast boot (System, on by default) now also runs the BIOS intro at maximum speed with the sound muted, until the game's own program starts; games reach their first screen several seconds sooner.
 - Data folder: the app's files go in a `GBSat` folder created inside the chosen folder (so one folder can hold every emulator); data already in a chosen folder moves there on the next start.
 - Controls page (controller drawing, button mapping, hotkeys, touch) now comes from the GBFrame kit, so every app built on it has the same page; it follows the app's theme colors.
 

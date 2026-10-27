@@ -16,6 +16,7 @@
 #include <ymir/ymir.hpp>
 #include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
 #include <ymir/util/wait_stats.hpp>
+#include <ymir/util/data_ops.hpp>
 #include <ymir/db/game_db.hpp>
 #include <ymir/hw/cart/cart.hpp>
 
@@ -171,6 +172,11 @@ struct Context {
     // silent black transitions and backup memory waits; also says when the faster CD read speed is safe (UpdateAutoSkip)
     gb::AutoSkip skip;
     uint32_t lastCdSectors = 0, lastCdSeek = 0, lastBup = 0; // core activity counters at the last frame
+    // Fast boot (GBFrame rule): the BIOS intro runs on the Skip Engine's fast path until the disc's 1st read program runs
+    std::atomic<bool> fastBoot{false};
+    std::atomic<bool> booting{false};
+    int bootFrames = 0, bootGameFrames = 0, bootRegion = -1; // emulation thread only
+    std::chrono::steady_clock::time_point bootStart;
     // CD read speed: the user's choice, and the one applied (the original 2x while the game streams from the CD)
     uint8_t cdSpeedUser = 2, cdSpeedApplied = 2;
     std::atomic<float> volume{1.0f};   // output volume 0..1
@@ -595,6 +601,62 @@ bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Emulation thread
 
+// Maximum speed, muted, with dropped presentation: fast-forward, the Skip Engine or the fast BIOS intro
+bool FastPath() {
+    return g->fastForward.load() || g->skip.Active() || g->booting.load(std::memory_order_relaxed);
+}
+
+void EndBoot(const char *reason) {
+    if (g->booting.exchange(false)) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g->bootStart).count();
+        LOGI("Fast boot off (%s) after %d frames, %lld ms", reason, g->bootFrames, (long long)ms);
+    }
+}
+
+// After a reset with a disc in the drive (emulation thread)
+void StartBoot() {
+    {
+        std::lock_guard lk(g->winMutex);
+        if (!g->fastBoot.load() || g->discHeader.empty()) {
+            return;
+        }
+    }
+    g->bootFrames = g->bootGameFrames = 0;
+    g->bootRegion = -1;
+    g->bootStart = std::chrono::steady_clock::now();
+    g->booting = true;
+    LOGI("Fast boot on");
+}
+
+// Once per emulated frame while booting (emulation thread). The BIOS loads the disc's IP.BIN to 06002000 and finally
+// jumps to the 1st read program at the address in its header (offset F0); the game runs from there.
+void BootFrame() {
+    if (!g->booting.load(std::memory_order_relaxed)) {
+        return;
+    }
+    ++g->bootFrames;
+    const auto &wram = g->saturn->mem.WRAMHigh;
+    const uint32_t pc = g->saturn->masterSH2.GetProbe().PC() & 0x07FFFFFF;
+    const bool header = std::memcmp(&wram[0x2000], "SEGA SEGASATURN ", 16) == 0;
+    const uint32_t firstRead = header ? util::ReadBE<uint32_t>(&wram[0x20F0]) & 0x07FFFFFF : 0;
+    const bool inGame = firstRead >= 0x06000000 && firstRead < 0x06100000 && pc >= firstRead && pc < 0x06100000;
+    // Where the master SH-2 runs, logged when it changes: 0 BIOS ROM, 1 low WRAM-H, 2 IP.BIN, 3 1st read area, 4 other
+    const int region = pc < 0x00100000 ? 0 : inGame ? 3 : (pc >= 0x06002000 && pc < 0x0600A000 && header) ? 2
+                     : (pc >= 0x06000000 && pc < 0x06100000) ? 1 : 4;
+    if (region != g->bootRegion) {
+        g->bootRegion = region;
+        LOGI("Fast boot frame %d pc %08x region %d header %d 1st read %08x", g->bootFrames, pc, region, header, firstRead);
+    }
+    g->bootGameFrames = inGame ? g->bootGameFrames + 1 : 0;
+    if (g->bootGameFrames >= 3) {
+        EndBoot("disc running");
+    } else if (g->fastForward.load()) {
+        EndBoot("fast-forward");
+    } else if (g->bootFrames > 30 * 60) {
+        EndBoot("timeout");
+    }
+}
+
 // Skip Engine and CD read speed, once per emulated frame (emulation thread): reports the core's CD and backup memory
 // activity to gb::AutoSkip (GBFrame, which decides) and applies the CD read speed it allows.
 void UpdateAutoSkip() {
@@ -626,7 +688,7 @@ void UpdateAutoSkip() {
 // second by the emulation thread.
 void ScspAutoTune(float fps) {
     auto &t = g->scspTune;
-    if (!g->scspAuto || g->fastForward.load() || g->skip.Active()) {
+    if (!g->scspAuto || FastPath()) {
         t = {};
         return;
     }
@@ -935,7 +997,7 @@ void EmuLoop() {
             const bool hires = g->videoW.load(std::memory_order_relaxed) >= 560 || g->videoH.load(std::memory_order_relaxed) >= 400;
             const auto t = steady_clock::now();
             bool skip;
-            if (g->fastForward.load() || g->skip.Active()) {
+            if (FastPath()) {
                 // Fast forward: render about 60 frames per second of real time and skip the rest, so heavy games
                 // spend the time emulating instead of drawing frames nobody can see
                 // (at most ~30 per second, and at least every other frame is skipped even when the game can't reach
@@ -1018,6 +1080,7 @@ void EmuLoop() {
         }
         g->palMode.store(g->saturn->GetVideoStandard() == ymir::core::config::sys::VideoStandard::PAL, std::memory_order_relaxed);
         UpdateAutoSkip();
+        BootFrame();
         bool skipNext = false;
         const bool cheatsAllowed = !ra::IsHardcore();
         for (const auto &c : g->cheats) {
@@ -1088,11 +1151,11 @@ void EmuLoop() {
             fpsWindowStart = now;
         }
 
-        if (g->fastForward.load() || g->skip.Active()) {
+        if (FastPath()) {
             // Default and mute: drop the excess so audio stays in sync when fast-forward ends.
             // Speed up: the samples were already decimated; keep the buffer short so it follows the game.
             // Skip Engine: muted (nothing reaches the buffer)
-            if (g->ffAudio.load() != 1 || g->skip.Active() ||
+            if (g->ffAudio.load() != 1 || g->skip.Active() || g->booting.load() ||
                 g->ring.Fill() > g->targetFill.load() * 2) {
                 g->ring.Clear();
             }
@@ -1160,7 +1223,7 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
                                            // Skip Engine: how loud the game is (a load or transition is silent); muted
                                            // while it runs at maximum speed
                                            g->skip.OnSample(l, r);
-                                           if (g->skip.Active() &&
+                                           if ((g->skip.Active() || g->booting.load(std::memory_order_relaxed)) &&
                                                !g->fastForward.load(std::memory_order_relaxed)) {
                                                return;
                                            }
@@ -1409,6 +1472,7 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
         g->saturn->LoadDisc(std::move(*disc));
         g->saturn->AutodetectRegion();
         g->saturn->Reset(true);
+        StartBoot();
         g->ring.Clear();
         ra::LoadGame(raHash);
         return 0;
@@ -1433,6 +1497,7 @@ JNI_FN(void, nativeReset)(JNIEnv *, jclass, jboolean hard) {
     if (g) {
         Post([hard] {
             g->saturn->Reset(hard);
+            StartBoot();
             ra::Reset();
         });
     }
@@ -1680,6 +1745,7 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
                            return "Loading states is disabled in RetroAchievements hardcore mode";
                        }
                        auto err = savestate_io::Load(*g->saturn, p);
+                       EndBoot("state loaded");
                        if (err.empty()) {
                            gb::DataInputFile in{p + ".ra", std::ios::binary};
                            std::vector<uint8_t> progress{std::istreambuf_iterator<char>(in), {}};
@@ -1873,6 +1939,9 @@ JNI_FN(void, nativeSetCheats)(JNIEnv *env, jclass, jlongArray addrs, jlongArray 
 
 // Fast boot: mark the SMPC clock/language setup as done so the BIOS skips its first-run screens.
 JNI_FN(void, nativeSetFastBoot)(JNIEnv *, jclass, jboolean on) {
+    if (g) {
+        g->fastBoot = on;
+    }
     if (g && on) {
         Post([] {
             ymir::smpc::PersistentSMPCData d;

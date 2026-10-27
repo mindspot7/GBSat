@@ -536,7 +536,7 @@ object Emulator {
         NativeBridge.nativeSetRenderer(displayRenderer)
         NativeBridge.nativeSetDisplayOptions(filter, shader)
         if (running) applyCheats()
-        if (fastBoot) NativeBridge.nativeSetFastBoot(true)
+        NativeBridge.nativeSetFastBoot(fastBoot)
     }
 
     fun savePrefs() {

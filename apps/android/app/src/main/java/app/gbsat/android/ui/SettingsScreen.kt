@@ -192,7 +192,7 @@ private fun SystemPage(
         autoSave = Emulator.autoSave, autoLoad = Emulator.autoLoad,
         onAutoSave = ch { Emulator.autoSave = it }, onAutoLoad = ch { Emulator.autoLoad = it },
         startup = SystemStartupOptions(
-            fastBoot = SystemToggleSetting(Emulator.fastBoot, ch { Emulator.fastBoot = it }, "Skip the BIOS clock and language screens"),
+            fastBoot = SystemToggleSetting(Emulator.fastBoot, ch { Emulator.fastBoot = it }, "Skip the BIOS intro and its clock and language screens"),
             skipLoadingScreens = SystemToggleSetting(Emulator.skipLoads, ch { Emulator.skipLoads = it }, "Maximum speed while the CD loads behind a still, silent screen"),
             skipTransitions = SystemToggleSetting(Emulator.skipTransitions, ch { Emulator.skipTransitions = it }, "Maximum speed through silent black screens between scenes"),
             skipSaveWaits = SystemToggleSetting(Emulator.skipSaves, ch { Emulator.skipSaves = it }, "Maximum speed while the game reads or writes its saves"),
