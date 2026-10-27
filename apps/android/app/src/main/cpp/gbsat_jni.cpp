@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <unwind.h>
 #include <android/log.h>
+#include <sys/system_properties.h>
 #include <android/native_window_jni.h>
 
 #include <ymir/ymir.hpp>
@@ -1571,7 +1572,14 @@ JNI_FN(void, nativeSetSH2Dynarec)(JNIEnv *, jclass, jboolean on) {
         Post([on] {
             if (g->saturn->IsSH2DynarecEnabled() != on) {
                 const bool active = g->saturn->EnableSH2Dynarec(on);
-                __android_log_print(ANDROID_LOG_WARN, LOG_TAG, "CPU core: %s", active ? "recompiler" : "interpreter");
+                // Sync step with the recompiler (A/B on the device: setprop debug.gbsat.jit_step <cycles>)
+                char v[PROP_VALUE_MAX] = {};
+                const int step = __system_property_get("debug.gbsat.jit_step", v) > 0 ? atoi(v) : 0;
+                if (active && step > 0) {
+                    g->saturn->SetSH2SyncStep(step);
+                }
+                __android_log_print(ANDROID_LOG_WARN, LOG_TAG, "CPU core: %s, sync step %d",
+                                    active ? "recompiler" : "interpreter", active && step > 0 ? step : 32);
             }
         });
     }

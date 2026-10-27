@@ -399,6 +399,9 @@ bool Saturn::EnableSH2Dynarec(bool enable) {
     mainBus.SetCodeWatch(0x020'0000, 0x02F'FFFF, watch);
     mainBus.SetCodeWatch(0x600'0000, 0x7FF'FFFF, watch);
     sh2::jit::Flush();
+    if (!on) {
+        m_sh2SyncStep = 32;
+    }
     return on;
 }
 
@@ -530,7 +533,7 @@ void Saturn::RunFrameImpl() {
 
 template <bool debug, bool enableSH2Cache, bool cdblockLLE>
 bool Saturn::Run() {
-    static constexpr uint64 kSH2SyncMaxStep = 32;
+    const uint64 kSH2SyncMaxStep = m_sh2SyncStep;
 
     const uint64 cycles = static_config::max_timing_granularity ? 1 : std::max<sint64>(m_scheduler.RemainingCount(), 0);
 

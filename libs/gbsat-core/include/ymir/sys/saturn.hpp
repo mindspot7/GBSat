@@ -32,6 +32,8 @@ See @ref index for instructions on how to use the emulator.
 
 #include <ymir/media/cd_interface.hpp>
 
+#include <algorithm>
+
 namespace ymir {
 
 /// @brief Represents an emulated Sega Saturn system.
@@ -199,6 +201,13 @@ struct Saturn {
     /// @param[in] enable whether to run compiled code instead of the interpreter
     /// @return whether the recompiler is now in use
     bool EnableSH2Dynarec(bool enable);
+
+    /// @brief How many cycles one SH-2 runs before the other catches up (default 32). Longer slices cost less per
+    /// cycle with the recompiler (each run enters and leaves compiled code) at the price of coarser CPU sync.
+    /// Turning the recompiler off restores 32.
+    void SetSH2SyncStep(uint64 cycles) {
+        m_sh2SyncStep = std::max<uint64>(cycles, 1);
+    }
 
     /// @brief Determines if the SH-2 dynamic recompiler is in use.
     [[nodiscard]] bool IsSH2DynarecEnabled() const noexcept {
@@ -468,6 +477,7 @@ private:
     media::CDInterface m_cdif;  ///< CD interface containing currently loaded disc
     media::fs::Filesystem m_fs; ///< Filesystem contained in the disc
 
+    uint64 m_sh2SyncStep = 32;    ///< Cycles per master/slave SH-2 sync step (see SetSH2SyncStep)
     uint64 m_msh2SpilloverCycles; ///< Master SH-2 execution cycles spilled over between executions
     uint64 m_ssh2SpilloverCycles; ///< Slave SH-2 execution cycles spilled over between executions
     uint64 m_sh1SpilloverCycles;  ///< SH-1 execution cycles spilled over between executions
