@@ -1570,19 +1570,16 @@ JNI_FN(void, nativeSetSH2Cache)(JNIEnv *, jclass, jboolean on) {
 JNI_FN(void, nativeSetSH2Dynarec)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {
-            if (g->saturn->IsSH2DynarecEnabled() != on) {
-                const bool active = g->saturn->EnableSH2Dynarec(on);
-                // Sync step with the recompiler: 128 cycles (VF2 and Burning Rangers on the T618: 32 gives no gain
-                // over the interpreter, 128 nearly all of 512's). A/B on the device: setprop debug.gbsat.jit_step N
-                char v[PROP_VALUE_MAX] = {};
-                const int prop = __system_property_get("debug.gbsat.jit_step", v) > 0 ? atoi(v) : 0;
-                const int step = active ? (prop > 0 ? prop : 128) : 32;
-                if (active) {
-                    g->saturn->SetSH2SyncStep(step);
-                }
-                __android_log_print(ANDROID_LOG_WARN, LOG_TAG, "CPU core: %s, sync step %d",
-                                    active ? "recompiler" : "interpreter", step);
-            }
+            const bool active = g->saturn->IsSH2DynarecEnabled() == on ? on : g->saturn->EnableSH2Dynarec(on);
+            // Master/slave SH-2 sync step: 32 cycles with the interpreter, 128 with the recompiler (VF2 and Burning
+            // Rangers on the T618: 32 gives it no gain, 128 nearly all of 512's). A/B on the device, either core:
+            // setprop debug.gbsat.sync_step N
+            char v[PROP_VALUE_MAX] = {};
+            const int prop = __system_property_get("debug.gbsat.sync_step", v) > 0 ? atoi(v) : 0;
+            const int step = prop > 0 ? prop : active ? 128 : 32;
+            g->saturn->SetSH2SyncStep(step);
+            __android_log_print(ANDROID_LOG_WARN, LOG_TAG, "CPU core: %s, sync step %d",
+                                active ? "recompiler" : "interpreter", step);
         });
     }
 }
