@@ -52,6 +52,9 @@ import app.gbsat.emulator.R
 import app.gbsat.android.SaturnButton
 import app.gbsat.android.Storage
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.documentfile.provider.DocumentFile
 
 /** Option pages opened from the side menu. */
 enum class SettingsPage(val label: String, val icon: ImageVector) {
@@ -71,9 +74,40 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
     val scope = rememberCoroutineScope()
     val current = page ?: SettingsPage.System
 
-    val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let { scope.launch { toast(Emulator.importBios(ctx, it) ?: "BIOS loaded") } }
+    var importingBios by remember { mutableStateOf(false) }
+    var biosCandidates by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
+    fun importBios(uri: Uri) {
+        if (!importingBios) scope.launch {
+            importingBios = true
+            try { toast(Emulator.importBios(ctx, uri) ?: "BIOS loaded") }
+            finally { importingBios = false }
+        }
     }
+    val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> uri?.let(::importBios) }
+    val biosFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null && !importingBios) scope.launch {
+            importingBios = true
+            try {
+                val files = withContext(Dispatchers.IO) {
+                    val root = requireNotNull(DocumentFile.fromTreeUri(ctx, uri)) { "Could not open BIOS folder" }
+                    root.listFiles().filter { it.isFile && it.length() == 512L * 1024 }
+                }
+                when (files.size) {
+                    0 -> toast("No 512 KiB Saturn BIOS found in that folder")
+                    1 -> toast(Emulator.importBios(ctx, files.single().uri) ?: "BIOS loaded")
+                    else -> biosCandidates = files
+                }
+            } catch (error: Exception) { toast(error.message ?: "Could not import BIOS") }
+            finally { importingBios = false }
+        }
+    }
+    if (biosCandidates.isNotEmpty()) AlertDialog(
+        onDismissRequest = { biosCandidates = emptyList() }, title = { Text("Choose Saturn BIOS") },
+        text = { Column { biosCandidates.forEach { file -> TextButton(onClick = {
+            biosCandidates = emptyList(); importBios(file.uri)
+        }) { Text(file.name ?: "BIOS") } } } },
+        confirmButton = { TextButton(onClick = { biosCandidates = emptyList() }) { Text("Cancel") } },
+    )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         uri?.let { Storage.takeFolder(it); Emulator.gamesDir = it.toString(); Emulator.savePrefs() }
     }
@@ -101,7 +135,7 @@ fun SettingsScreen(onBack: () -> Unit, toast: (String) -> Unit, page: SettingsPa
             ) {
                 Column(Modifier.widthIn(max = 760.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     when (current) {
-                        SettingsPage.System -> SystemPage({ biosPicker.launch(arrayOf("*/*")) }, { folderPicker.launch(null) },
+                        SettingsPage.System -> SystemPage({ biosPicker.launch(arrayOf("*/*")) }, { biosFolderPicker.launch(null) }, importingBios, { folderPicker.launch(null) },
                             onCart = { cartFile = it; cartPicker.launch(arrayOf("*/*")) })
                         SettingsPage.Video -> VideoPage()
                         SettingsPage.Audio -> AudioPage()
@@ -142,32 +176,42 @@ private fun <T> ch(set: (T) -> Unit): (T) -> Unit = { v -> set(v); Emulator.save
 
 @Composable
 private fun SystemPage(
-    onBios: () -> Unit, onGamesFolder: () -> Unit, onCart: (String) -> Unit,
+    onBios: () -> Unit, onBiosFolder: () -> Unit, importingBios: Boolean,
+    onGamesFolder: () -> Unit, onCart: (String) -> Unit,
 ) {
-    SettingsGroup("Getting started", Icons.Default.PlayCircle) {
-        ActionRow(Icons.Default.Memory, "Saturn BIOS", if (Emulator.iplLoaded) "Loaded" else "Required: choose your IPL ROM (512 KiB)",
-            if (Emulator.iplLoaded) "Replace" else "Choose", onBios, warn = !Emulator.iplLoaded)
-        SettingsDivider()
-        ActionRow(Icons.Default.Folder, "Games folder", if (Emulator.gamesDir.isBlank()) "Not set" else Storage.folderLabel(Emulator.gamesDir),
-            "Choose", onGamesFolder, warn = Emulator.gamesDir.isBlank())
-    }
-    SettingsGroup("Data", Icons.Default.Storage) {
-        gb.frame.DataFolderControls(Emulator.dataFolder)
-        Emulator.legacyDataDir?.let { old ->
-            InfoRow("Data from the previous version", "Choose $old as the Data folder to restore its files after reopening.")
-        }
-    }
-    SettingsGroup("Cartridge ROMs", Icons.Default.SdCard) {
-        ActionRow(Icons.Default.SdCard, "King of Fighters '95", if (Emulator.hasCartRom("kof95.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
-            "Choose", { onCart("kof95.bin") })
-        SettingsDivider()
-        ActionRow(Icons.Default.SdCard, "Ultraman", if (Emulator.hasCartRom("ultraman.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
-            "Choose", { onCart("ultraman.bin") })
-    }
-    SaveStateSettings(Emulator.autoSave, Emulator.autoLoad, ch { Emulator.autoSave = it }, ch { Emulator.autoLoad = it })
-    SettingsGroup("Startup", Icons.Default.RocketLaunch) {
-        ToggleRow(Icons.Default.FastForward, "Fast boot", "Skip the BIOS clock and language screens", Emulator.fastBoot, ch { Emulator.fastBoot = it })
-    }
+    SystemSettings(
+        dataFolder = Emulator.dataFolder,
+        gamesFolder = SystemFolderSetting(Emulator.gamesDir.takeIf { it.isNotBlank() }?.let(Storage::folderLabel),
+            "Choose the folder containing your Saturn disc images.", onGamesFolder),
+        biosFolder = SystemBiosFolderSetting(
+            path = if (Emulator.dataFolder.folder != null || Emulator.biosFile.exists()) Emulator.dataFolder.displayPath(Emulator.biosFile.parentFile!!) else null,
+            description = "Choose a folder containing your Saturn BIOS (IPL ROM, 512 KiB).",
+            files = listOf(SystemBiosFile(Emulator.biosFile.name, Emulator.iplLoaded && Emulator.biosFile.exists())),
+            onChooseFolder = onBiosFolder, onChooseFiles = onBios, busy = importingBios,
+        ),
+        autoSave = Emulator.autoSave, autoLoad = Emulator.autoLoad,
+        onAutoSave = ch { Emulator.autoSave = it }, onAutoLoad = ch { Emulator.autoLoad = it },
+        startup = SystemStartupOptions(
+            fastBoot = SystemToggleSetting(Emulator.fastBoot, ch { Emulator.fastBoot = it }, "Skip the BIOS clock and language screens"),
+            skipLoadingScreens = SystemToggleSetting(Emulator.skipLoads, ch { Emulator.skipLoads = it }, "Maximum speed while the CD loads behind a still, silent screen"),
+            skipTransitions = SystemToggleSetting(Emulator.skipTransitions, ch { Emulator.skipTransitions = it }, "Maximum speed through silent black screens between scenes"),
+            skipSaveWaits = SystemToggleSetting(Emulator.skipSaves, ch { Emulator.skipSaves = it }, "Maximum speed while the game reads or writes its saves"),
+        ),
+        emulatorFiles = {
+            SettingsGroup("Cartridge ROMs", Icons.Default.SdCard) {
+                ActionRow(Icons.Default.SdCard, "King of Fighters '95", if (Emulator.hasCartRom("kof95.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
+                    "Choose", { onCart("kof95.bin") })
+                SettingsDivider()
+                ActionRow(Icons.Default.SdCard, "Ultraman", if (Emulator.hasCartRom("ultraman.bin")) "Installed" else "ROM cartridge dump (needed by this game)",
+                    "Choose", { onCart("ultraman.bin") })
+            }
+        },
+        extraSettings = {
+            Emulator.legacyDataDir?.let { old ->
+                InfoRow("Data from the previous version", "Choose $old as the Data folder to use those files.")
+            }
+        },
+    )
 }
 
 @Composable
@@ -252,16 +296,7 @@ private fun PerformancePage() {
         val cdSpeeds = listOf(2, 4, 8, 16)
         ChoiceRow("CD read speed", "Shorter loading screens. Videos and music streamed from the CD switch back to the original speed; use Original if one still goes out of sync",
             listOf("Original", "4x", "8x", "16x"), cdSpeeds.indexOf(Emulator.cdSpeed).coerceAtLeast(0), ch<Int> { Emulator.cdSpeed = cdSpeeds[it] })
-        SettingsDivider()
-        // Skip Engine: maximum speed (sound muted) only while one of these is detected
-        ToggleRow(Icons.Default.FastForward, "Skip loading screens", "Maximum speed while the CD loads behind a still, silent screen",
-            Emulator.skipLoads, ch { Emulator.skipLoads = it })
-        SettingsDivider()
-        ToggleRow(Icons.Default.FastForward, "Skip transitions", "Maximum speed through silent black screens between scenes",
-            Emulator.skipTransitions, ch { Emulator.skipTransitions = it })
-        SettingsDivider()
-        ToggleRow(Icons.Default.FastForward, "Skip save waits", "Maximum speed while the game reads or writes its saves",
-            Emulator.skipSaves, ch { Emulator.skipSaves = it })
+
     }
     SettingsGroup("Emulation", Icons.Default.Memory) {
         ChoiceRow("Threaded audio", "Sound chip and its 68000 on a separate thread. Auto tries both while a game runs slow and remembers the faster one per game",

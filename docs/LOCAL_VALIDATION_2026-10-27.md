@@ -45,3 +45,15 @@
 - No all-files permission was added. Uses the official Android folder picker and persistent document grants. This storage approach does not itself require Play's restricted MANAGE_EXTERNAL_STORAGE permission.
 - A pre-migration device-data backup is preserved on the PC in ignored test-output/direct-data-before.
 - Final device BIOS-import check selected the already-installed Documents/GBSatData/bios/ipl.bin itself through the Android picker. The app reported BIOS loaded, and SHA-256 before/after was identical, confirming safe direct replacement without truncating the source.
+
+
+## Shared System layout - build 383
+
+- Uses GBFrame SystemSettings: three Data folder rows, cartridge ROMs, automatic save states, then Loading Times. Getting started is removed from System.
+- Bios folder displays Documents/GBSatData/bios and ipl.bin - Loaded. The shared chooser supports folder import and individual files; multiple 512 KiB candidates require an explicit selection.
+- Fast boot and the three existing Skip Engine toggles are grouped in Loading Times; the three skip options were removed from the main Performance page. Existing settings and native callbacks are preserved.
+- RG Rotate: verified Data row order/paths, BIOS status, Cartridge ROMs placement, Save states before Loading Times, all four Loading Times options, and scrolling on 720x720.
+- Changed Skip loading screens, allowed preferences to flush, force-stopped/reopened and verified the changed value persisted. Restored its original enabled value afterwards.
+- Selected the active bios folder through the new folder action: app reported BIOS loaded and the installed BIOS SHA-256 stayed unchanged.
+- Local release tests: 9 app tests and 14 shared tests. Debug Compose UI tests: 4 passed, including section order, unconfigured folder descriptions, selected paths and unsupported-feature omission. App-ID check passed.
+- No extra storage permissions; imports keep using the official document picker and active SAF storage adapter.
