@@ -253,6 +253,21 @@ public:
     void AndXLow(uint32 rd, uint32 rn, uint32 len) {
         Emit(0x92400000 | ((len - 1) << 10) | (rn << 5) | rd);
     }
+    void Mul(uint32 rd, uint32 rn, uint32 rm) {
+        Emit(0x1B007C00 | (rm << 16) | (rn << 5) | rd); // madd wd, wn, wm, wzr
+    }
+    void Smull(uint32 xd, uint32 wn, uint32 wm) {
+        Emit(0x9B207C00 | (wm << 16) | (wn << 5) | xd);
+    }
+    void Umull(uint32 xd, uint32 wn, uint32 wm) {
+        Emit(0x9BA07C00 | (wm << 16) | (wn << 5) | xd);
+    }
+    void Sxtw(uint32 xd, uint32 wn) {
+        Emit(0x93407C00 | (wn << 5) | xd);
+    }
+    void StrXZero(uint32 xn) {
+        Emit(0xF900001F | (xn << 5)); // str xzr, [xn]
+    }
     void AddXImmLsl12(uint32 rd, uint32 rn, uint32 imm12) {
         Emit(0x91400000 | (imm12 << 10) | (rn << 5) | rd);
     }
@@ -272,6 +287,10 @@ public:
     void Cbnz(uint32 rt, Label &l) {
         Use(l, true);
         Emit(0x35000000 | rt);
+    }
+    void CbzW(uint32 rt, Label &l) {
+        Use(l, true);
+        Emit(0x34000000 | rt);
     }
     void CbnzX(uint32 rt, Label &l) {
         Use(l, true);

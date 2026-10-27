@@ -1,12 +1,16 @@
 # SH-2 ARM64 JIT: design
 
-Status: October 2026, phase 1. Blocks run inside the chained interpreter (`RunChained<.., true>` ->
-`SH2::RunBlocks`): register/ALU/compare/shift instructions in host code, MOV.B/W/L loads and stores with a direct
-WRAM-H path (other addresses call the interpreter), everything else (branches, delay slots, MAC/MUL, LDC/STS...) as
-calls to `InterpretNext`. Exact per-halfword invalidation. Blocks are compiled at jump targets only and run only
-when the slice fits them. Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the
-interpreter for 300 frames. Still slower than the interpreter (sh2cmp, RG Rotate: Burning Rangers 27.7 vs 21.4 ms,
-VF2 31.9 vs 29.6 ms per frame): the interpreter calls left (MAC.L, CLRMAC, STS MACH/MACL, branches, DMULS) come next.
+Status: October 2026, end of phase 1. Blocks run inside the chained interpreter (`RunChained<.., true>` ->
+`SH2::RunBlocks`). Host code: register/ALU/compare/shift instructions, MOV.B/W/L loads and stores (direct WRAM-H
+path, interpreter for other addresses), MAC.L/MAC.W (direct path when SR.S = 0), MUL/MULS/MULU/DMULS/DMULU, CLRMAC,
+STS/LDS MACH/MACL/PR with registers, and the branches (BT/BF/BT.S/BF.S/BRA/BSR/BRAF/BSRF/JMP/JSR/RTS) with their
+delay slot in host code when it is a register instruction. Everything else is a call to `InterpretNext` from the
+block. Burning Rangers, Daytona USA, Virtua Fighter 2 and NiGHTS stay identical to the interpreter for 300 frames.
+Blocks are compiled at jump targets only (compiling at slice starts made 96k blocks in Burning Rangers and was
+slower). Speed (sh2cmp, RG Rotate, ms per frame, interpreter -> JIT): Burning Rangers 21.2 -> 26.9, Daytona 21.0 ->
+22.8, VF2 29.5 -> 31.0, NiGHTS 24.1 -> 26.0. Most instructions are still dispatched by the chain (the start of each
+128-cycle slice, until a jump target) and each block run pays a fixed entry/exit cost: phase 2 links blocks
+directly in host code and keeps the registers between them.
 
 ## Why, and what it can gain
 

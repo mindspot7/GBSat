@@ -38,6 +38,7 @@ struct Options {
     int syncB = -1; // same as sync
     bool jitB = false;
     bool jitNoCompile = false;
+    std::string jitOff;
 };
 
 std::unique_ptr<ymir::Saturn> MakeRun(const Options &o, int sync, const std::vector<uint8_t> &ipl, std::string &err) {
@@ -157,6 +158,11 @@ void PrintSH2(const char *name, const ymir::savestate::SH2SaveState &a, const ym
     row("VBR", a.VBR, b.VBR);
     row("MACH", a.MACH, b.MACH);
     row("MACL", a.MACL, b.MACL);
+    row("dslot", a.delaySlot, b.delaySlot);
+    row("dtgt", a.delaySlotTarget, b.delaySlotTarget);
+    row("allow", a.intrAllow, b.intrAllow);
+    row("fetch", a.fetchedOpcodes, b.fetchedOpcodes);
+    row("wbReg", a.wbReg, b.wbReg);
 }
 
 void PrintFirstDiff(const char *name, const uint8_t *a, const uint8_t *b, size_t size, uint32_t base) {
@@ -188,6 +194,7 @@ int main(int argc, char **argv) {
         else if (a == "--sync-b") o.syncB = std::atoi(next().c_str());
         else if (a == "--jit-b") o.jitB = true;
         else if (a == "--jit-b-nocompile") o.jitB = o.jitNoCompile = true; // the JIT path, interpreting only
+        else if (a == "--jit-off") o.jitOff = next(); // host code off for: branches,specials,mac,slots
         else {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             return 2;
@@ -227,6 +234,12 @@ int main(int argc, char **argv) {
     }
     if (o.jitNoCompile) {
         runB->GetSH2Jit()->compileEnabled = false;
+    }
+    if (auto *jit = runB->GetSH2Jit()) {
+        jit->nativeBranches = o.jitOff.find("branches") == std::string::npos;
+        jit->nativeSpecials = o.jitOff.find("specials") == std::string::npos;
+        jit->nativeMac = o.jitOff.find("mac") == std::string::npos;
+        jit->nativeSlots = o.jitOff.find("slots") == std::string::npos;
     }
     std::printf("A: sync %d   B: sync %d%s   %d frames\n", o.sync, o.syncB, o.jitB ? " JIT" : "", o.frames);
     const auto jitStats = [&] {

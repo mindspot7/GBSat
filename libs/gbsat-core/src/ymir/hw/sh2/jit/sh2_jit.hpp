@@ -27,6 +27,10 @@ struct Context {
     uint8 *intr;                     // [0] interrupt pending, [1] allowed
     uint32 *fetched;                 // fetched opcode pair (pipeline)
     uint32 *GBR;
+    uint64 *MAC;                     // MAC.u64 (MACL low, MACH high)
+    uint32 *PR;
+    bool *delaySlot;
+    uint32 *delaySlotTarget;
     uint8 *wramHigh;                 // WRAM-H array (big-endian), accessed directly for the cached area
     const uint64 *codeBits;          // the cache's code bitmap (writes to compiled code)
     void *cache;
@@ -38,6 +42,7 @@ struct Context {
     uint64 limit;                    // end of the time slice
     uint32 startEpoch;               // epoch when the block started
     uint32 lastPC;                   // out: last instruction run (or attempted)
+    uint8 post;                      // out: 1 refill the pipeline (taken branch), 2 a delay slot ended (see RunBlocks)
 };
 
 // A compiled block: code(&context) runs from startPC.
@@ -63,6 +68,8 @@ public:
 
     // Diagnostics: with compiling off no block is made, so the JIT path only interprets
     bool compileEnabled = true;
+    // Diagnostics: host code for these kinds (off: interpreter calls)
+    bool nativeBranches = true, nativeSpecials = true, nativeMac = true, nativeSlots = true;
 
     // Drops every block (reset, save state load)
     void Flush();

@@ -6467,8 +6467,20 @@ bool SH2::RunBlocks(uint64 cycles, uint32 &prevPC) {
     }
     m_jitCtx->limit = cycles;
     m_jitCtx->startEpoch = *m_jitCtx->epoch;
+    m_jitCtx->post = 0;
     block->code(m_jitCtx.get());
     prevPC = m_jitCtx->lastPC;
+    // What the block's last branch leaves to do, as the interpreter does it
+    if (m_jitCtx->post & 1) {
+        RefillPipeline<false>(); // taken BT/BF
+    }
+    if (m_jitCtx->post & 2) {
+        // end of a delay slot (AdvancePC<.., true>): PC is the target
+        if (PC & 2) {
+            RefillPipeline<false>();
+        }
+        m_intrFlags.pending = INTC.pending.level > SR.ILevel;
+    }
     ++m_jit->stats.blocksRun;
     return true;
 }
@@ -6498,6 +6510,10 @@ void SH2::UseJit(jit::Cache *cache) {
     c.interpret = &JitInterpret;
     c.epoch = cache->Epoch();
     c.GBR = &GBR;
+    c.MAC = &MAC.u64;
+    c.PR = &PR;
+    c.delaySlot = &m_delaySlot;
+    c.delaySlotTarget = &m_delaySlotTarget;
     c.wramHigh = m_bus.ArrayAt(0x600'0000);
     c.codeBits = cache->CodeBits();
     c.cache = cache;
