@@ -212,6 +212,13 @@ struct Context {
     int notBehindRun = 0;    // consecutive frames on time
     int renderRun = 0;       // consecutive rendered frames
     int minRenderRun = 2;    // frames shown between skips (adapted every second while skipping: 1..4)
+    // Does skipping help? Skipped frames save the VDP's work; when the emulation thread is bound by the SH-2s (rendering
+    // runs on other threads) a skipped frame takes as long as a rendered one, and skipping only drops frames from the
+    // screen (RG DS, Virtua Fighter 2: 1 of 2 frames skipped, both ~21 ms). Measured every second while skipping.
+    int64_t fsRenderedNs = 0, fsSkippedNs = 0;
+    int fsRendered = 0, fsSkipped = 0;
+    bool fsUseless = false; // skipping saved under 10%: off until fsHold runs out (scenes change)
+    int fsHold = 0;         // seconds
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -958,6 +965,9 @@ void WritePerfLog(float fps, float presentedFps) {
         settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
         settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
+    if (g->fsUseless) {
+        settings += ";frameskip_paused=useless"; // frame skip on, but held off: skipped frames weren't faster
+    }
     fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
@@ -1035,7 +1045,7 @@ void EmuLoop() {
                     g->skipActive = false;
                 }
                 const int unit = hires ? 2 : 1;
-                skip = g->frameSkip.load() && g->skipActive && g->behind &&
+                skip = g->frameSkip.load() && g->skipActive && !g->fsUseless && g->behind &&
                        (g->skipRun > 0 ? g->skipRun < unit : g->renderRun >= g->minRenderRun * unit);
             }
             if (!skip) {
@@ -1125,9 +1135,13 @@ void EmuLoop() {
             if (skippedFrame) {
                 g_skippedNs += ns;
                 ++g_skippedFrames;
+                g->fsSkippedNs += ns;
+                ++g->fsSkipped;
             } else {
                 g_renderedNs += ns;
                 ++g_renderedFrames;
+                g->fsRenderedNs += ns;
+                ++g->fsRendered;
             }
             const int64_t prev = g->frameTimeUs.load(std::memory_order_relaxed);
             g->frameTimeUs.store(prev == 0 ? ns / 1000 : (prev * 7 + ns / 1000) / 8, std::memory_order_relaxed);
@@ -1147,6 +1161,23 @@ void EmuLoop() {
             const float secs = duration<float>(now - fpsWindowStart).count();
             g->fps = fpsFrames / secs;
             WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);
+            // Frame skip that doesn't make frames faster only drops them: off for a while (then tried again)
+            if (g->fsHold > 0) {
+                if (--g->fsHold == 0) {
+                    g->fsUseless = false;
+                }
+            } else if (g->skipActive && g->fsSkipped >= 5 && g->fsRendered >= 5) {
+                const double skippedAvg = double(g->fsSkippedNs) / g->fsSkipped;
+                const double renderedAvg = double(g->fsRenderedNs) / g->fsRendered;
+                if (skippedAvg > renderedAvg * 0.9) {
+                    g->fsUseless = true;
+                    g->fsHold = 20;
+                    LOGI("Frame skip off for 20 s: skipped frames %.1f ms, rendered %.1f ms", skippedAvg / 1e6,
+                         renderedAvg / 1e6);
+                }
+            }
+            g->fsRenderedNs = g->fsSkippedNs = 0;
+            g->fsRendered = g->fsSkipped = 0;
             // Frame skip spacing: skip more often while still clearly slow, less often once at full speed
             if (g->skipActive) {
                 const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
