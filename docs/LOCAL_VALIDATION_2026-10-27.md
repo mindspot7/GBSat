@@ -65,3 +65,12 @@
 - Shared standalone ARM64 native tests: 17 passed on RG Rotate, including concurrent callbacks and all three skip reasons. Local release build and selected app tests (9) plus shared tests (14) passed.
 - Installed the locally signed build 384 as an update, retaining app data and signature. Dracula X (BR) booted from the selected data/game folders at normal speed (60.4 FPS / 100.6% observed). App-ID and whitespace checks passed.
 - Existing screenshot changes were preserved and excluded from this update. No GitHub build was requested.
+
+## Vulkan verification with automatic Skips - build 384
+
+- RG Rotate / Android 12, installed local build 384: selected GPU (Vulkan), confirmed all three existing Skip preferences on, and booted DoDonPachi and Dracula X (BR) from scratch.
+- Performance CSV confirms renderer=GPU (Vulkan), manual fast_forward=0 and automatic acceleration in both games. DoDonPachi reached 102.7 emulated FPS during a detected wait, then returned to approximately 60 FPS with auto_skip_pct=0. Dracula X reached 105.4 emulated FPS during a wait and continued through its intro.
+- No reproduction of GBCast's Vulkan presentation stalls/resource recreation. GBSat's Vulkan VDP callbacks feed the same detector; presentation uses the OpenGL ES presenter and automatic Skip does not recreate a Vulkan swapchain. Only one Vulkan initialization occurred before the two game sessions.
+- Dracula X's Konami intro was slower (roughly 37-47 FPS in sampled intervals). Repeated the boot with all three Skips off, confirmed skip_loads/transitions/saves=off and auto_skip_pct=0 in the CSV: the same intro also slowed to roughly 37-48 FPS. This is a remaining Vulkan performance limitation in this tested game/device, not evidence of the GBCast Skip presentation regression. Later static intro screens returned to about 60 FPS.
+- Restored original CPU (OpenGL) renderer and all three Skip preferences on. No app rebuild, save-slot replacement or code fix was necessary for this verification.
+- Local evidence (ignored): test-output/vulkan-skip-check/perf-log.csv and screenshots. Existing documentation screenshot edits remain untouched. These are startup/intro tests on two games, not a compatibility guarantee for every game or every save-wait path.
