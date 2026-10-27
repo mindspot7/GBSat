@@ -32,9 +32,6 @@ using FnWrite32 = void (*)(uint32 address, uint32 value, void *ctx); ///< Functi
 /// @brief Function signature for bus wait checks.
 using FnBusWait = bool (*)(uint32 address, uint32 size, bool write, void *ctx);
 
-/// @brief Function signature for code-memory write notifications (SH-2 dynamic recompiler).
-using FnCodeWrite = void (*)(uint32 address, uint32 size);
-
 /// @brief Specifies valid bus handler function types.
 /// @tparam T the type to check
 template <typename T>
@@ -161,24 +158,6 @@ public:
         }
     }
 
-    /// @brief The array mapped at @p address (start of its page), or nullptr if the page isn't array-mapped.
-    uint8 *ArrayAt(uint32 address) const {
-        return m_pages[(address & kAddressMask) >> pageGranularityBits].array;
-    }
-
-    /// @brief Reports every write to the array-mapped pages in the range to @p fn (the SH-2 dynamic recompiler drops
-    /// the code it compiled from there). Pass nullptr to stop. Applies to array mappings only (work RAM).
-    void SetCodeWatch(uint32 start, uint32 end, FnCodeWrite fn) {
-        const uint32 startIndex = start >> pageGranularityBits;
-        const uint32 endIndex = end >> pageGranularityBits;
-        for (uint32 i = startIndex; i <= endIndex; i++) {
-            m_pages[i].codeWatch = fn != nullptr && m_pages[i].array != nullptr;
-        }
-        if (fn != nullptr) {
-            m_codeWrite = fn;
-        }
-    }
-
     // -----------------------------------------------------------------------------------------------------------------
     // Accessors
 
@@ -220,9 +199,6 @@ public:
         if (entry.array) {
             if (entry.arrayWritable) {
                 util::WriteBE<T>(&entry.array[address & kPageMask], value);
-                if (entry.codeWatch) [[unlikely]] {
-                    m_codeWrite(address, sizeof(T));
-                }
             }
             return;
         }
@@ -276,9 +252,6 @@ public:
         if (entry.array) {
             if (entry.arrayWritable) {
                 util::WriteBE<T>(&entry.array[address & kPageMask], value);
-                if (entry.codeWatch) [[unlikely]] {
-                    m_codeWrite(address, sizeof(T));
-                }
             }
             return;
         }
@@ -361,7 +334,6 @@ private:
 
         uint8 *array = nullptr;
         bool arrayWritable = false;
-        bool codeWatch = false; // writes are reported to m_codeWrite (compiled SH-2 code lives here)
 
         // Slow path for MMIO and other regions
 
@@ -395,7 +367,6 @@ private:
     static_assert(bit::is_power_of_two(sizeof(MemoryPage))); // in order to avoid a multiplication when indexing pages
 
     std::array<MemoryPage, kPageCount> m_pages;
-    FnCodeWrite m_codeWrite = [](uint32, uint32) {};
 
     template <bool normal, bool sideEffectFree, bus_handler_fn... THandlers>
         requires util::unique_types<THandlers...>

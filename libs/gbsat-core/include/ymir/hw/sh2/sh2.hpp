@@ -42,16 +42,11 @@
 
 namespace ymir::sh2 {
 
-namespace jit {
-    class Cpu;
-} // namespace jit
-
 // -----------------------------------------------------------------------------
 
 class SH2 {
 public:
     SH2(sys::SH2Bus &bus, bool master);
-    ~SH2();
 
     void Reset(bool hard, bool watchdogInitiated = false);
 
@@ -125,16 +120,6 @@ public:
     void ClearParked() {
         m_parked = false;
     }
-
-    /// @brief Dynamic recompiler (experimental, ARM64 builds only): runs compiled blocks of code (YabaSanshiro's
-    /// DynarecSh2) instead of interpreting each instruction. Faster, with coarser timing: interrupts are taken between
-    /// blocks and instructions cost fixed cycles. Debug slices and Step always interpret.
-    /// Returns whether the recompiler is now in use (false where it isn't supported).
-    bool SetDynarec(bool enable);
-    bool IsDynarecEnabled() const {
-        return m_dynarec != nullptr;
-    }
-    static bool DynarecSupported();
 
     /// @brief Why the last loop analyzed wasn't idle (performance log): the instruction that ruled it out, and the
     /// address it reads when that was the reason (opcode FFFF: no rts found in a called function; FFFE: a register
@@ -848,17 +833,6 @@ private:
 
     template <mem_primitive T, bool instrFetch, bool peek, bool emulateCache>
     T MemRead(uint32 address);
-
-    // Dynamic recompiler (see SetDynarec): the compiled code's memory accesses come back here
-    jit::Cpu *m_dynarec = nullptr;
-    template <bool emulateCache>
-    void AdvanceDynarec(uint64 cycles);
-    template <mem_primitive T>
-    static T DynarecRead(void *ctx, uint32 address, uint32 &cycles);
-    template <mem_primitive T>
-    static void DynarecWrite(void *ctx, uint32 address, T value, uint32 &cycles);
-    static uint16 DynarecFetch(void *ctx, uint32 address);
-    static uint32 DynarecPeek(void *ctx, uint32 address);
 
     template <mem_primitive T, bool poke, bool debug, bool emulateCache>
     void MemWrite(uint32 address, T value);

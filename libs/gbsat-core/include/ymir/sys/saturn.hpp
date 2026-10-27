@@ -32,8 +32,6 @@ See @ref index for instructions on how to use the emulator.
 
 #include <ymir/media/cd_interface.hpp>
 
-#include <algorithm>
-
 namespace ymir {
 
 /// @brief Represents an emulated Sega Saturn system.
@@ -196,22 +194,12 @@ struct Saturn {
         configuration.system.emulateSH2Cache = enable;
     }
 
-    /// @brief Enables or disables the SH-2 dynamic recompiler (experimental, ARM64 builds only; see
-    /// sh2::SH2::SetDynarec). Applies to both SH-2s.
-    /// @param[in] enable whether to run compiled code instead of the interpreter
-    /// @return whether the recompiler is now in use
-    bool EnableSH2Dynarec(bool enable);
-
-    /// @brief How many cycles one SH-2 runs before the other catches up (default 32). Longer slices cost less per
-    /// cycle with the recompiler (each run enters and leaves compiled code) at the price of coarser CPU sync.
-    /// Turning the recompiler off restores 32.
+    /// @brief How many cycles the master SH-2 runs before the slave SH-2 and the SCU catch up (default 32). Longer
+    /// steps cost less per cycle (fewer switches between the CPUs) but sync them more coarsely: a game that
+    /// hands work between the CPUs in tighter loops can misbehave.
+    /// @param[in] cycles the step length in master SH-2 cycles
     void SetSH2SyncStep(uint64 cycles) {
-        m_sh2SyncStep = std::max<uint64>(cycles, 1);
-    }
-
-    /// @brief Determines if the SH-2 dynamic recompiler is in use.
-    [[nodiscard]] bool IsSH2DynarecEnabled() const noexcept {
-        return masterSH2.IsDynarecEnabled();
+        m_sh2SyncStep = cycles > 0 ? cycles : 1;
     }
 
     /// @brief Determines if SH-2 cache emulation is enabled.

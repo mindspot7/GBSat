@@ -1,6 +1,4 @@
 #include <ymir/sys/saturn.hpp>
-
-#include "../hw/sh2/jit/sh2_jit.hpp"
 #include <ymir/util/wait_stats.hpp>
 
 #include <ymir/db/game_db.hpp>
@@ -181,7 +179,6 @@ void Saturn::Reset(bool hard) {
 
     masterSH2.Reset(hard);
     slaveSH2.Reset(hard);
-    sh2::jit::Flush(); // a hard reset clears the work RAMs directly
     slaveSH2Enabled = false;
     m_msh2SpilloverCycles = 0;
     m_ssh2SpilloverCycles = 0;
@@ -388,23 +385,6 @@ void Saturn::SaveState(savestate::SaveState &state) const {
     m_cdif.SaveState(state.cdif);
 }
 
-bool Saturn::EnableSH2Dynarec(bool enable) {
-    bool on = masterSH2.SetDynarec(enable) && slaveSH2.SetDynarec(enable);
-    if (!on) {
-        masterSH2.SetDynarec(false);
-        slaveSH2.SetDynarec(false);
-    }
-    // Every write to the work RAMs (both SH-2s, SCU and SH-2 DMA, the CD block) drops the code compiled from there
-    const sys::FnCodeWrite watch = on ? &sh2::jit::CodeWritten : nullptr;
-    mainBus.SetCodeWatch(0x020'0000, 0x02F'FFFF, watch);
-    mainBus.SetCodeWatch(0x600'0000, 0x7FF'FFFF, watch);
-    sh2::jit::Flush();
-    if (!on) {
-        m_sh2SyncStep = 32;
-    }
-    return on;
-}
-
 bool Saturn::LoadState(const savestate::SaveState &state, bool skipROMChecks) {
     if (!m_scheduler.ValidateState(state.scheduler)) {
         return false;
@@ -462,7 +442,6 @@ bool Saturn::LoadState(const savestate::SaveState &state, bool skipROMChecks) {
     m_scheduler.LoadState(state.scheduler);
     m_system.LoadState(state.system);
     mem.LoadState(state.system);
-    sh2::jit::Flush(); // work RAMs replaced: drop the code compiled from them
     slaveSH2Enabled = state.system.slaveSH2Enabled;
     m_msh2SpilloverCycles = state.msh2SpilloverCycles;
     m_ssh2SpilloverCycles = state.ssh2SpilloverCycles;

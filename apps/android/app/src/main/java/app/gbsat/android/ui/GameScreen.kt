@@ -300,10 +300,10 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 Emulator.applyOptions()
             }
             QuickMenuItemRow(
-                id = "cpu_core", icon = Icons.Default.Memory, label = "CPU core",
-                value = if (Emulator.sh2Dynarec) "Recompiler" else "Interpreter",
+                id = "cpu_sync", icon = Icons.Default.Memory, label = "CPU sync",
+                value = if (Emulator.cpuSync == 1) "Fast" else "Accurate",
             ) {
-                Emulator.sh2Dynarec = !Emulator.sh2Dynarec
+                Emulator.cpuSync = 1 - Emulator.cpuSync
                 Emulator.savePrefs()
                 Emulator.applyOptions()
             }

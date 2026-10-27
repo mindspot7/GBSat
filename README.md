@@ -110,8 +110,6 @@ GBSat collects no personal data; see the [privacy policy](PRIVACY.md).
 ## License
 
 GBSat is based on [Ymir](https://github.com/StrikerX3/Ymir) by StrikerX3.
-The experimental SH-2 recompiler (CPU core: Recompiler) is DynarecSh2 from
-[YabaSanshiro](https://github.com/devmiyax/yabause) by devMiyax (GPLv2 or later), adapted to Ymir.
 Sega Saturn is a trademark of SEGA. GBSat is not affiliated with or endorsed by SEGA.
 
 

@@ -291,8 +291,6 @@ add_library(ymir-core
     src/ymir/hw/sh2/sh2.cpp
     src/ymir/hw/sh2/sh2_decode.cpp
     src/ymir/hw/sh2/sh2_disasm.cpp
-    src/ymir/hw/sh2/jit/sh2_jit.cpp
-    src/ymir/hw/sh2/jit/sh2_jit.hpp
 
     src/ymir/hw/vdp/vdp.cpp
 
@@ -342,22 +340,6 @@ target_include_directories(ymir-core
     PRIVATE "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
 )
 target_compile_features(ymir-core PUBLIC cxx_std_20)
-
-## SH-2 dynamic recompiler (YabaSanshiro's DynarecSh2, GPLv2+): ARM64 Linux/Android only. Elsewhere sh2_jit.cpp
-## reports it unsupported and the interpreter always runs.
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" AND NOT APPLE AND NOT WIN32)
-    enable_language(ASM)
-    target_sources(ymir-core PRIVATE
-        src/ymir/hw/sh2/jit/DynarecSh2.cpp
-        src/ymir/hw/sh2/jit/DynarecSh2.h
-        src/ymir/hw/sh2/jit/opcodes.h
-        src/ymir/hw/sh2/jit/yaba_compat.h
-        src/ymir/hw/sh2/jit/dynalib_arm64.s
-    )
-    target_compile_definitions(ymir-core PRIVATE GBSAT_SH2_JIT=1)
-    # Third-party code, kept close to upstream: don't let its warnings fail or clutter the build
-    set_source_files_properties(src/ymir/hw/sh2/jit/DynarecSh2.cpp PROPERTIES COMPILE_OPTIONS "-w")
-endif ()
 
 ## Add OS-specific source files for host CD drive support
 if (Ymir_FF_HOST_CD_DRIVES)
