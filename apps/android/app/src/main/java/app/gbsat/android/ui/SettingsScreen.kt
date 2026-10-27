@@ -304,7 +304,7 @@ private fun PerformancePage() {
         SettingsDivider()
         ToggleRow(Icons.Default.Verified, "SH-2 cache emulation", "More accurate, slightly slower", Emulator.sh2Cache, ch { Emulator.sh2Cache = it })
         SettingsDivider()
-        ChoiceRow("CPU sync", "How often the two SH-2 CPUs are kept in step. Fast syncs less often: about 10% less work, but a game may misbehave; use Accurate then",
+        ChoiceRow("CPU sync", "How often the two SH-2 CPUs are kept in step. Fast (default) syncs less often for about 10% less work; use Accurate if a game misbehaves",
             listOf("Accurate", "Fast"), Emulator.cpuSync, ch<Int> { Emulator.cpuSync = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
