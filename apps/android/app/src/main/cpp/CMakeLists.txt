@@ -65,3 +65,14 @@ target_link_libraries(gbsat PRIVATE ymir::ymir-core rcheevos cereal::cereal andr
 set_target_properties(gbsat PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
 # 16 KB page size support (Google Play requirement for native code)
 target_link_options(gbsat PRIVATE "-Wl,-z,max-page-size=16384")
+
+# Developer tools, built only on request (-DGBSAT_TOOLS=ON) and run through adb: sh2cmp compares two runs of the same
+# save state frame by frame (SH-2 JIT validation, docs/SH2_JIT.md)
+option(GBSAT_TOOLS "Build the developer command-line tools" OFF)
+if(GBSAT_TOOLS)
+    add_executable(gbsat-sh2cmp tools/sh2cmp.cpp)
+    target_include_directories(gbsat-sh2cmp PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+    target_compile_features(gbsat-sh2cmp PRIVATE cxx_std_20)
+    target_link_libraries(gbsat-sh2cmp PRIVATE ymir::ymir-core cereal::cereal xxHash::xxHash log android vulkan)
+    gb_native_storage(gbsat-sh2cmp) # the core's file access goes through the kit's storage layer
+endif()
