@@ -57,3 +57,11 @@
 - Selected the active bios folder through the new folder action: app reported BIOS loaded and the installed BIOS SHA-256 stayed unchanged.
 - Local release tests: 9 app tests and 14 shared tests. Debug Compose UI tests: 4 passed, including section order, unconfigured folder descriptions, selected paths and unsupported-feature omission. App-ID check passed.
 - No extra storage permissions; imports keep using the official document picker and active SAF storage adapter.
+
+## Shared Skip Engine hardening - local build 384
+
+- Updates GBFrame's existing detector: synchronized renderer/emulation observations, atomic audio peak maximum and diagnostics, immediate cancellation on audio/gameplay or disabled options, and conservative save-wait detection that does not accelerate moving-picture background saves.
+- Keeps existing System > Loading Times controls and preferences. Uses the same native detector as GBCast; console-specific signals and acceleration remain in each consumer.
+- Shared standalone ARM64 native tests: 17 passed on RG Rotate, including concurrent callbacks and all three skip reasons. Local release build and selected app tests (9) plus shared tests (14) passed.
+- Installed the locally signed build 384 as an update, retaining app data and signature. Dracula X (BR) booted from the selected data/game folders at normal speed (60.4 FPS / 100.6% observed). App-ID and whitespace checks passed.
+- Existing screenshot changes were preserved and excluded from this update. No GitHub build was requested.
