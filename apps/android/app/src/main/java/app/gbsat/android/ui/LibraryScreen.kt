@@ -199,7 +199,7 @@ fun LibraryScreen(
     }) {
         Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier.safeDrawingPadding().padding(12.dp)),
             verticalArrangement = Arrangement.spacedBy(if (fullscreen) 0.dp else 12.dp)) {
-            if (!fullscreen) HomeTopBar(painterResource(R.drawable.ic_launcher_foreground), "GBSat", onClick = {
+            if (!fullscreen) HomeTopBar(rememberAppIconPainter(R.drawable.ic_launcher_foreground), "GBSat", onClick = {
                 if (!menuOpen) MenuState.selected = null
                 menuOpen = !menuOpen
             }, menuOpen = menuOpen)
@@ -232,7 +232,7 @@ fun LibraryScreen(
         // page is shown, so Back returns to it with that entry selected
         HomeMenuPanel(
             open = menuOpen, onDismiss = { menuOpen = false }, focus = menuFocus,
-            appIcon = painterResource(R.drawable.ic_launcher_foreground), appName = "GBSat",
+            appIcon = rememberAppIconPainter(R.drawable.ic_launcher_foreground), appName = "GBSat",
             themeLabel = HomeTheme.style.value.label,
             fullscreen = fullscreen,
             // Keep the current focus in place; changing the theme must not refocus a different menu item.
