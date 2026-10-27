@@ -41,7 +41,7 @@ class AppIconResourcesTest {
         } finally { bitmap.recycle() }
     }
 
-    @Test fun standaloneLauncherDoesNotReuseAdaptiveSafeZonePaddingOrStretchArtwork() {
+    @Test fun standaloneLauncherKeepsUserApprovedLegacySizeAndProportions() {
         val options = BitmapFactory.Options().apply { inScaled = false }
         val launcher = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_controller_transparent, options)
         val foreground = BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_foreground, options)
@@ -58,7 +58,7 @@ class AppIconResourcesTest {
         try {
             val (width, height) = bounds(launcher)
             val (sourceWidth, sourceHeight) = bounds(foreground)
-            assertTrue("Launcher artwork shrank into adaptive padding", width.toFloat() / launcher.width in .80f.. .90f)
+            assertTrue("Approved legacy icon must retain its larger composition", width.toFloat() / launcher.width in .90f..1f)
             assertEquals("Controller must retain its proportions", sourceWidth.toFloat() / sourceHeight, width.toFloat() / height, .08f)
             assertEquals(0, Color.alpha(launcher.getPixel(0, 0)))
         } finally { launcher.recycle(); foreground.recycle() }
