@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Data folder: the app's files go in a `GBSat` folder created inside the chosen folder (so one folder can hold every emulator); data already in a chosen folder moves there on the next start.
 - Controls page (controller drawing, button mapping, hotkeys, touch) now comes from the GBFrame kit, so every app built on it has the same page; it follows the app's theme colors.
 
 ## 1.3.6
