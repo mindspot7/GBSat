@@ -1,3 +1,4 @@
+#include <gb_data_storage.hpp>
 // Ymir Android bridge: runs ymir-core on a dedicated emulation thread, presents frames to an ANativeWindow,
 // and streams SCSP audio through AAudio. All emulator state is only touched from the emulation thread;
 // the UI talks to it through a command queue (see Post/RunSync).
@@ -569,7 +570,7 @@ void WriteSmpc(const ymir::smpc::PersistentSMPCData &d) {
     if (g->smpcPath.empty()) {
         return;
     }
-    std::ofstream out(g->smpcPath, std::ios::binary | std::ios::trunc);
+    gb::DataOutputFile out(g->smpcPath, std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char *>(d.SMEM.data()), 4);
     const uint8_t ste = d.STE ? 1 : 0;
     out.write(reinterpret_cast<const char *>(&ste), 1);
@@ -578,7 +579,7 @@ void WriteSmpc(const ymir::smpc::PersistentSMPCData &d) {
 }
 
 bool ReadSmpc(ymir::smpc::PersistentSMPCData &d) {
-    std::ifstream in(g->smpcPath, std::ios::binary);
+    gb::DataInputFile in(g->smpcPath, std::ios::binary);
     if (!in) {
         return false;
     }
@@ -1362,7 +1363,7 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
         } else if (need == Cartridge::ROM_KOF95 || need == Cartridge::ROM_Ultraman) {
             const bool kof = need == Cartridge::ROM_KOF95;
             const auto path = std::filesystem::path(g->dataDir) / "carts" / (kof ? "kof95.bin" : "ultraman.bin");
-            std::ifstream in(path, std::ios::binary);
+            gb::DataInputFile in(path, std::ios::binary);
             std::vector<uint8_t> rom((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             if (!rom.empty()) {
                 g->saturn->InsertCartridge<ymir::cart::ROMCartridge>()->LoadROM(rom);
@@ -1384,7 +1385,8 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
                 ymir::bup::BackupMemory bm;
                 std::error_code ec;
                 bool ok = false;
-                if (std::filesystem::exists(path)) {
+                struct stat backupInfo;
+                if (gb::DataStat(path.c_str(), &backupInfo) == 0) {
                     ok = bm.LoadFrom(path, false, ec) == ymir::bup::BackupMemoryImageLoadResult::Success && !ec;
                 } else {
                     bm.CreateFrom(path, false, ec, ymir::bup::BackupMemorySize::_32Mbit);
@@ -1661,7 +1663,7 @@ JNI_FN(jstring, nativeSaveState)(JNIEnv *env, jclass, jstring path) {
         if (err.empty()) {
             // RetroAchievements progress (achievement hit counts) next to the state
             const auto progress = ra::SerializeProgress();
-            std::ofstream out{p + ".ra", std::ios::binary | std::ios::trunc};
+            gb::DataOutputFile out{p + ".ra", std::ios::binary | std::ios::trunc};
             out.write(reinterpret_cast<const char *>(progress.data()), (std::streamsize)progress.size());
         }
         return err;
@@ -1679,7 +1681,7 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
                        }
                        auto err = savestate_io::Load(*g->saturn, p);
                        if (err.empty()) {
-                           std::ifstream in{p + ".ra", std::ios::binary};
+                           gb::DataInputFile in{p + ".ra", std::ios::binary};
                            std::vector<uint8_t> progress{std::istreambuf_iterator<char>(in), {}};
                            ra::DeserializeProgress(progress);
                        }

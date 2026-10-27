@@ -6,6 +6,11 @@
 #include <ymir/util/wait_stats.hpp>
 
 #include <fstream>
+#ifdef __ANDROID__
+#include <gb_data_storage.hpp>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <string_view>
 
 namespace ymir::bup {
@@ -97,6 +102,20 @@ void BackupMemory::CreateFrom(const std::filesystem::path &path, bool copyOnWrit
     // Convert enum into size
     const size_t sz = kSizes[static_cast<size_t>(size)];
 
+#ifdef __ANDROID__
+    if (gb::IsDataPath(path.c_str())) {
+        int fd = gb::DataOpen(path.c_str(), O_RDWR | O_CREAT);
+        if (fd < 0) { error.assign(errno, std::generic_category()); return; }
+        struct stat info;
+        if (fstat(fd, &info) != 0) { error.assign(errno, std::generic_category()); close(fd); return; }
+        if (info.st_size != sz && info.st_size != sz * 2) {
+            format = true;
+            if (ftruncate(fd, sz) != 0) { error.assign(errno, std::generic_category()); close(fd); return; }
+        }
+        close(fd);
+    } else
+#endif
+    {
     // Create file if it does not exist
     if (!std::filesystem::is_regular_file(path)) {
         format = true;
@@ -114,6 +133,8 @@ void BackupMemory::CreateFrom(const std::filesystem::path &path, bool copyOnWrit
         if (error) {
             return;
         }
+    }
+
     }
 
     // Attempt to memory-map the file
@@ -715,6 +736,23 @@ BackupFile BackupMemory::BuildFile(const BackupFileParams &params) const {
 
 std::unique_ptr<BackupMemory::Container> BackupMemory::MemoryMapFile(const std::filesystem::path &path,
                                                                      bool copyOnWrite, std::error_code &error) {
+#ifdef __ANDROID__
+    if (gb::IsDataPath(path.c_str())) {
+        const int fd = gb::DataOpen(path.c_str(), copyOnWrite ? O_RDONLY : O_RDWR);
+        if (fd < 0) { error.assign(errno, std::generic_category()); return {}; }
+        if (copyOnWrite) {
+            auto map = mio::make_mmap_cow_sink(fd, error);
+            close(fd);
+            if (error) return {};
+            return std::make_unique<MemoryMappedCoWFileContainer>(std::move(map));
+        }
+        auto map = mio::make_mmap_sink(fd, error);
+        // mio does not own descriptors supplied by the caller. The mapping remains valid after close.
+        close(fd);
+        if (error) return {};
+        return std::make_unique<MemoryMappedFileContainer>(std::move(map));
+    }
+#endif
     if (copyOnWrite) {
         auto mmap = mio::make_mmap_cow_sink(path.native(), error);
         if (error) {

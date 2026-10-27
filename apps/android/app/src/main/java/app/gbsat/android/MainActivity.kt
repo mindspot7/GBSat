@@ -74,7 +74,6 @@ class MainActivity : ComponentActivity() {
     private fun quitApp() {
         Emulator.autoSaveBlocking()
         NativeBridge.nativeShutdown()
-        Emulator.dataFolder.syncNow()
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid()) // emulator state lives in the process; start clean next time
     }

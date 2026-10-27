@@ -1,3 +1,4 @@
+#include <gb_data_storage.hpp>
 // Save state (de)serialization. Kept in its own translation unit because the cereal serializers are heavy.
 // Uses the same on-disk format as the desktop frontend (cereal PortableBinaryArchive), so states are interchangeable.
 #include <ymir/ymir.hpp>
@@ -18,17 +19,19 @@ std::string Save(ymir::Saturn &saturn, const std::filesystem::path &path) {
         auto state = std::make_unique<ymir::savestate::SaveState>();
         saturn.SaveState(*state);
         std::error_code ec;
-        std::filesystem::create_directories(path.parent_path(), ec);
+        gb::DataMkdir(path.parent_path().c_str());
         const auto tmp = path.string() + ".tmp";
         {
-            std::ofstream out{tmp, std::ios::binary};
+            gb::DataOutputFile out{tmp, std::ios::binary};
             if (!out) {
                 return "Cannot write save state file";
             }
             cereal::PortableBinaryOutputArchive archive{out};
             archive(*state);
+            out.flush();
+            if (!out) return "Failed to finish writing save state";
         }
-        std::filesystem::rename(tmp, path, ec);
+        if (std::rename(tmp.c_str(), path.c_str()) != 0) ec.assign(errno, std::generic_category());
         return ec ? "Cannot finalize save state file: " + ec.message() : std::string{};
     } catch (const std::exception &e) {
         return std::string("Save failed: ") + e.what();
@@ -37,7 +40,7 @@ std::string Save(ymir::Saturn &saturn, const std::filesystem::path &path) {
 
 std::string Load(ymir::Saturn &saturn, const std::filesystem::path &path) {
     try {
-        std::ifstream in{path, std::ios::binary};
+        gb::DataInputFile in{path, std::ios::binary};
         if (!in) {
             return "No save state in this slot";
         }

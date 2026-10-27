@@ -21,7 +21,8 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (Emulator.initializationError == null) CircularProgressIndicator()
-                    Text(Emulator.initializationError ?: "Preparing data folder…")
+                    Text(Emulator.initializationError ?: "Opening data folder…")
+                    if (Emulator.initializationError != null) gb.frame.DataFolderControls(Emulator.dataFolder)
                 }
             }
             return@GBSatTheme

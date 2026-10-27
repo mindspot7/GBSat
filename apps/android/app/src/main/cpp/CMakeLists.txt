@@ -56,6 +56,7 @@ add_library(gbsat SHARED gbsat_jni.cpp gbsat_ra.cpp savestate_io.cpp)
 include("${YMIR_ROOT}/libs/gbframe/native/gb_native.cmake")
 # APP_ID is the applicationId (Android/media/<APP_ID> is the only folder the app may write to; PGO and the perf log use it)
 gb_native_add(gbsat APP_ID "app.gbsat.emulator")
+gb_native_storage(gbsat)
 # The emulation core reads disc files through the descriptor with the kit's gb_proc_fd.hpp
 gb_native_core(ymir-core)
 target_include_directories(gbsat PRIVATE "${CMAKE_CURRENT_LIST_DIR}")

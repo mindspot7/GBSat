@@ -16,7 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.view.KeyEvent
-import java.io.File
+import gb.frame.DataFile as File
 
 /** Process-wide emulator controller: owns persistent settings and merges all input sources into one pad. */
 object Emulator {
@@ -360,7 +360,7 @@ object Emulator {
 
     /** Screenshot taken when the slot was saved, or null. */
     fun slotThumbnail(slot: Int): android.graphics.Bitmap? =
-        stateFile(slot)?.let { thumbFile(it) }?.takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.path) }
+        stateFile(slot)?.let { thumbFile(it) }?.takeIf { it.exists() }?.let { it.inputStream().use { stream -> android.graphics.BitmapFactory.decodeStream(stream) } }
     suspend fun loadState(slot: Int): String? = withContext(Dispatchers.IO) {
         val f = stateFile(slot) ?: return@withContext "No game loaded"
         NativeBridge.nativeLoadState(f.absolutePath)
@@ -380,7 +380,12 @@ object Emulator {
     suspend fun importCartRom(uri: android.net.Uri, fileName: String): String? = withContext(Dispatchers.IO) {
         runCatching {
             val dst = File(dataDir, "carts").apply { mkdirs() }.resolve(fileName)
-            appContext.contentResolver.openInputStream(uri)?.use { i -> dst.outputStream().use { i.copyTo(it) } } ?: error("Can't read the file")
+            val staged = File.createTempFile("cart-", ".tmp", dst.parentFile)
+            try {
+                appContext.contentResolver.openInputStream(uri)?.use { input -> staged.outputStream().use { input.copyTo(it) } }
+                    ?: error("Can't read the file")
+                check(staged.renameTo(dst)) { "Could not replace cartridge ROM" }
+            } finally { staged.delete() }
         }.exceptionOrNull()?.let { "Copy failed: ${it.message}" }
     }
     fun hasCartRom(fileName: String) = File(dataDir, "carts/$fileName").exists()
@@ -411,7 +416,7 @@ object Emulator {
         // Data lives in the app's storage. Older versions could keep it in a folder of the user's choice, which needed
         // the all-files permission; select that folder in System → Data folder to restore it through SAF.
         val oldDir = prefs.getString("dataDir", null)
-        dataDir = appContext.filesDir
+        dataDir = File(appContext.filesDir.path)
         if (oldDir != null) {
             val f = File(oldDir)
             if (f.canRead()) runCatching { dataSubdirs.forEach { n -> File(f, n).takeIf { it.exists() }?.copyRecursively(File(dataDir, n), overwrite = false) } }
@@ -419,8 +424,8 @@ object Emulator {
             prefs.edit().remove("dataDir").apply()
         }
         dataFolder = gb.frame.AppDataFolder(appContext, "GBSat", (dataSubdirs + "carts").associateWith { File(dataDir, it) })
-        dataFolder.restoreAtStartup()
-        dataFolder.watch()
+        System.loadLibrary("gbsat")
+        dataFolder.openAtStartup()
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)
@@ -507,7 +512,7 @@ object Emulator {
         }
 
         val bup = File(dataDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
-        NativeBridge.nativeInit(bup.absolutePath, File(dataDir, "saves/smpc.bin").absolutePath)
+        NativeBridge.nativeInit(bup.absolutePath, File(dataDir, "saves/smpc.bin").absolutePath)?.let { error(it) }
         applyOptions()
         RetroAchievements.init(appContext, "GBSat", appVersion().substringBefore(" "), GBSatRa)
         if (biosFile.exists()) iplLoaded = NativeBridge.nativeLoadIpl(biosFile.absolutePath) == null
@@ -557,15 +562,24 @@ object Emulator {
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
 
-    /** Copies the picked BIOS into app storage and loads it. Returns an error message or null. */
+    /** Validate a staged BIOS in the active data folder before replacing the installed one. */
     suspend fun importBios(context: Context, uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        biosFile.parentFile?.mkdirs()
-        context.contentResolver.openInputStream(uri)?.use { i -> biosFile.outputStream().use { o -> i.copyTo(o) } }
-            ?: return@withContext "Cannot read file"
-        val err = NativeBridge.nativeLoadIpl(biosFile.absolutePath)
-        iplLoaded = err == null
-        if (err != null) biosFile.delete()
-        err
+        val destination = biosFile
+        destination.parentFile?.mkdirs()
+        val staged = File.createTempFile("bios-", ".tmp", destination.parentFile)
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input -> staged.outputStream().use { input.copyTo(it) } }
+                ?: return@withContext "Cannot read file"
+            if (staged.length() != 512L * 1024) return@withContext "Saturn BIOS must be 512 KiB"
+            NativeBridge.nativeLoadIpl(staged.absolutePath)?.let { return@withContext it }
+            if (!staged.renameTo(destination)) {
+                if (destination.exists()) NativeBridge.nativeLoadIpl(destination.absolutePath)
+                return@withContext "Could not replace BIOS"
+            }
+            iplLoaded = true
+            null
+        } catch (failure: Exception) { failure.message ?: "Cannot import BIOS" }
+        finally { staged.delete() }
     }
 
     /** Device class (CPU cores and GPU): recommended preset, game profiles, Native resolution cap. */

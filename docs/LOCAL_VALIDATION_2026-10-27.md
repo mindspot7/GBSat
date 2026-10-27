@@ -31,3 +31,17 @@
 - Local signed build and icon/startup/pause plus shared regression tests passed; installed with adb install -r.
 - RG Rotate: current app.gbsat.emulator icon has no white backing on the second launcher page, alongside GBCast. First-page white icon belongs to legacy app.gbsat.android build 329; confirmed by launching each. Legacy installation/data preserved.
 - Adopted GBFrame 4d392ec launcher resource rule. No GitHub APK build triggered.
+
+
+## Direct authoritative data storage - build 382
+
+- Adopted shared GBFrame SAF Kotlin/native adapters. Selected Documents/GBSatData is the working storage for BIOS, saves, states, screenshots, cheats, covers and cartridge ROMs, with no active local mirror.
+- Migration preserves previous offline writes, verifies destinations and retires matching obsolete local files once. Ordinary startup checks roots/access only, without full content hashes or background synchronization.
+- Native internal/cartridge backup memory maps the provider's actual file descriptor. SMPC, BIOS/cartridge reads, savestate serialization and RetroAchievements state sidecars use the common native data adapter instead of libc++ reopening local paths.
+- RG Rotate: existing Dracula X (BR) save was available, saved to previously empty Slot 4, showed the screenshot and loaded that slot directly. BIOS remained Loaded, and covers read from the selected folder.
+- Temporarily renamed the selected folder with the app stopped: startup blocked core initialization, displayed the storage error and shared chooser. Restored the folder without uninstalling or clearing app data.
+- Local release regression tests: 9 app tests plus 12 shared tests; debug shared wizard/monitoring UI checks also passed (2). App-ID check passed. Installed with the official release signing key.
+- BIOS/cartridge imports stage in the selected folder before replacement, including when users select the already-installed file; no directory mirror is created.
+- No all-files permission was added. Uses the official Android folder picker and persistent document grants. This storage approach does not itself require Play's restricted MANAGE_EXTERNAL_STORAGE permission.
+- A pre-migration device-data backup is preserved on the PC in ignored test-output/direct-data-before.
+- Final device BIOS-import check selected the already-installed Documents/GBSatData/bios/ipl.bin itself through the Android picker. The app reported BIOS loaded, and SHA-256 before/after was identical, confirming safe direct replacement without truncating the source.
