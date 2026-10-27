@@ -9,7 +9,7 @@ Sega Saturn emulator for Android, written in Kotlin/Jetpack Compose on top of a 
 
 ## Build
 
-CI: push to the repository; `.github/workflows/android.yml` produces `GBSat-v<version>-build<N>.apk` as a build artifact.
+CI: manually dispatch `Build GBSat` with the Android version code; `.github/workflows/build.yml` produces `GBSat-v<version>-build<N>.apk` as a build artifact.
 
 Local: install Android Studio (SDK 36, NDK 27.2.12479018, CMake 3.31.6), clone with `--recurse-submodules`, open
 `apps/android`, and run. The repository includes a Gradle 8.14.3 wrapper, matching CI; no global Gradle or sibling GBCast checkout is needed.
@@ -48,3 +48,6 @@ remain private; GBSat does not currently support texture replacement packs.
 3. Pick a game. In the library, X opens the main menu, Start cycles the theme (Showcase, Grid, All in One), B exits and Select toggles fullscreen. In a game, B/Back closes the current menu level or opens the in-game menu; the controller's menu hotkey also opens it. Physical gamepads work automatically.
 
 License: GPLv3 (see `LICENSE` at the repository root).
+
+Tests, Android Lint, screenshots and profiling run locally. See the shared
+[build and validation standard](../../libs/gbframe/docs/BUILD_VALIDATION_STANDARD.md).

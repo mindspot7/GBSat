@@ -12,8 +12,7 @@ set BRANCH=android-port
 set APP=app.gbsat.emulator
 rem APP is both applicationId and namespace; ACTIVITY is the fully qualified source class (it may use a different package).
 set ACTIVITY=app.gbsat.android.MainActivity
-rem Workflow da build de profiling, tag do log do Android com a linha "Game: <nome>" e thread de emulacao (profile)
-set PROFILE_WF=profile.yml
+rem Tag do log do Android e thread de emulacao para profiling local
 set LOGTAG=GBSat
 set EMU_THREAD=Thread-3
 rem Chaves de diagnostico A/B (propriedades debug.NAME.chave, lidas pelo app a cada segundo; ate 3)
@@ -38,7 +37,7 @@ echo.
 echo ===== %TITLE% =====
 echo  1. Baixar e instalar a ultima build
 echo  2. Teste de desempenho de um jogo ^(perf-log^)
-echo  3. Profile de CPU de jogos ^(instala a build de profiling^)
+echo  3. Profile de CPU de jogos ^(build local de profiling^)
 echo  4. Medir a rolagem da biblioteca
 echo  5. Puxar os dados do treino PGO
 echo  6. Diagnostico A/B ^(com o jogo rodando^)
@@ -54,7 +53,7 @@ if errorlevel 5 goto pgo
 if errorlevel 4 goto rolagem
 if errorlevel 3 goto profile
 if errorlevel 2 goto perflog
-call :instalar "Android APK"
+call :instalar "build.yml"
 goto menu
 
 rem ---------------------------------------------------------------------------------------------------------------------
@@ -84,7 +83,8 @@ goto menu
 
 rem ---------------------------------------------------------------------------------------------------------------------
 :profile
-call :instalar "Profiling build" || goto menu
+call :aparelho || goto menu
+echo Use uma build local com -PgbsatProfile para nomes de funcoes e linhas.
 :profile_proximo
 echo.
 echo Abra o jogo no aparelho e jogue; aperte uma tecla aqui para gravar 20 segundos.
@@ -206,7 +206,7 @@ adb shell input keyevent KEYCODE_WAKEUP >nul 2>&1
 adb shell wm dismiss-keyguard >nul 2>&1
 exit /b 0
 
-rem Baixa a ultima build verde do workflow %1 ("Android APK" ou "Profiling build"), instala, apaga o .apk e compila o app
+rem Baixa a ultima build verde do unico workflow de APK e instala mantendo os dados
 :instalar
 set "WF=%~1"
 call :aparelho || exit /b 1
@@ -217,23 +217,6 @@ if errorlevel 1 (
   pause & exit 1
 )
 gh auth status >nul 2>nul || gh auth login --hostname github.com --git-protocol https --web
-if not "%WF%"=="Profiling build" goto instalar_baixar
-rem A build de profiling precisa ser de depois da normal ^(o Android recusa versao mais antiga^)
-set NORMAL=
-set PROF=
-for /f "delims=" %%A in ('gh run list -R %REPO% --branch %BRANCH% --workflow "Android APK" --status success --limit 1 --json createdAt --jq ".[0].createdAt"') do set NORMAL=%%A
-for /f "delims=" %%B in ('gh run list -R %REPO% --branch %BRANCH% --workflow "Profiling build" --status success --limit 1 --json createdAt --jq ".[0].createdAt"') do set PROF=%%B
-if not "%PROF%" LSS "%NORMAL%" goto instalar_baixar
-echo == Gerando uma build de profiling nova ^(uns 5 minutos^)...
-gh workflow run %PROFILE_WF% -R %REPO% --ref %BRANCH%
-timeout /t 15 /nobreak >nul
-set NEWRUN=
-for /f "delims=" %%C in ('gh run list -R %REPO% --workflow "Profiling build" --limit 1 --json databaseId --jq ".[0].databaseId"') do set NEWRUN=%%C
-gh run watch %NEWRUN% -R %REPO% --exit-status --interval 20 >nul
-if errorlevel 1 (
-  echo A build de profiling falhou.
-  exit /b 1
-)
 :instalar_baixar
 set RUN=
 for /f "delims=" %%I in ('gh run list -R %REPO% --branch %BRANCH% --workflow "%WF%" --status success --limit 1 --json databaseId --jq ".[0].databaseId"') do set RUN=%%I
@@ -255,7 +238,6 @@ if not defined APK (
   rmdir /s /q "%TMPDL%"
   exit /b 1
 )
-if "%WF%"=="Profiling build" copy /y "%APK%" %NAME%-profiling.apk >nul
 echo == Instalando...
 adb install -r "%APK%"
 set ERR=%ERRORLEVEL%

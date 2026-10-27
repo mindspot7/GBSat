@@ -42,7 +42,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 </table>
 
 <sub>Screenshots show fictional sample games with original covers drawn for GBSat (`tools/make_sample_covers.py`). They are rendered from the app's UI code by
-`ReadmeScreenshots.kt` (workflow "README screenshots").</sub>
+`ReadmeScreenshots.kt` (run locally).</sub>
 
 ## All features
 
@@ -96,7 +96,7 @@ notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push a
 | `vendor/` | Third-party libraries (git submodules) |
 | `libs/gbframe` | Shared framework ([GBFrame](https://github.com/mindspot7/GBFrame), git submodule) |
 | `apps/vk-test` | Host test comparing the software and Vulkan renderers |
-| `.github/workflows` | APK build, Vulkan shader/renderer checks |
+| `.github/workflows` | Single Build GBSat workflow; tests run locally |
 
 Local build: Android Studio with SDK 36, NDK 27.2.12479018 and CMake 3.31.6, plus the DirectX Shader Compiler
 (`dxc`, with SPIR-V support) in your `PATH`. Clone with `--recurse-submodules`, open `apps/android` and build.

@@ -74,3 +74,10 @@
 - Dracula X's Konami intro was slower (roughly 37-47 FPS in sampled intervals). Repeated the boot with all three Skips off, confirmed skip_loads/transitions/saves=off and auto_skip_pct=0 in the CSV: the same intro also slowed to roughly 37-48 FPS. This is a remaining Vulkan performance limitation in this tested game/device, not evidence of the GBCast Skip presentation regression. Later static intro screens returned to about 60 FPS.
 - Restored original CPU (OpenGL) renderer and all three Skip preferences on. No app rebuild, save-slot replacement or code fix was necessary for this verification.
 - Local evidence (ignored): test-output/vulkan-skip-check/perf-log.csv and screenshots. Existing documentation screenshot edits remain untouched. These are startup/intro tests on two games, not a compatibility guarantee for every game or every save-wait path.
+
+## Lean manual packaging workflow
+
+- Keeps one workflow: Build GBSat, in .github/workflows/build.yml. Manual dispatch only; no push/PR-triggered tests or builds. Android version code is supplied explicitly to preserve update ordering when workflow numbering changes.
+- Removes separate test/lint/app-ID/diagnostic workflows. Unit/device/native tests and local diagnostics remain in the repository; cloud packaging does not execute tests, build a test APK, boot an Android emulator or generate screenshots/profiling reports.
+- Retains signing, compiler/dependency caches, release APK packaging and the native Android 16 KB package validator. Local install helpers now use build.yml.
+- All three workflow files validated locally with actionlint 1.7.12. Local device-tool PowerShell syntax and app-ID checks passed. GBCast's release-only Gradle task graph was checked locally with no unit/instrumentation/debug or Lint tasks.

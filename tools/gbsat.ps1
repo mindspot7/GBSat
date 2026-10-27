@@ -7,18 +7,18 @@
 .DESCRIPTION
   Commands
     Check       device and app status (model, Android, installed version, running pid); no files
-    Install     download the latest successful CI build (or -Run <id>, or -Profiling for the profiling build) and install it
+    Install     download the latest successful CI build (or -Run <id>) and install it
     Launch      start the app          Stop   force-stop the app          Wake  wake and unlock the screen
     Logcat      capture the log for -Seconds (0 = just dump the buffer); splits app lines, errors and the crash buffer
     Crash       crash buffer, ANR/crash entries of the dropbox, and the app's native tombstone summary lines
     Screenshot  screen capture (png)
     PerfLog     clear the perf log, start the app, wait -Seconds, pull perf-log.csv and summarize it (0 = pull only)
     Scroll      library scroll smoothness: gfxinfo reset, wait -Seconds, dump
-    Profile     simpleperf CPU profile for -Seconds (needs the profiling build: Install -Profiling) with per-thread/function reports
+    Profile     simpleperf CPU profile for -Seconds (use a locally built APK with -PgbsatProfile) with per-thread/function reports
     PgoPull     pull the PGO training data (PGO training build) as a zip
     Diag        set an A/B diagnostic property: -Key sh2_plain|vdp2_one_fb|vdp_nobatch|all  -Value 0|1
 
-  Options: -Serial <adb serial>  -Seconds <n>  -Label <text, e.g. the game name>  -Run <run id>  -Profiling  -NoLaunch
+  Options: -Serial <adb serial>  -Seconds <n>  -Label <text, e.g. the game name>  -Run <run id>  -NoLaunch
            -Clear (Logcat: clear the buffer first)  -OutDir <folder>
 
 .EXAMPLE
@@ -34,7 +34,6 @@ param(
     [int]$Seconds = -1,
     [string]$Label = '',
     [string]$Run = '',
-    [switch]$Profiling,
     [switch]$NoLaunch,
     [switch]$Clear,
     [string]$Key = '',
@@ -50,8 +49,7 @@ $Branch = 'android-port'
 $App = 'app.gbsat.emulator'
 # APP is both applicationId and namespace; Activity is the fully qualified source class (it may use a different package)
 $Activity = 'app.gbsat.android.MainActivity'
-$ProfileWorkflow = 'profile.yml'
-$ApkWorkflow = 'android.yml'
+$ApkWorkflow = 'build.yml'
 $EmuThread = 'Thread-3'
 $DiagKeys = @('sh2_plain', 'vdp2_one_fb', 'vdp_nobatch')
 # Tags of the app's own log lines (Kotlin and native) plus the system tags that report its crashes
@@ -173,7 +171,7 @@ switch ($Command) {
         if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Fail 'gh (GitHub CLI) nao encontrado no PATH.' }
         & gh auth status 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { Fail 'gh nao autenticado: rode "gh auth login" uma vez (escopos repo e workflow).' }
-        if ($Profiling) { $workflow = $ProfileWorkflow } else { $workflow = $ApkWorkflow }
+        $workflow = $ApkWorkflow
         if (-not $Run) {
             $Run = (& gh run list -R $Repo --branch $Branch --workflow $workflow --status success --limit 1 --json databaseId --jq '.[0].databaseId' | Out-String).Trim()
         }
@@ -307,7 +305,7 @@ switch ($Command) {
         Write-Host "Gravando $Seconds s de CPU (o jogo deve estar rodando, com a build de profiling instalada)..."
         $rec = (Invoke-Adb shell simpleperf record --app $App -e cpu-clock -f 2000 --duration $Seconds -o $data 2>&1 | Out-String)
         if ($rec -match 'error|fail|not found|cannot' -and $rec -notmatch 'Samples recorded') {
-            Fail "A gravacao falhou: a build de profiling esta instalada (Install -Profiling) e o jogo rodando? $rec"
+            Fail "A gravacao falhou: a build de profiling esta instalada (build local com -PgbsatProfile) e o jogo rodando? $rec"
         }
         $report = @("=== $Name profile: $Label ===")
         $report += Get-DeviceInfo

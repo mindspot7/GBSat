@@ -1,17 +1,12 @@
-name: Android APK
+name: Build GBSat
 
 on:
-  push:
-    branches: [ main, master, android, android-port ]
-    # Repository updates are independent from cloud APK builds. Trigger only after local validation.
-    paths: [ '.github/workflows/run-build.trigger' ]
   workflow_dispatch:
     inputs:
       version_code:
-        description: Android version code (must be at least the latest locally installed build)
+        description: Android version code, higher than the latest local and cloud builds
         type: string
-        required: false
-        default: ''
+        required: true
       bundle:
         description: Also build the App Bundle (.aab) for Google Play
         type: boolean
@@ -21,9 +16,9 @@ permissions:
   contents: write
 
 env:
-  GBSAT_VERSION_CODE: ${{ inputs.version_code || github.run_number }}
+  GBSAT_VERSION_CODE: ${{ inputs.version_code }}
 
-# A newer push makes the build of the previous one pointless
+# A newer manual dispatch supersedes an earlier build of the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -33,6 +28,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      - name: Validate Android version code
+        env:
+          BUILD_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          if [[ ! "$BUILD_VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]] || ((10#$BUILD_VERSION_CODE > 2100000000)); then
+            echo "::error::Supply a positive Android version code up to 2100000000."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           submodules: recursive
@@ -141,7 +145,7 @@ jobs:
             echo "::warning title=Signing::GBSAT_KEYSTORE_BASE64 secret not set; APK signed with the cached debug key"
           fi
 
-      # The pure pause-policy unit test is run before packaging; Robolectric screenshot suites require a separate graphics-capable validation.
+      # Tests run locally before dispatch; cloud runners only package the release APK.
       # The App Bundle (.aab, Google Play) is only built for a release (a VERSION without a GitHub release yet) or when
       # asked for in a manual run; everyday builds make the APK only
       - name: Bundle needed?
@@ -164,7 +168,7 @@ jobs:
           set +e
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=600M CCACHE_COMPILERCHECK=content
           ccache -z >/dev/null
-          gradle --no-daemon testReleaseUnitTest --tests 'app.gbsat.android.ui.GbSatPausePolicyTest' ${{ steps.aab.outputs.tasks }} -PgbsatCcache --profile --build-cache --configuration-cache --configuration-cache-problems=warn -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1
+          gradle --no-daemon ${{ steps.aab.outputs.tasks }} -PgbsatCcache --build-cache --configuration-cache --configuration-cache-problems=warn -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace > build.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
             msg=$( (grep -E "^e: " build.log | cut -c1-400; grep -nE "error:|error\\b|FAILED|What went wrong|Caused by|undefined|CMake Error" -A3 build.log | head -80) | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
@@ -174,67 +178,7 @@ jobs:
           # Where the time went (shown as notices on the run): ccache hits and the slowest Gradle tasks
           ccache -s | head -12 | sed 's/^/ccache: /'
           echo "::notice title=ccache::$(ccache -s | tr -s ' ' | grep -iE 'hit|miss|cache size' | head -6 | tr '\n' ';')"
-          python3 - <<'PY'
-          from html.parser import HTMLParser
-          import glob, re
-
-          class ProfileParser(HTMLParser):
-              def __init__(self):
-                  super().__init__()
-                  self.in_task_tab = False
-                  self.in_row = False
-                  self.in_cell = False
-                  self.cell = ""
-                  self.cells = []
-                  self.rows = []
-              def handle_starttag(self, tag, attrs):
-                  attrs = dict(attrs)
-                  if tag == "div" and attrs.get("class") == "tab" and attrs.get("id") == "tab4":
-                      self.in_task_tab = True
-                  elif self.in_task_tab and tag == "tr":
-                      self.in_row, self.cells = True, []
-                  elif self.in_row and tag == "td":
-                      self.in_cell, self.cell = True, ""
-              def handle_data(self, data):
-                  if self.in_cell:
-                      self.cell += data
-              def handle_endtag(self, tag):
-                  if tag == "td" and self.in_cell:
-                      self.cells.append(self.cell.strip())
-                      self.in_cell = False
-                  elif tag == "tr" and self.in_row:
-                      if len(self.cells) >= 2:
-                          self.rows.append((self.cells[0], self.cells[1]))
-                      self.in_row = False
-                  elif tag == "div" and self.in_task_tab:
-                      # The tab contains nested elements; stop only at the next top-level tab.
-                      pass
-
-          files = sorted(glob.glob("build/reports/profile/profile-*.html"))
-          if files:
-              parser = ProfileParser()
-              parser.feed(open(files[-1], encoding="utf-8", errors="replace").read())
-              def secs(value):
-                  m = re.fullmatch(r"(?:(\d+)m)?([\d.]+)s", value.strip())
-                  return int(m.group(1) or 0) * 60 + float(m.group(2)) if m else 0
-              tasks = [(name, duration) for name, duration in parser.rows
-                       if name.startswith(":") and name.count(":") >= 2 and secs(duration) > 0]
-              top = sorted(tasks, key=lambda item: -secs(item[1]))[:8]
-              if top:
-                  print("::notice title=Gradle tasks::" + "; ".join(f"{name} {duration}" for name, duration in top))
-              else:
-                  print("::warning title=Gradle tasks::No task timings parsed from " + files[-1])
-          PY
           exit $rc
-
-      - name: Upload Gradle profiling report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: gradle-profile-build${{ github.run_number }}
-          path: apps/android/build/reports/profile/*.html
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Name APK with version
         id: ver
