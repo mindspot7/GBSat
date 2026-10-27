@@ -18,6 +18,10 @@ instruction, a high bar. To pay off the JIT needs to stay in host code for whole
 entry/exit (registers loaded lazily), and longer blocks (following branches). sh2cmp's time per frame is not a good
 measure here: it renders VDP and runs the SCSP on its single thread; use simpleperf on it (SH-2 symbols).
 
+Same picture on a Cortex-A55 (the RG DS's RK3568 core; measured on the T618's A55 cores at 2.0 GHz with taskset):
+VF2 interpreter run 4.4% of samples in `RunChained`, JIT run 3.9% + 0.6% (`RunBlocks`) + 1.9% generated code = 6.4%;
+Burning Rangers 5.5% against ~11% (recompiling included). The in-order core doesn't change the balance.
+
 ## Why, and what it can gain
 
 Burning Rangers on the RG Rotate (T618), CPU renderer, Fast CPU sync (128 cycles): the SH-2 interpreter
