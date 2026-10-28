@@ -853,6 +853,10 @@ private:
     bool RunBlocks(uint64 cycles, uint32 &prevPC);
     static uint16 JitFetch(void *ctx, uint32 address);
     static uint64 JitInterpret(void *ctx);
+    template <mem_primitive T>
+    static uint32 JitMemRead(void *ctx, uint32 address);
+    template <mem_primitive T>
+    static void JitMemWrite(void *ctx, uint32 address, uint32 value);
 
     template <mem_primitive T, bool poke, bool debug, bool emulateCache>
     void MemWrite(uint32 address, T value);

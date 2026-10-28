@@ -915,6 +915,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         uint32 dirty; // registers to store (w5 holds a computed address; the base register may be pre-decremented)
         bool dirtyT;
         uint32 bound = 0; // most cycles of the host code after it
+        const MemOp *mem = nullptr; // approximate mode: the access through the memory helpers instead of the interpreter
     };
     std::vector<std::unique_ptr<SlowPath>> slowPaths;
     struct HitPath {
@@ -1380,6 +1381,9 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             }
             auto slow = std::unique_ptr<SlowPath>(
                 new SlowPath{{}, {}, addr, fetchPending, fetchValue, wb, dirty | it.regs, dirtyT, maxAfter[k + 1]});
+            if (approximate) {
+                slow->mem = &it.m;
+            }
             // previous fetch state for the call: this instruction's fetch is the interpreter's (FetchInstruction)
             // direct path: cached area (partition 000) of WRAM-H, 06000000-07FFFFFF
             e.Lsr(1, 5, 25);
@@ -1527,6 +1531,66 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         wb = p.wb;
         dirty = p.dirty;
         dirtyT = p.dirtyT;
+        if (p.mem != nullptr) {
+            // Approximate mode: the access alone, through a memory helper; the SH-2 registers stay in host registers
+            // (the caller-saved ones on the stack around the call). 1 cycle, no bus wait
+            const MemOp &m = *p.mem;
+            const uint32 idx = m.size == 4 ? 2 : m.size == 2 ? 1 : 0;
+            if (m.store) {
+                e.Mov(2, c.R(m.value)); // before the pre-decrement (the value may be the base register)
+            }
+            if (m.preDec) {
+                e.Mov(c.R(m.baseReg), 5);
+            }
+            e.Mov(1, 5);
+            e.StpPre(9, 10, 31, -80);
+            e.Stp(11, 12, 31, 16);
+            e.Stp(13, 14, 31, 32);
+            e.Stp(15, 16, 31, 48);
+            e.Stp(17, 30, 31, 64);
+            e.LdrX(0, kCtx, offsetof(Context, sh2));
+            e.LdrX(7, kCtx, m.store ? offsetof(Context, memWrite) + idx * 8 : offsetof(Context, memRead) + idx * 8);
+            e.Blr(7);
+            if (!m.store) {
+                e.Mov(3, 0);
+            }
+            e.Ldp(11, 12, 31, 16);
+            e.Ldp(13, 14, 31, 32);
+            e.Ldp(15, 16, 31, 48);
+            e.Ldp(17, 30, 31, 64);
+            e.LdpPost(9, 10, 31, 80);
+            e.LdrX(kWram, kCtx, offsetof(Context, wramHigh));
+            if (!m.store) {
+                const uint32 t = c.R(m.target);
+                if (m.size == 4) {
+                    e.Mov(t, 3);
+                } else if (m.size == 2) {
+                    e.Sxth(t, 3);
+                } else {
+                    e.Sxtb(t, 3);
+                }
+                if (m.postInc) {
+                    e.AddImm(c.R(m.baseReg), c.R(m.baseReg), m.size);
+                }
+            }
+            e.AddXImm(kCycles, kCycles, 1);
+            if (m.store) {
+                // a write to compiled code (possibly this block) or one that made an interrupt due: leave after it
+                Exit &x = nativeExit(p.addr);
+                e.LdrX(0, kCtx, offsetof(Context, epoch));
+                e.LdrW(1, 0, 0);
+                e.LdrW(2, kCtx, offsetof(Context, startEpoch));
+                e.Cmp(1, 2);
+                e.BCond(NE, x.label);
+                e.LdrX(0, kCtx, offsetof(Context, intr));
+                e.Ldrh(1, 0, 0);
+                e.MovImm(2, 0x0101);
+                e.Cmp(1, 2);
+                e.BCond(EQ, x.label);
+            }
+            e.B(p.resume);
+            continue;
+        }
         beforeCall(p.addr, true, true);
         Emitter::Label &x = callExit(p.addr);
         afterCallChecks(p.addr, x);

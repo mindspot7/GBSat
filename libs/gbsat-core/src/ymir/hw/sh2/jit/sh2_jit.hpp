@@ -47,6 +47,9 @@ struct Context {
     uint8 post;                      // out: 1 refill the pipeline (taken branch), 2 a delay slot ended (see RunBlocks)
     Block *const *slots;             // the cache's block table (blocks jump to the next one directly)
     const uint8 *intcLevel;          // INTC.pending.level (end of a delay slot)
+    // Approximate mode: memory accesses outside the direct path ([0] byte, [1] word, [2] long; loads return the raw value)
+    uint32 (*memRead[3])(void *sh2, uint32 address);
+    void (*memWrite[3])(void *sh2, uint32 address, uint32 value);
 };
 
 // A compiled block: code(&context) runs from startPC.

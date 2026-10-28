@@ -6490,6 +6490,16 @@ uint64 SH2::JitInterpret(void *ctx) {
     return static_cast<SH2 *>(ctx)->InterpretNext<false, false>();
 }
 
+template <mem_primitive T>
+uint32 SH2::JitMemRead(void *ctx, uint32 address) {
+    return static_cast<SH2 *>(ctx)->MemRead<T, false, false, false>(address);
+}
+
+template <mem_primitive T>
+void SH2::JitMemWrite(void *ctx, uint32 address, uint32 value) {
+    static_cast<SH2 *>(ctx)->MemWrite<T, false, false, false>(address, static_cast<T>(value));
+}
+
 void SH2::UseJit(jit::Cache *cache) {
     m_jit = cache;
     if (cache == nullptr) {
@@ -6521,6 +6531,12 @@ void SH2::UseJit(jit::Cache *cache) {
     c.codeBits = cache->CodeBits();
     c.cache = cache;
     c.codeWritten = &jit::Cache::CodeWrittenThunk;
+    c.memRead[0] = &JitMemRead<uint8>;
+    c.memRead[1] = &JitMemRead<uint16>;
+    c.memRead[2] = &JitMemRead<uint32>;
+    c.memWrite[0] = &JitMemWrite<uint8>;
+    c.memWrite[1] = &JitMemWrite<uint16>;
+    c.memWrite[2] = &JitMemWrite<uint32>;
 }
 
 } // namespace ymir::sh2
