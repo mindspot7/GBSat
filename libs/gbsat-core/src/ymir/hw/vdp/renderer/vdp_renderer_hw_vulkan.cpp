@@ -204,6 +204,7 @@ struct VulkanVDPRenderer::Impl {
         /// @brief FBRAM download buffer (host-visible).
         GpuBuffer fbramDownloadBuffer;
         GpuBuffer fbramNativeBuffer; // scaled framebuffers brought down to native FBRAM, for the readback
+        void *readbackFrame = nullptr; // FrameContext whose commands hold the last readback copy
         GpuPipeline fbramDownsamplePipe;
         std::atomic_bool fbramDebugSyncRequest{false};
         bool fbramReadbackDirty = false;
@@ -1613,6 +1614,25 @@ struct VulkanVDPRenderer::Impl {
 
 // ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2153-2175 ----
     void VDP1SyncFB() {
+        // Enhanced resolution: answer CPU reads from the copy made when the framebuffers were last swapped, once the GPU
+        // has run that frame's commands (until then the copy before it), instead of submitting and waiting mid-frame for
+        // an up-to-date copy. The
+        // displayed framebuffer (what games read back: Burning Rangers' transitions, ~20 reads/s) doesn't change after
+        // a swap; only the one being drawn can be a frame behind. Each mid-frame wait cost ~5 ms per frame there.
+        if (vdp1.resScale > 1 && vdp1.readbackFrame != nullptr && vdp1.readbackFrame != &frames.GetCurrentFrame()) {
+            auto &ctx = *static_cast<FrameContext *>(vdp1.readbackFrame);
+            // Not done on the GPU yet: keep the previous copy (a frame older) rather than wait for it
+            if (vdp1.fbramReadbackCopyPending && ctx.submitted && vkGetFenceStatus(device, ctx.fence) != VK_SUCCESS) {
+                return;
+            }
+            if (vdp1.fbramReadbackCopyPending) {
+                WaitFrame(ctx);
+                InvalidateForRead(vdp1.fbramDownloadBuffer);
+                memcpy(vdpState.mem1.FBRAM.data(), vdp1.fbramDownloadBuffer.mapped, kVDP1FBRAMSize * 2);
+                vdp1.fbramReadbackCopyPending = false;
+            }
+            return;
+        }
         // NOTE: intentionally not syncing FBRAM writes because these happened before the reads
         if (vdp1.action != VDP1Action::FBRAMWrite) {
             VDP1FlushWork();
@@ -1851,6 +1871,7 @@ struct VulkanVDPRenderer::Impl {
         FlushBarriers();
         const VkBufferCopy region{0, 0, kVDP1FBRAMSize * 2};
         vkCmdCopyBuffer(Cmd(), source->buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
+        vdp1.readbackFrame = &frames.GetCurrentFrame();
         pendingBarrier = true;
     }
 
