@@ -64,6 +64,10 @@ static const std::unordered_map<std::string_view, GameInfo> kGameInfosByCode = {
     // The RelaxedVDP2BitmapCPAccessChecks should be removed once overall system timings are improved to the point where
     // the VDP2 BGON disable doesn't occur while the VDP2 is still drawing the background layer with the FMVs.
     // This requires SCU DMAs to take longer to write to VDP2 VRAM.
+    {"GS-9174",    {.flags = PreciseSH2Sync}}, // Burning Rangers (Japan) -- master/slave deadlock after boot with
+                                                //   a 64+ cycle SH-2 sync step (GBSat's Fast CPU sync)
+    {"MK-81803",   {.flags = PreciseSH2Sync}}, // Burning Rangers (USA) -- same
+    {"MK-81803-50", {.flags = PreciseSH2Sync}}, // Burning Rangers (Europe) -- same
     {"GS-9019",    {.flags = ForceSH2Cache}}, // Astal (Japan) -- crash at startup
     {"MK-81019",   {.flags = ForceSH2Cache}}, // Astal (USA) -- crash at startup
     {"MK-81501",   {.flags = ForceSH2Cache}}, // Baku Baku Animal - World Zookeeper Contest (Europe) -- freeze when trying to play FMVs from the Options menu

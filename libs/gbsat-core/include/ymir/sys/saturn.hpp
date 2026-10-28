@@ -206,7 +206,13 @@ struct Saturn {
     /// hands work between the CPUs in tighter loops can misbehave.
     /// @param[in] cycles the step length in master SH-2 cycles
     void SetSH2SyncStep(uint64 cycles) {
-        m_sh2SyncStep = cycles > 0 ? cycles : 1;
+        m_sh2SyncRequested = cycles > 0 ? cycles : 1;
+        UpdateSH2SyncStep();
+    }
+
+    /// @brief The sync step in use: the requested one, at most 32 for games flagged PreciseSH2Sync.
+    [[nodiscard]] uint64 GetSH2SyncStep() const noexcept {
+        return m_sh2SyncStep;
     }
 
     /// @brief Enables or disables the SH-2 JIT (docs/SH2_JIT.md), for both SH-2s. Results are the same as the
@@ -482,7 +488,12 @@ private:
     media::fs::Filesystem m_fs; ///< Filesystem contained in the disc
 
     std::unique_ptr<sh2::jit::Cache> m_sh2Jit; ///< SH-2 JIT block cache (nullptr: interpreter only)
-    uint64 m_sh2SyncStep = 32;    ///< Cycles per master/slave SH-2 sync step (see SetSH2SyncStep)
+    uint64 m_sh2SyncStep = 32;      ///< Cycles per master/slave SH-2 sync step in use (see SetSH2SyncStep)
+    uint64 m_sh2SyncRequested = 32; ///< The step asked for (SetSH2SyncStep)
+    bool m_preciseSH2Sync = false;  ///< The loaded game needs the 32-cycle step (game database)
+    void UpdateSH2SyncStep() {
+        m_sh2SyncStep = m_preciseSH2Sync && m_sh2SyncRequested > 32 ? 32 : m_sh2SyncRequested;
+    }
     uint64 m_msh2SpilloverCycles; ///< Master SH-2 execution cycles spilled over between executions
     uint64 m_ssh2SpilloverCycles; ///< Slave SH-2 execution cycles spilled over between executions
     uint64 m_sh1SpilloverCycles;  ///< SH-1 execution cycles spilled over between executions

@@ -966,6 +966,7 @@ void WritePerfLog(float fps, float presentedFps) {
         settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
         settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
+    settings += ";sync_step=" + std::to_string(g->saturn->GetSH2SyncStep()); // in use (game database may limit it)
     if (g->fsUseless) {
         settings += ";frameskip_paused=useless"; // frame skip on, but held off: skipped frames weren't faster
     }
@@ -1452,7 +1453,9 @@ JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean prel
             // log from the shell could return a stale copy, so the previous game's name)
             std::string title = hdr.substr(0x60, 112);
             title.erase(title.find_last_not_of(' ') + 1);
-            LOGI("Game: %s", title.c_str());
+            std::string code = hdr.substr(0x20, 10);
+            code.erase(code.find_last_not_of(' ') + 1);
+            LOGI("Game: %s (%s)", title.c_str(), code.c_str());
         }
     }
     // Cartridge from the game database (adapted from Mednafen): the RAM cartridge for the games that need one (1, 4 or

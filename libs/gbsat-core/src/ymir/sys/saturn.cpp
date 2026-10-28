@@ -940,6 +940,8 @@ void Saturn::OnMediaChanged() {
     VDP.vdp2AccessPatternsConfig.relaxedBitmapCPAccessChecks =
         hasFlag(db::GameInfo::Flags::RelaxedVDP2BitmapCPAccessChecks);
     VDP.SetVirtuaGunJitter(hasFlag(db::GameInfo::Flags::VirtuaGunJitter));
+    m_preciseSH2Sync = hasFlag(db::GameInfo::Flags::PreciseSH2Sync);
+    UpdateSH2SyncStep();
 }
 
 // -----------------------------------------------------------------------------

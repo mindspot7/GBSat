@@ -52,6 +52,7 @@ struct GameInfo {
         RelaxedVDP2BitmapCPAccessChecks = BIT(8), ///< Allow bitmap CP accesses during SH2 cycles
         SkipEmptyVDP1Table = BIT(9),              ///< Skip VDP1 command processing if the top of the table is empty
         VirtuaGunJitter = BIT(10),                ///< Add a bit of jitter to Virtua Gun coordinates
+        PreciseSH2Sync = BIT(11), ///< Master/slave SH-2 sync every 32 cycles at most (GBSat's Fast CPU sync breaks it)
 #undef BIT
 
         // Proper fixes for each flag:
