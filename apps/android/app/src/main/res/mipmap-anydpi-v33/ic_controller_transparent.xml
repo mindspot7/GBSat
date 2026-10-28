@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13+: a plain bitmap, not an adaptive icon. Launchers there (Retroid Pocket Nova) draw a transparent adaptive
+     background black and shrink the art to the safe zone, while they show plain icons as they are. Android 12 and older
+     keep the adaptive icon (mipmap-anydpi-v26): their launchers (RG Rotate) put a white plate behind plain icons. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/ic_controller_legacy" />
