@@ -2998,7 +2998,7 @@ void SH2::RunChained(uint64 cycles, uint32 &prevPC) {
             /* compiled blocks (prevPC: the instruction before, to tell where blocks may start); after each,  */       \
             /* the checks the chain makes before an instruction                                               */       \
             m_intrFlags.allow = true;                                                                                  \
-            while (PC != prevPC + 2 && RunBlocks(cycles, prevPC)) {                                                    \
+            while ((PC != prevPC + 2 || m_jit->approximate) && RunBlocks(cycles, prevPC)) {                                                    \
                 if (m_cyclesExecuted >= cycles ||                                                                      \
                     std::bit_cast<uint16>(m_intrFlags) == kIntrFlagsPendingAllowed) [[unlikely]] {                     \
                     return;                                                                                            \
@@ -6454,7 +6454,8 @@ bool SH2::RunBlocks(uint64 cycles, uint32 &prevPC) {
     // Blocks are compiled where execution enters code: a jump target, the start of a slice (prevPC is then PC). Not
     // where it just went on (the instructions interpreted at the end of a slice, after a block left early): an existing
     // block runs there, but none is compiled, or every address would get one.
-    const bool entry = PC != prevPC + 2 && PC != prevPC; // prevPC == PC: a slice starting wherever the last one ended
+    // Approximate mode: blocks wherever the chain is (slices end at block boundaries, so few odd places get one)
+    const bool entry = m_jit->approximate || (PC != prevPC + 2 && PC != prevPC); // prevPC == PC: a slice starting wherever the last one ended
     const jit::Block *block = m_jit->Get(PC, &JitFetch, this, entry);
     if (block == nullptr) {
         return false;

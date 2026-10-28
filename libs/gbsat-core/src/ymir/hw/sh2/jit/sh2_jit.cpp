@@ -691,6 +691,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         const uint16 opcode = fetch(ctx, addr);
         const OpcodeType op = DecodeTable::s_instance.opcodes[0][opcode];
         Item item{{op, opcode, addr}, false, false, {}, 0, false, FlowOf(op)};
+        if (approximate && (op == OpcodeType::BTS || op == OpcodeType::BFS)) {
+            // Approximate mode: like an unconditional delayed branch whose target is the next instruction when not
+            // taken, so the slot runs in the block (not in its delay-slot form when not taken)
+            item.flow = Flow::DelayedBranch;
+        }
         Uses uses;
         bool t;
         if (IsSupported(op, uses, t)) {
@@ -769,7 +774,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         }
     }
     // A block of only interpreter calls gains nothing over the chain
-    if (natives == 0) {
+    if (natives == 0 && !approximate) { // approximate mode: it still links code that is in blocks
         return remember(kNoBlock, pc);
     }
     // Most cycles each instruction takes in host code (interpreter calls count 0: the slice is checked after them).
@@ -995,11 +1000,15 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         if (wb != kWbUnknown) {
             storeWb(static_cast<uint32>(wb));
         }
-        // the next block: WRAM-H cached area, compiled, starting exactly there, fitting the slice
+        // the next block: WRAM-H (cached or cache-through area), compiled, starting exactly there, fitting the slice
         Emitter::Label &x = out(0);
+        Emitter::Label wramH;
         e.Lsr(1, kTarget, 25);
         e.CmpImm(1, 3);
+        e.BCond(EQ, wramH);
+        e.CmpImm(1, 0x13);
         e.BCond(NE, x);
+        e.Bind(wramH);
         e.Ubfm(1, kTarget, 1, 19);
         e.LdrX(2, kCtx, offsetof(Context, slots));
         e.AddXImmLsl12(2, 2, 0x800); // WRAM-H slots start at entry 0x100000 (8 bytes each)
@@ -1261,6 +1270,27 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 e.Bind(notTaken);
                 e.AddXImm(kCycles, kCycles, 1);
                 emitLink(addr, true, addr + 2, 0, false);
+                continue;
+            }
+            if ((b == BranchKind::BTS || b == BranchKind::BFS) && approximate) {
+                // target: the branch target when taken (2 cycles), else past the slot (1 cycle); then the slot
+                wb = 0xFF;
+                e.MovImm(kTarget, addr + 4);
+                e.AddXImm(kCycles, kCycles, 1);
+                e.Bit0(1, kSR);
+                if (b == BranchKind::BFS) {
+                    e.MovImm(2, 1);
+                    e.Eor(1, 1, 2);
+                }
+                Emitter::Label notTaken;
+                e.CbzW(1, notTaken);
+                e.MovImm(kTarget, addr + 4 + dispS8);
+                e.AddXImm(kCycles, kCycles, 1);
+                e.Bind(notTaken);
+                if (k + 1 == items.size()) {
+                    e.B(nativeExit(addr).label); // no slot compiled: the chain runs it
+                    exits.back()->delay = true;
+                }
                 continue;
             }
             if (b == BranchKind::BTS || b == BranchKind::BFS) {

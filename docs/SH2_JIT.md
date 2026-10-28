@@ -44,7 +44,14 @@ each block entry costs ~100 host instructions. The JIT makes the master SH-2 abo
 checks (approximate mode) does not change that. Whole-process profile of the same scene: SCSP thread 34%, emulation
 thread 33%, VDP2 renderer 16%.
 
-What would be needed for a gain: blocks entered at any instruction (no interpreted tail), all common instructions in
+Then, in approximate mode only: blocks are compiled and entered at any instruction (not only at jump targets: slices
+end at block boundaries, so the chain no longer interprets the rest of a basic block), blocks of only interpreter calls
+are kept (they link), links reach the cache-through WRAM-H area too, and BT/S, BF/S run their slot in the block (target
+= next instruction when not taken). Interpreted instructions drop to ~0; RG DS, Virtua Fighter 2 attract mode at 35 s:
+emulation 42.9 -> 47.8 fps, master SH-2 16.7 -> 14.6 ms per frame. Burning Rangers (32-cycle slices) runs fine. Blocks
+are still entered from C++ once per slice (~380k/s): cheaper entry/exit is the next step.
+
+Before those changes, what would be needed for a gain: blocks entered at any instruction (no interpreted tail), all common instructions in
 host code including memory accesses outside WRAM-H through direct helper calls, cheaper entry/exit (registers loaded
 lazily) and blocks that follow branches, so that whole slices stay in host code. That is a redesign of the compiler,
 not a mode of the current one.
