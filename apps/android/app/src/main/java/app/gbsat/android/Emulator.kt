@@ -298,13 +298,17 @@ object Emulator {
     private fun migrateStateDirs() = stateFiles.migrateLegacyNumberedStates()
     fun registerStateGames(games: List<gb.frame.Game>) = stateFiles.rememberExistingGames(games)
 
+    private var stateDirsChecked: String? = null // the game whose older state folders were already looked for
     private fun stateFile(slot: Int): File? {
         val game = currentGame ?: return null
         migrateStateDirs()
-        val name = SaveData.gameFolderName(game)
-        val old = mutableListOf(File(statesDir, name), File(dataDir, "states/$name"))
-        NativeBridge.nativeGetDiscHash()?.let { old += File(statesDir, it); old += File(dataDir, "states/$it") }
-        stateFiles.migrateLegacyGame(game, old)
+        if (stateDirsChecked != game) {
+            val name = SaveData.gameFolderName(game)
+            val old = mutableListOf(File(statesDir, name), File(dataDir, "states/$name"))
+            NativeBridge.nativeGetDiscHash()?.let { old += File(statesDir, it); old += File(dataDir, "states/$it") }
+            stateFiles.migrateLegacyGame(game, old)
+            stateDirsChecked = game
+        }
         return stateFiles.file(game, stateLabel(slot))
     }
 
@@ -339,6 +343,8 @@ object Emulator {
     data class RecentState(val gamePath: String, val slot: Int, val time: Long, val thumb: File?)
 
     /** All save states of all games (whose game is known), newest first. */
+    /** The last [recentStates] result, shown at once when the library opens again. */
+    @Volatile var lastRecentStates: List<RecentState> = emptyList(); private set
     fun recentStates(): List<RecentState> {
         val out = mutableListOf<RecentState>()
         migrateStateDirs()
@@ -347,7 +353,7 @@ object Emulator {
                 out += RecentState(game, stateSlot(label), f.lastModified(), thumbFile(f).takeIf { it.exists() })
             }
         }
-        return out.sortedByDescending { it.time }
+        return out.sortedByDescending { it.time }.also { lastRecentStates = it }
     }
 
     /** Starts a game and loads one of its save states. Returns an error message or null. */

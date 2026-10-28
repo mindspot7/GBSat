@@ -103,19 +103,24 @@ fun LibraryScreen(
     MenuState.onQuit = onQuit
 
     // ---- Data: games, save states, play time ----
-    var games by remember { mutableStateOf<List<gb.frame.Game>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
+    // The last scan's list at once (no "no games" flash, no spinner when coming back from a game); scanned again below
+    var games by remember { mutableStateOf(Storage.cachedScan(Emulator.gamesDir)) }
+    var loading by remember { mutableStateOf(games.isEmpty() && Emulator.gamesDir.isNotBlank()) }
     var openingGame by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
-    var states by remember { mutableStateOf<List<Emulator.RecentState>>(emptyList()) }
+    var states by remember { mutableStateOf(Emulator.lastRecentStates) }
     LifecycleResumeEffect(Unit) { refreshKey++; onPauseOrDispose { } }
     LaunchedEffect(Emulator.gamesDir, refreshKey) {
         if (Emulator.gamesDir.isBlank()) { games = emptyList(); return@LaunchedEffect }
         loading = games.isEmpty()
-        games = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir).also { Emulator.registerStateGames(it) } }
+        val found = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir).also { Emulator.registerStateGames(it) } }
+        if (found != games) games = found
         loading = false
     }
-    LaunchedEffect(refreshKey, games) { states = withContext(Dispatchers.IO) { Emulator.recentStates() } }
+    LaunchedEffect(refreshKey, games) {
+        val found = withContext(Dispatchers.IO) { Emulator.recentStates() }
+        if (found != states) states = found
+    }
     val entries = remember(states) {
         states.map { s ->
             ResumeEntry(s.gamePath + "#" + s.slot, s.gamePath.substringAfterLast('/').substringBeforeLast('.'),
