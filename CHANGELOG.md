@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Data folder: save states moved to `savestates/<Game>/<Game>_<slot>.state` (no more `game.txt` or empty `.ra` files); older states are renamed on startup. A nested `GBSat/GBSat` folder is flattened.
+- Covers take about 20x less space (WebP, at most 600 px): 10 MB → 0.7 MB for 16 covers; existing covers are converted once in the background.
 - Burning Rangers no longer hangs on a black screen after the BIOS with CPU sync Fast: the game database keeps its CPUs synced every 32 cycles whatever the option (its two CPUs deadlocked with a coarser sync, on every device).
 - Frame skip (auto) pauses itself when skipping doesn't make frames faster: on devices where the CPUs are the limit (RG DS) it dropped every other frame without any gain. Virtua Fighter 2 on the RG DS now shows ~42 frames per second instead of ~23 at the same emulation speed.
 - CPU sync (Settings → Emulation, and the in-game menu → Performance): **Fast** keeps the two SH-2 CPUs in step every 128 cycles instead of every 32, about 10% less emulation work (Burning Rangers on an RG Rotate: 16.1 → 14.6 ms per frame). Fast is the default; switch to Accurate if a game misbehaves.

@@ -112,10 +112,10 @@ fun LibraryScreen(
     LaunchedEffect(Emulator.gamesDir, refreshKey) {
         if (Emulator.gamesDir.isBlank()) { games = emptyList(); return@LaunchedEffect }
         loading = games.isEmpty()
-        games = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir) }
+        games = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir).also { Emulator.registerStateGames(it) } }
         loading = false
     }
-    LaunchedEffect(refreshKey) { states = withContext(Dispatchers.IO) { Emulator.recentStates() } }
+    LaunchedEffect(refreshKey, games) { states = withContext(Dispatchers.IO) { Emulator.recentStates() } }
     val entries = remember(states) {
         states.map { s ->
             ResumeEntry(s.gamePath + "#" + s.slot, s.gamePath.substringAfterLast('/').substringBeforeLast('.'),

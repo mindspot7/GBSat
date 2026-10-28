@@ -284,31 +284,25 @@ object Emulator {
     const val STATE_SLOTS = SaveData.MANUAL_SAVE_STATE_SLOTS
     const val QUICK_SLOT = 99
     const val AUTO_SLOT = 98
-    private val statesDir get() = File(dataDir, "states")
-    /** Folder name for a game's save states: the disc image file name, without characters that folders can't hold. */
-    private fun stateDirName(gamePath: String) =
-        gb.frame.SaveData.gameFolderName(gamePath)
-
-    /** Older versions named the folders after the disc hash; they are renamed to the game name (once, when found). */
-    private var statesMigrated = false
-    private fun migrateStateDirs() {
-        if (statesMigrated) return
-        statesMigrated = true
-        statesDir.listFiles()?.forEach { dir ->
-            if (!dir.isDirectory || !dir.name.matches(Regex("[0-9a-fA-F]{16,}"))) return@forEach
-            val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
-            val target = File(statesDir, stateDirName(game))
-            if (!target.exists()) dir.renameTo(target)
-        }
+    private val statesDir get() = File(dataDir, gb.frame.DataLayout.SAVESTATES)
+    private lateinit var stateFiles: gb.frame.SaveStateFiles
+    private fun stateLabel(slot: Int) = when (slot) {
+        QUICK_SLOT -> "quick"
+        AUTO_SLOT -> "auto"
+        else -> { require(slot in 0 until STATE_SLOTS); (slot + 1).toString() }
     }
+    private fun stateSlot(label: String) = when (label) { "quick" -> QUICK_SLOT; "auto" -> AUTO_SLOT; else -> label.toInt() - 1 }
+    private fun migrateStateDirs() = stateFiles.migrateLegacyNumberedStates()
+    fun registerStateGames(games: List<gb.frame.Game>) = stateFiles.rememberExistingGames(games)
 
     private fun stateFile(slot: Int): File? {
         val game = currentGame ?: return null
         migrateStateDirs()
-        val dir = File(statesDir, stateDirName(game))
-        // States of this disc saved before the game was known by name (no game.txt yet)
-        NativeBridge.nativeGetDiscHash()?.let { h -> File(statesDir, h).takeIf { it.isDirectory && !dir.exists() }?.renameTo(dir) }
-        return File(dir, "${when (slot) { QUICK_SLOT -> "quick"; AUTO_SLOT -> "auto"; else -> slot.toString() }}.savestate")
+        val name = SaveData.gameFolderName(game)
+        val old = mutableListOf(File(statesDir, name), File(dataDir, "states/$name"))
+        NativeBridge.nativeGetDiscHash()?.let { old += File(statesDir, it); old += File(dataDir, "states/$it") }
+        stateFiles.migrateLegacyGame(game, old)
+        return stateFiles.file(game, stateLabel(slot))
     }
 
     /** Last-modified time per slot, or null if empty. */
@@ -320,7 +314,9 @@ object Emulator {
         val err = NativeBridge.nativeSaveState(f.absolutePath)
         if (err == null) {
             runCatching { saveThumbnail(thumbFile(f)) }
-            currentGame?.let { g -> runCatching { File(f.parentFile, "game.txt").writeText(g) } }
+            // No achievement progress: the empty side file isn't kept
+            File(f.path + ".ra").takeIf { it.length() == 0L }?.delete()
+            currentGame?.let { stateFiles.remember(it) }
         }
         err
     }
@@ -343,12 +339,9 @@ object Emulator {
     fun recentStates(): List<RecentState> {
         val out = mutableListOf<RecentState>()
         migrateStateDirs()
-        statesDir.listFiles()?.forEach { dir ->
-            val game = runCatching { File(dir, "game.txt").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return@forEach
-            dir.listFiles { f -> f.name.endsWith(".savestate") }?.forEach { f ->
-                val name = f.name.removeSuffix(".savestate")
-                val slot = when (name) { "quick" -> QUICK_SLOT; "auto" -> AUTO_SLOT; else -> name.toIntOrNull() ?: return@forEach }
-                out += RecentState(game, slot, f.lastModified(), thumbFile(f).takeIf { it.exists() })
+        stateFiles.games().forEach { game ->
+            stateFiles.files(game).forEach { (label, f) ->
+                out += RecentState(game, stateSlot(label), f.lastModified(), thumbFile(f).takeIf { it.exists() })
             }
         }
         return out.sortedByDescending { it.time }
@@ -374,7 +367,7 @@ object Emulator {
     /** Folder holding the emulator data. Defaults to the app's private storage. */
     lateinit var dataDir: File; private set
     lateinit var dataFolder: gb.frame.AppDataFolder; private set
-    private val dataSubdirs = listOf("bios", "saves", "states", "cheats", "covers")
+    private val dataSubdirs = listOf("bios", "saves", "savestates", "cheats", "covers")
     /** Folder used by an older version for the data, when it couldn't be read after the update (shown in Settings). */
     var legacyDataDir by mutableStateOf<String?>(null); private set
 
@@ -425,9 +418,12 @@ object Emulator {
             else legacyDataDir = oldDir
             prefs.edit().remove("dataDir").apply()
         }
+        gb.frame.DataLayout.move(File(dataDir, "states"), File(dataDir, "savestates"))
         dataFolder = gb.frame.AppDataFolder(appContext, "GBSat", (dataSubdirs + "carts").associateWith { File(dataDir, it) })
         System.loadLibrary("gbsat")
         dataFolder.openAtStartup()
+        stateFiles = gb.frame.SaveStateFiles(dataDir, prefs)
+        stateFiles.migrateLegacyNumberedStates()
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)
@@ -602,7 +598,12 @@ object Emulator {
     }
 
     /** Most recent save state of a game (auto, quick or slot), or null. */
-    fun latestState(path: String): RecentState? = recentStates().firstOrNull { it.gamePath == path }
+    fun latestState(path: String): RecentState? {
+        migrateStateDirs()
+        return stateFiles.files(path).map { (label, file) ->
+            RecentState(path, stateSlot(label), file.lastModified(), thumbFile(file).takeIf { it.exists() })
+        }.maxByOrNull { it.time }
+    }
 
     suspend fun launch(path: String, useAutoLoad: Boolean = true): String? = withContext(Dispatchers.IO) {
         if (!iplLoaded) return@withContext "Load a Saturn BIOS (IPL ROM) in Settings first."
