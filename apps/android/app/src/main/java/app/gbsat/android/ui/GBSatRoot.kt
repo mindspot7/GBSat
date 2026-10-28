@@ -17,6 +17,10 @@ private enum class Screen { Library, Settings }
 @Composable
 fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
     GBSatTheme {
+        if (!Emulator.initialized && Emulator.initializationError == null) {
+            gb.frame.AppStartScreen(app.gbsat.emulator.R.drawable.ic_launcher_foreground)
+            return@GBSatTheme
+        }
         if (!Emulator.initialized) {
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {

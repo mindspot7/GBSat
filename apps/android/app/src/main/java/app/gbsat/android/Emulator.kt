@@ -295,20 +295,10 @@ object Emulator {
         else -> { require(slot in 0 until STATE_SLOTS); (slot + 1).toString() }
     }
     private fun stateSlot(label: String) = when (label) { "quick" -> QUICK_SLOT; "auto" -> AUTO_SLOT; else -> label.toInt() - 1 }
-    private fun migrateStateDirs() = stateFiles.migrateLegacyNumberedStates()
     fun registerStateGames(games: List<gb.frame.Game>) = stateFiles.rememberExistingGames(games)
 
-    private var stateDirsChecked: String? = null // the game whose older state folders were already looked for
     private fun stateFile(slot: Int): File? {
         val game = currentGame ?: return null
-        migrateStateDirs()
-        if (stateDirsChecked != game) {
-            val name = SaveData.gameFolderName(game)
-            val old = mutableListOf(File(statesDir, name), File(dataDir, "states/$name"))
-            NativeBridge.nativeGetDiscHash()?.let { old += File(statesDir, it); old += File(dataDir, "states/$it") }
-            stateFiles.migrateLegacyGame(game, old)
-            stateDirsChecked = game
-        }
         return stateFiles.file(game, stateLabel(slot))
     }
 
@@ -347,7 +337,6 @@ object Emulator {
     @Volatile var lastRecentStates: List<RecentState> = emptyList(); private set
     fun recentStates(): List<RecentState> {
         val out = mutableListOf<RecentState>()
-        migrateStateDirs()
         stateFiles.games().forEach { game ->
             stateFiles.files(game).forEach { (label, f) ->
                 out += RecentState(game, stateSlot(label), f.lastModified(), thumbFile(f).takeIf { it.exists() })
@@ -377,8 +366,6 @@ object Emulator {
     lateinit var dataDir: File; private set
     lateinit var dataFolder: gb.frame.AppDataFolder; private set
     private val dataSubdirs = listOf("bios", "saves", "savestates", "cheats", "covers")
-    /** Folder used by an older version for the data, when it couldn't be read after the update (shown in Settings). */
-    var legacyDataDir by mutableStateOf<String?>(null); private set
 
     /** Stores a ROM cartridge dump picked by the user (KOF95 or Ultraman), used automatically by the games that need it. */
     suspend fun importCartRom(uri: android.net.Uri, fileName: String): String? = withContext(Dispatchers.IO) {
@@ -417,24 +404,11 @@ object Emulator {
         prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
         Storage.init(appContext)
         Thread { gb.frame.DeviceTier.detect() }.start() // GPU name from a throwaway OpenGL ES context, off the main thread
-        // Data lives in the app's storage. Older versions could keep it in a folder of the user's choice, which needed
-        // the all-files permission; select that folder in System → Data folder to restore it through SAF.
-        val oldDir = prefs.getString("dataDir", null)
         dataDir = File(appContext.filesDir.path)
-        if (oldDir != null) {
-            val f = File(oldDir)
-            if (f.canRead()) runCatching { dataSubdirs.forEach { n -> File(f, n).takeIf { it.exists() }?.copyRecursively(File(dataDir, n), overwrite = false) } }
-            else legacyDataDir = oldDir
-            prefs.edit().remove("dataDir").apply()
-        }
-        gb.frame.DataLayout.move(File(dataDir, "states"), File(dataDir, "savestates"))
         dataFolder = gb.frame.AppDataFolder(appContext, "GBSat", (dataSubdirs + "carts").associateWith { File(dataDir, it) })
         System.loadLibrary("gbsat")
         dataFolder.openAtStartup()
         stateFiles = gb.frame.SaveStateFiles(dataDir, prefs)
-        stateFiles.migrateLegacyNumberedStatesOnce(dataFolder.folder ?: "app")
-        // Games folder paths from older versions are no longer readable: the folder must be picked again
-        if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)
         gb.frame.LibraryView.init(prefs)
         gb.frame.HomeTheme.init(prefs)
@@ -445,20 +419,9 @@ object Emulator {
         gamesDir = prefs.getString("gamesDir", "") ?: ""
         analogPad = prefs.getBoolean("analogPad", false)
         sh2Cache = prefs.getBoolean("sh2Cache", false)
-        // "sh2Sync": Fast became the default before the option shipped; "cpuSync" only held values from test builds
-        prefs.edit().remove("cpuSync").apply()
         cpuSync = prefs.getInt("sh2Sync", 1).coerceIn(0, 1)
         sh2Recompiler = prefs.getBoolean("cpuRecompiler", true)
-        prefs.edit().remove("idleSkip").remove("oneField").remove("threadedVdp").apply() // no longer options (always on)
         scspMode = prefs.getInt("scspMode", 0).coerceIn(0, 2)
-        prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
-        // Threaded audio choices the Auto tuner remembered per game ("scsp:<game>") were measured before the VDP2 render
-        // thread stopped blocking the emulation at the end of each frame, which changed which mode is faster (Burning
-        // Rangers on the RG Rotate stayed on "off" at ~55 fps against ~59 with threaded audio), and again after the sound
-        // thread stopped polling while waiting and Auto started threaded on 2 fast cores: start over ("scsp3:")
-        prefs.all.keys.filter { it.startsWith("scsp:") || it.startsWith("scsp2:") }.takeIf { it.isNotEmpty() }?.let { old ->
-            prefs.edit().apply { old.forEach { remove(it) } }.apply()
-        }
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0).coerceIn(0, 2)
@@ -472,17 +435,11 @@ object Emulator {
         showFrameTime = prefs.getBoolean("showFrameTime", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         useGameProfiles = prefs.getBoolean("gameProfiles", true)
-        // Older renderer ids: 0 (Software) became CPU (OpenGL), 2 (Vulkan present) GPU (Vulkan), 3 (ANGLE) CPU (OpenGL)
-        renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 2) 4 else 1 }
-        filter = prefs.getInt("filter", 1).coerceIn(0, 1) // "Sharp bilinear" (2) was removed
-        shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0)) // the removed dot matrix becomes none
+        renderer = prefs.getInt("renderer", 1).let { if (it == 4) 4 else 1 }
+        filter = prefs.getInt("filter", 1).coerceIn(0, 1)
+        shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0))
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
         cdSpeed = prefs.getInt("cdSpeed", 8).let { if (it in setOf(2, 4, 8, 16)) it else 8 }
-        // Once: 4x (the usual choice before videos and streamed music switched back to the original speed) becomes 8x
-        if (!prefs.getBoolean("cdSpeed8x", false)) {
-            if (cdSpeed == 4) cdSpeed = 8
-            prefs.edit().putBoolean("cdSpeed8x", true).putInt("cdSpeed", cdSpeed).apply()
-        }
         skipLoads = prefs.getBoolean("skipLoads", false)
         skipTransitions = prefs.getBoolean("skipTransitions", false)
         skipSaves = prefs.getBoolean("skipSaves", false)
@@ -610,7 +567,6 @@ object Emulator {
 
     /** Most recent save state of a game (auto, quick or slot), or null. */
     fun latestState(path: String): RecentState? {
-        migrateStateDirs()
         return stateFiles.files(path).map { (label, file) ->
             RecentState(path, stateSlot(label), file.lastModified(), thumbFile(file).takeIf { it.exists() })
         }.maxByOrNull { it.time }

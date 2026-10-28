@@ -206,11 +206,6 @@ private fun SystemPage(
                     "Choose", { onCart("ultraman.bin") })
             }
         },
-        extraSettings = {
-            Emulator.legacyDataDir?.let { old ->
-                InfoRow("Data from the previous version", "Choose $old as the Data folder to use those files.")
-            }
-        },
     )
 }
 
