@@ -45,16 +45,12 @@ fun SetupWizard(onFinish: () -> Unit) {
                 Button(onClick = { gamesPicker.launch(null) }) { Text("Choose folder") }
                 if (Emulator.gamesDir.isNotBlank()) WizardStatus(Storage.folderLabel(Emulator.gamesDir))
             },
-            WizardStep(Icons.Default.Speed, "Performance", listOf(Color(0xFFFFB15A), Color(0xFF8A4B12)),
-                "GBSat picked these settings for this device. You can change every option later in Settings → Performance.") {
-                val preset = Emulator.recommendedPreset
-                Text("${preset.label} · ${Emulator.device.summary}")
-                Text(when (preset) {
+            gb.frame.performanceWizardStep("GBSat", Emulator.recommendedPreset.label, Emulator.device.summary,
+                when (Emulator.recommendedPreset) {
                     Emulator.Preset.High -> "GPU (Vulkan) rendering at the screen's resolution, scanlines"
                     Emulator.Preset.Mid -> "CPU rendering, scanlines"
                     Emulator.Preset.Low -> "CPU rendering, no shader, automatic frame skip"
-                })
-            },
+                }),
         ),
         onFinish = onFinish, message = message, onStepChange = { message = null },
     )
