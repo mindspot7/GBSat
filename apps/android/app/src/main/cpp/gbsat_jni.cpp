@@ -1652,6 +1652,18 @@ JNI_FN(void, nativeSetSH2Jit)(JNIEnv *, jclass, jint mode) {
         });
     }
 }
+// The data folder changed without a restart (first folder picked): reopen the backup memory file at the same path,
+// which now leads into the picked folder
+JNI_FN(void, nativeReopenBackup)(JNIEnv *env, jclass, jstring backupRamPath) {
+    if (g) {
+        const std::string bup = JStr(env, backupRamPath);
+        Post([bup] {
+            std::error_code ec;
+            g->saturn->LoadInternalBackupMemoryImage(bup, false, ec);
+            if (ec) __android_log_print(ANDROID_LOG_ERROR, "GBSat", "Reopen backup memory: %s", ec.message().c_str());
+        });
+    }
+}
 JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {

@@ -22,6 +22,7 @@ object NativeBridge {
     @JvmStatic external fun nativeSetSH2Cache(on: Boolean)
     @JvmStatic external fun nativeSetSH2SyncStep(cycles: Int)
     @JvmStatic external fun nativeSetSH2Jit(mode: Int)
+    @JvmStatic external fun nativeReopenBackup(backupRamPath: String)
     @JvmStatic external fun nativeSetIdleSkip(on: Boolean)
     @JvmStatic external fun nativeSetOneField(on: Boolean)
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)

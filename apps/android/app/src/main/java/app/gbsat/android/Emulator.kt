@@ -480,6 +480,7 @@ object Emulator {
         }
 
         val bup = File(dataDir, "saves").apply { mkdirs() }.resolve("internal_backup.bin")
+        dataFolder.onOpened = { NativeBridge.nativeReopenBackup(bup.absolutePath) }
         NativeBridge.nativeInit(bup.absolutePath, File(dataDir, "saves/smpc.bin").absolutePath)?.let { error(it) }
         applyOptions()
         RetroAchievements.init(appContext, "GBSat", appVersion().substringBefore(" "), GBSatRa)
