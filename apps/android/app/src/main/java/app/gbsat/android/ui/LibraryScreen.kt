@@ -112,6 +112,7 @@ fun LibraryScreen(
     LifecycleResumeEffect(Unit) { refreshKey++; onPauseOrDispose { } }
     LaunchedEffect(Emulator.gamesDir, refreshKey) {
         if (Emulator.gamesDir.isBlank()) { games = emptyList(); return@LaunchedEffect }
+        if (games.isNotEmpty() && !Storage.scanStale(Emulator.gamesDir)) return@LaunchedEffect // scanned a moment ago
         loading = games.isEmpty()
         val found = withContext(Dispatchers.IO) { Storage.scan(Emulator.gamesDir).also { Emulator.registerStateGames(it) } }
         if (found != games) games = found
