@@ -47,6 +47,9 @@ object Emulator {
     // game that misbehaves with them without bringing the options back.
     var idleSkip = true; private set    // SH-2 idle-loop skipping
     val oneField = true                 // hi-res interlaced screens: render one field of each pair
+    // Vulkan renderer: deinterlace hi-res interlaced screens (VF2 showed combs on moving fighters); ~0.8 ms per frame on
+    // an Adreno 740, so only from tier mid up. The native side ignores it with the CPU renderers (one field covers them).
+    val deinterlace get() = device.tier >= gb.frame.DeviceTier.Tier.Mid
     var threadedVdp = true; private set // VDP1/VDP2 rendering on their own threads
     var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
     var preloadDisc by mutableStateOf(false)
@@ -117,6 +120,7 @@ object Emulator {
             "sh2_jit=${if (sh2Recompiler) "on" else "off"}",
             "idle_skip=${on(idleSkip)}",
             "one_field=${on(oneField)}",
+            "deinterlace=${on(deinterlace)}",
             "threaded_vdp=${on(threadedVdp)}",
             "threaded_audio=${listOf("auto", "on", "off").getOrElse(scspMode) { "$scspMode" }}",
             "cd_speed=${cdSpeed}x",
@@ -500,6 +504,7 @@ object Emulator {
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetScspMode(scspMode)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
+        NativeBridge.nativeSetDeinterlace(deinterlace)
         NativeBridge.nativeSetCdReadSpeed(cdSpeed)
         NativeBridge.nativeSetAutoSkip(skipLoads, skipTransitions, skipSaves)
         NativeBridge.nativeSetFrameSkip(frameSkip)

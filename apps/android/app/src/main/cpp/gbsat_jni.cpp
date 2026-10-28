@@ -209,6 +209,7 @@ struct Context {
     bool skipActive = false; // automatic frame skip engaged (emulation thread only)
     bool pairSkip = false;   // skip decision for the current field pair
     std::atomic<bool> oneField{false}; // hi-res interlaced screens: render only the first field of each pair
+    bool deinterlaceAllowed = false;   // device tier mid and above (set by the app); used with the Vulkan renderer only
     bool lastField = false;      // field bit seen on the previous frame
     bool prevFirstField = false; // the previous frame was the first field of an interlaced pair
     int notBehindRun = 0;    // consecutive frames on time
@@ -1865,6 +1866,17 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
                    }));
 }
 
+// Deinterlacing of double-density interlaced screens (VF2, Sega Rally hi-res): without it the core weaves the
+// fields, and moving objects show combs of two fields 1/60 s apart. Vulkan only: the CPU renderers show one field of
+// each pair ("Hi-res: one field"), which has no combs, and deinterlacing there would double their VDP2 work.
+// Runs on the emulation thread.
+void ApplyEnhancements() {
+    auto &vdp = g->saturn->VDP;
+    const bool gpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
+    const bool deinterlace = gpu && g->deinterlaceAllowed;
+    vdp.ModifyEnhancements([deinterlace](ymir::vdp::config::Enhancements &e) { e.deinterlace = deinterlace; });
+}
+
 // Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
 // Switches the VDP emulation between the software renderer and the Vulkan compute (GPU) renderer.
 // Runs on the emulation thread. If the GPU renderer cannot be created the software renderer stays active.
@@ -1900,6 +1912,7 @@ void ApplyVdpRenderer(bool gpu, bool force = false) {
         vdp.UseSoftwareRenderer();
         SetStage("running (software renderer)");
     }
+    ApplyEnhancements();
 }
 
 JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
@@ -1941,6 +1954,16 @@ JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
             ApplyVdpRenderer(true, true);
         }
     });
+}
+
+// Deinterlacing of interlaced hi-res screens with the Vulkan renderer (the app allows it from device tier mid up)
+JNI_FN(void, nativeSetDeinterlace)(JNIEnv *, jclass, jboolean allowed) {
+    if (g) {
+        Post([allowed] {
+            g->deinterlaceAllowed = allowed;
+            ApplyEnhancements();
+        });
+    }
 }
 
 // RetroAchievements: initialization and achievement list (see gbsat_ra.cpp for the rest)
