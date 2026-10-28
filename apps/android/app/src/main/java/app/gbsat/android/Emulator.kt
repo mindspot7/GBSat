@@ -423,7 +423,7 @@ object Emulator {
         System.loadLibrary("gbsat")
         dataFolder.openAtStartup()
         stateFiles = gb.frame.SaveStateFiles(dataDir, prefs)
-        stateFiles.migrateLegacyNumberedStates()
+        stateFiles.migrateLegacyNumberedStatesOnce(dataFolder.folder ?: "app")
         // Games folder paths from older versions are no longer readable: the folder must be picked again
         if (prefs.getString("gamesDir", "")?.startsWith("/") == true) prefs.edit().putString("gamesDir", "").apply()
         gb.frame.PlayTime.init(prefs)
