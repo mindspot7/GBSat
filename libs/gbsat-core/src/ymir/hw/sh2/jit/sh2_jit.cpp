@@ -792,6 +792,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         }
         maxAfter[k] = maxAfter[k + 1] + c;
     }
+    // Approximate mode: no bound, a block always runs to its end and the slice may end a few cycles late (taken from
+    // the next slice), so slices end at block boundaries and blocks chain through whole slices in host code
+    if (approximate) {
+        std::fill(maxAfter.begin(), maxAfter.end(), 0);
+    }
 
     usedRegs = 0xFFFF;
     usesT = true;
@@ -1437,14 +1442,18 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
                 e.MovImm(2, addr + 2);
                 e.Cmp(1, 2);
                 e.BCond(NE, x);
-                e.CmpX(kCycles, kLimit);
-                e.BCond(HS, x);
+                if (!approximate) {
+                    e.CmpX(kCycles, kLimit);
+                    e.BCond(HS, x);
+                }
                 continue;
             }
             afterCallChecks(addr, x);
-            e.AddXImm(1, kCycles, maxAfter[k + 1]);
-            e.CmpX(1, kLimit);
-            e.BCond(HS, x);
+            if (!approximate) { // approximate: the slice is only checked between blocks
+                e.AddXImm(1, kCycles, maxAfter[k + 1]);
+                e.CmpX(1, kLimit);
+                e.BCond(HS, x);
+            }
             continue;
         }
 
@@ -1461,9 +1470,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             e.LdrX(0, kCtx, offsetof(Context, intr));
             e.Ldrb(1, 0, 0);
             e.Cbnz(1, x);
-            e.AddXImm(1, kCycles, maxAfter[k + 1]);
-            e.CmpX(1, kLimit);
-            e.BCond(HS, x);
+            if (!approximate) {
+                e.AddXImm(1, kCycles, maxAfter[k + 1]);
+                e.CmpX(1, kLimit);
+                e.BCond(HS, x);
+            }
         }
         afterCall = false;
     }
@@ -1489,9 +1500,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         beforeCall(p.addr, true, true);
         Emitter::Label &x = callExit(p.addr);
         afterCallChecks(p.addr, x);
-        e.AddXImm(1, kCycles, p.bound);
-        e.CmpX(1, kLimit);
-        e.BCond(HS, x);
+        if (!approximate) {
+            e.AddXImm(1, kCycles, p.bound);
+            e.CmpX(1, kLimit);
+            e.BCond(HS, x);
+        }
         e.B(p.resume);
     }
     // Writes to compiled code: drop it (the address is in w5), then leave after the instruction

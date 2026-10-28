@@ -1,3 +1,4 @@
+#include "../../../../../../libs/gbsat-core/src/ymir/hw/sh2/jit/sh2_jit.hpp"
 #include <gb_data_storage.hpp>
 // Ymir Android bridge: runs ymir-core on a dedicated emulation thread, presents frames to an ANativeWindow,
 // and streams SCSP audio through AAudio. All emulator state is only touched from the emulation thread;
@@ -1621,6 +1622,21 @@ JNI_FN(void, nativeSetSH2SyncStep)(JNIEnv *, jclass, jint cycles) {
         const int prop = __system_property_get("debug.gbsat.sync_step", v) > 0 ? atoi(v) : 0;
         const int step = prop > 0 ? prop : cycles;
         Post([step] { g->saturn->SetSH2SyncStep(step); });
+    }
+}
+// SH-2 recompiler: 0 off (interpreter), 1 exact, 2 approximate timing (debug.gbsat.jit overrides, for tests)
+JNI_FN(void, nativeSetSH2Jit)(JNIEnv *, jclass, jint mode) {
+    if (g) {
+        char v[PROP_VALUE_MAX] = {};
+        const int m = __system_property_get("debug.gbsat.jit", v) > 0 ? atoi(v) : mode;
+        Post([m] {
+            g->saturn->EnableSH2Jit(m > 0);
+            if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->approximate != (m == 2)) {
+                jit->approximate = m == 2;
+                jit->Flush();
+            }
+            __android_log_print(ANDROID_LOG_INFO, "GBSat", "SH-2 JIT mode %d (%s)", m, g->saturn->GetSH2Jit() ? "on" : "off");
+        });
     }
 }
 JNI_FN(void, nativeSetIdleSkip)(JNIEnv *, jclass, jboolean on) {

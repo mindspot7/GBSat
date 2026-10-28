@@ -22,6 +22,33 @@ Same picture on a Cortex-A55 (the RG DS's RK3568 core; measured on the T618's A5
 VF2 interpreter run 4.4% of samples in `RunChained`, JIT run 3.9% + 0.6% (`RunBlocks`) + 1.9% generated code = 6.4%;
 Burning Rangers 5.5% against ~11% (recompiling included). The in-order core doesn't change the balance.
 
+## Approximate mode (October 2026, experimental, off)
+
+`Cache::approximate` (JNI `nativeSetSH2Jit(2)`; `adb shell setprop debug.gbsat.jit 0|1|2` overrides, for tests; the app
+passes 0): blocks have no cycle bound and run to their end even past the slice end (the overshoot is taken from the next
+slice, as the interpreter's last instruction already is), and the slice is only checked between blocks, so slices end at
+block boundaries. Not identical to the interpreter.
+
+Measured on the RG DS (RK3568), Burning Rangers from a BIOS boot, 20 s window, perf log: the emulation thread is the limit
+(94% CPU) and the master SH-2 is most of it.
+
+| | emu fps | msh2 ms/frame |
+|---|---|---|
+| Interpreter | 30.1 | 23.7 |
+| JIT exact | ~22 | ~40 |
+| JIT approximate | 19.8 | 45.0 |
+
+Per second the JIT ran ~390k blocks but still interpreted ~1.7-2.2M instructions (the chain between blocks: blocks
+start only at jump targets, so whatever follows a block that stopped early runs interpreted up to the next jump), and
+each block entry costs ~100 host instructions. The JIT makes the master SH-2 about twice as slow; removing the slice
+checks (approximate mode) does not change that. Whole-process profile of the same scene: SCSP thread 34%, emulation
+thread 33%, VDP2 renderer 16%.
+
+What would be needed for a gain: blocks entered at any instruction (no interpreted tail), all common instructions in
+host code including memory accesses outside WRAM-H through direct helper calls, cheaper entry/exit (registers loaded
+lazily) and blocks that follow branches, so that whole slices stay in host code. That is a redesign of the compiler,
+not a mode of the current one.
+
 ## Why, and what it can gain
 
 Burning Rangers on the RG Rotate (T618), CPU renderer, Fast CPU sync (128 cycles): the SH-2 interpreter

@@ -76,6 +76,9 @@ public:
     bool compileEnabled = true;
     // Diagnostics: host code for these kinds (off: interpreter calls)
     bool nativeBranches = true, nativeSpecials = true, nativeMac = true, nativeSlots = true;
+    // Approximate timing (option for weak devices): blocks always run whole, so the time slice can end up to one block
+    // late. Faster, but not identical to the interpreter. Set before compiling (Flush when changed)
+    bool approximate = false;
 
     // Drops every block (reset, save state load)
     void Flush();

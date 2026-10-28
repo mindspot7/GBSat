@@ -526,6 +526,7 @@ object Emulator {
         NativeBridge.nativeSetPadType(analogPad)
         NativeBridge.nativeSetSH2Cache(sh2Cache)
         NativeBridge.nativeSetSH2SyncStep(if (cpuSync == 1) 128 else 32)
+        NativeBridge.nativeSetSH2Jit(0)
         NativeBridge.nativeSetIdleSkip(idleSkip)
         NativeBridge.nativeSetOneField(oneField)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
