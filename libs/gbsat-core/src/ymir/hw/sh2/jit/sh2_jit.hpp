@@ -10,6 +10,7 @@
 #include <ymir/core/types.hpp>
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <unordered_map>
@@ -82,6 +83,8 @@ public:
     // Approximate timing (option for weak devices): blocks always run whole, so the time slice can end up to one block
     // late. Faster, but not identical to the interpreter. Set before compiling (Flush when changed)
     bool approximate = false;
+    // Diagnostics: when set, each compiled block is described here (host address of each part and SH-2 instruction)
+    std::FILE *mapFile = nullptr;
 
     // Drops every block (reset, save state load)
     void Flush();

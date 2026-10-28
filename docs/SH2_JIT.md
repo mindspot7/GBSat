@@ -59,6 +59,15 @@ itself), Advance 3.7%, InterpretNext 2% (instructions without host code), RunBlo
 code-write watch on every bus write). Next: find what the generated code spends its time on (a perf map of the blocks),
 host code for the remaining interpreted instructions, a cheaper code-write watch.
 
+Block map (`Cache::mapFile`, `adb shell setprop debug.gbsat.jitmap 1` before starting a game with the JIT on: writes
+`Android/media/<app>/jitmap.txt`, host address of each block part and SH-2 instruction) matched with simpleperf samples
+(`--sort comm,dso,vaddr_in_file`, the `unknown` dso): of the generated code's time, plain register instructions 37%,
+memory accesses 20%, memory helpers (slow path) 11%, interpreter calls 8% (mostly STS.L PR / LDS.L PR / STC SR), exits
+8%, branches 9%, prologue 5%. Dropping the load-use stall tracking and adding the cycles of plain instructions once per
+run (approximate mode) changed nothing measurable (master SH-2 15.1 ms): the generated code is no longer the limit.
+What is left in the master SH-2's time is mostly the system work its accesses trigger (VDP2 VRAM writes, render queue
+pushes) and the per-slice dispatch (Advance, RunBlocks, about 6% of the process).
+
 Before those changes, what would be needed for a gain: blocks entered at any instruction (no interpreted tail), all common instructions in
 host code including memory accesses outside WRAM-H through direct helper calls, cheaper entry/exit (registers loaded
 lazily) and blocks that follow branches, so that whole slices stay in host code. That is a redesign of the compiler,

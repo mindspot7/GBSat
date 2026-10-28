@@ -784,6 +784,9 @@ std::string g_logSettings;
 #error "GB_APP_ID is defined by gb_native_add(gbsat APP_ID ...)"
 #endif
 void WritePerfLog(float fps, float presentedFps) {
+    if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->mapFile != nullptr) {
+        std::fflush(jit->mapFile);
+    }
     static const char *kPath = "/sdcard/Android/media/" GB_APP_ID "/perf-log.csv";
     std::string title;
     {
@@ -1634,6 +1637,14 @@ JNI_FN(void, nativeSetSH2Jit)(JNIEnv *, jclass, jint mode) {
             if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->approximate != (m == 2)) {
                 jit->approximate = m == 2;
                 jit->Flush();
+            }
+            // Diagnostics: debug.gbsat.jitmap=1 describes the compiled blocks (with a profile, tells what host code runs)
+            if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->mapFile == nullptr) {
+                char mv[PROP_VALUE_MAX] = {};
+                if (__system_property_get("debug.gbsat.jitmap", mv) > 0 && mv[0] == '1') {
+                    jit->mapFile = std::fopen("/sdcard/Android/media/" GB_APP_ID "/jitmap.txt", "w");
+                    jit->Flush();
+                }
             }
             __android_log_print(ANDROID_LOG_INFO, "GBSat", "SH-2 JIT mode %d (%s)", m, g->saturn->GetSH2Jit() ? "on" : "off");
         });

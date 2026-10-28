@@ -998,7 +998,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
             e.BCond(LS, out(0));
             e.Bind(fwd);
         }
-        if (wb != kWbUnknown) {
+        if (wb != kWbUnknown && !approximate) {
             storeWb(static_cast<uint32>(wb));
         }
         // the next block: WRAM-H (cached or cache-through area), compiled, starting exactly there, fitting the slice
@@ -1029,7 +1029,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
 
     // Load-use stall of the registers in `mask` (counted `times` times)
     auto stall = [&](uint32 mask, uint32 times) {
-        if (mask == 0) {
+        if (mask == 0 || approximate) { // approximate mode: no load-use stall
             return;
         }
         if (wb == kWbUnknown) {
@@ -1092,8 +1092,23 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         e.BCond(NE, x);
     };
 
+    std::vector<std::pair<size_t, sint32>> marks; // diagnostics (mapFile): code offset -> item index (-1 slow, -2 exits)
+    // Cycles of plain host instructions not added to kCycles yet: added once before anything else (which may read them)
+    uint32 pendingCycles = 0;
+    auto flushCycles = [&] {
+        if (pendingCycles != 0) {
+            e.AddXImm(kCycles, kCycles, pendingCycles);
+            pendingCycles = 0;
+        }
+    };
     for (size_t k = 0; k < items.size(); ++k) {
         const Item &it = items[k];
+        if (mapFile != nullptr) {
+            marks.push_back({e.code.size(), (sint32)k});
+        }
+        if (!it.native || it.isSlot) {
+            flushCycles();
+        }
         const uint32 addr = it.in.pc;
         lastCovered = std::max(lastCovered, addr);
         allowFalse = false; // only the instruction right after LDS/STS has interrupts blocked
@@ -1115,7 +1130,11 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         if (it.native) {
             stall(it.regs, 1);
             c.Emit(it.in);
-            e.AddXImm(kCycles, kCycles, 1);
+            if (it.isSlot) {
+                e.AddXImm(kCycles, kCycles, 1);
+            } else {
+                ++pendingCycles;
+            }
             wb = 0xFF;
             allowFalse = false;
             dirty |= it.regs;
@@ -1512,6 +1531,7 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         }
         afterCall = false;
     }
+    flushCycles();
     // Falling off the end (a native or memory instruction was last, or the length limit)
     {
         const Item &last = items.back();
@@ -1522,6 +1542,9 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
         }
     }
 
+    if (mapFile != nullptr) {
+        marks.push_back({e.code.size(), -1});
+    }
     // Slow paths: the memory access through the interpreter, then back (or out where the chain would stop)
     for (auto &sp : slowPaths) {
         SlowPath &p = *sp;
@@ -1615,6 +1638,9 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
 
     // Native exits: w1 = next PC, w2 = last PC, w3 = fetched pair, w4 = 1 to store it, w6 = m_wbReg (0x100: keep)
     Emitter::Label epilogue, nativeTail;
+    if (mapFile != nullptr) {
+        marks.push_back({e.code.size(), -2});
+    }
     for (auto &xp : exits) {
         Exit &x = *xp;
         e.Bind(x.label);
@@ -1698,6 +1724,19 @@ const Block *Cache::Compile(uint32 pc, Fetch fetch, void *ctx) {
     __builtin___clear_cache(reinterpret_cast<char *>(dst), reinterpret_cast<char *>(dst + bytes));
     m_codeUsed += (bytes + 15) & ~size_t{15};
 
+    if (mapFile != nullptr) {
+        std::fprintf(mapFile, "B %llx %zx %08x %zx\n", (unsigned long long)(uintptr_t)dst, bytes, pc, linkedEntry * 4);
+        for (auto &[off, k] : marks) {
+            if (k < 0) {
+                std::fprintf(mapFile, "P %llx %s\n", (unsigned long long)(uintptr_t)(dst + off * 4), k == -1 ? "slow" : "exits");
+            } else {
+                const Item &it = items[k];
+                const char kind = it.native ? 'N' : it.mem ? 'M' : it.special ? 'S' : it.mac ? 'X' : it.branch != BranchKind::None ? 'J' : 'C';
+                std::fprintf(mapFile, "I %llx %c %u %04x %08x\n", (unsigned long long)(uintptr_t)(dst + off * 4), kind,
+                             (unsigned)static_cast<uint16>(it.in.op), it.in.opcode, it.in.pc);
+            }
+        }
+    }
     auto block = std::make_unique<Block>();
     block->code = reinterpret_cast<void (*)(Context *)>(dst);
     block->startPC = pc;
