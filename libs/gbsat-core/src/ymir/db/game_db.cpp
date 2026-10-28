@@ -105,6 +105,9 @@ static const std::unordered_map<std::string_view, GameInfo> kGameInfosByCode = {
     {"T-24904G", {.flags = SlowVDP1}}, // Fishing Koushien II (Japan) -- expensive FMVs due to infinite loop drawing the same sprite over and over
     {"T-20002G", {.flags = SlowVDP1}}, // Funky Fantasy (Japan) -- expensive FMVs due to infinite loop drawing the same sprite over and over
     {"T-9513G",  {.flags = SlowVDP1}}, // Jikkyou Oshaberi Parodius - Forever with Me (Japan) -- no boot
+    {"MK-81020",    {.flags = SlowVDP1}}, // NiGHTS into Dreams... (USA) -- the command table loops (85 commands run ~215 times
+    {"MK-81020-50", {.flags = SlowVDP1}}, // NiGHTS into Dreams... (Europe)  per frame) at Ideya captures: white sprite smears
+    {"GS-9046",     {.flags = SlowVDP1}}, // NiGHTS into Dreams... (Japan)   and 80-100 ms frames with the hardware renderers
     {"T-32201G", {.flags = SkipEmptyVDP1Table}}, // Sekai no Shasou kara - I Swiss-hen - Alps Tozantetsudou no Tabi (Japan) -- runs invalid commands that break system clipping coordinates and abuses processing power
 
     // These need improved overall system timings. All of them result in FMVs being clipped.
