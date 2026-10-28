@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- CPU recompiler (experimental), in Settings → Performance and the in-game Performance menu, off by default: compiles the SH-2 code to ARM64 with approximate timing, for weak devices. On an RG DS (RK3568): Daytona USA 43 → 53 fps, Virtua Fighter 2 43 → 46 fps. It works with Fast CPU sync only; games that need tighter sync (Burning Rangers) keep the interpreter automatically, where the recompiler would be slower.
 - Data folder: save states moved to `savestates/<Game>/<Game>_<slot>.state` (no more `game.txt` or empty `.ra` files); older states are renamed on startup. A nested `GBSat/GBSat` folder is flattened.
 - Covers take about 20x less space (WebP, at most 600 px): 10 MB → 0.7 MB for 16 covers; existing covers are converted once in the background.
 - Burning Rangers no longer hangs on a black screen after the BIOS with CPU sync Fast: the game database keeps its CPUs synced every 32 cycles whatever the option (its two CPUs deadlocked with a coarser sync, on every device).

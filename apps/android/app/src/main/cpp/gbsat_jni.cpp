@@ -1627,16 +1627,18 @@ JNI_FN(void, nativeSetSH2SyncStep)(JNIEnv *, jclass, jint cycles) {
         Post([step] { g->saturn->SetSH2SyncStep(step); });
     }
 }
-// SH-2 recompiler: 0 off (interpreter), 1 exact, 2 approximate timing (debug.gbsat.jit overrides, for tests)
+// SH-2 recompiler: 0 off (interpreter), 2 approximate timing, used only with 128-cycle sync (Saturn::SetSH2JitApproximate);
+// 1 exact, for tests. debug.gbsat.jit overrides
 JNI_FN(void, nativeSetSH2Jit)(JNIEnv *, jclass, jint mode) {
     if (g) {
         char v[PROP_VALUE_MAX] = {};
-        const int m = __system_property_get("debug.gbsat.jit", v) > 0 ? atoi(v) : mode;
+        const int m = __system_property_get("debug.gbsat.jit", v) > 0 && v[0] != 0 ? atoi(v) : mode;
         Post([m] {
-            g->saturn->EnableSH2Jit(m > 0);
-            if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->approximate != (m == 2)) {
-                jit->approximate = m == 2;
-                jit->Flush();
+            g->saturn->SetSH2JitApproximate(m == 2);
+            if (m == 1) {
+                g->saturn->EnableSH2Jit(true);
+            } else if (m == 0) {
+                g->saturn->EnableSH2Jit(false);
             }
             // Diagnostics: debug.gbsat.jitmap=1 describes the compiled blocks (with a profile, tells what host code runs)
             if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->mapFile == nullptr) {

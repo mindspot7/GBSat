@@ -392,6 +392,18 @@ void Saturn::SaveState(savestate::SaveState &state) const {
 
 Saturn::~Saturn() = default;
 
+void Saturn::UpdateSH2Jit() {
+    const bool on = m_sh2JitRequested && m_sh2SyncStep >= 128;
+    if (on == (m_sh2Jit != nullptr && m_sh2Jit->approximate)) {
+        return;
+    }
+    EnableSH2Jit(on);
+    if (m_sh2Jit) {
+        m_sh2Jit->approximate = true;
+        m_sh2Jit->Flush();
+    }
+}
+
 bool Saturn::EnableSH2Jit(bool enable) {
     if (enable && !m_sh2Jit && sh2::jit::Cache::Supported()) {
         m_sh2Jit = std::make_unique<sh2::jit::Cache>();

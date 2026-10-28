@@ -307,6 +307,14 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 Emulator.savePrefs()
                 Emulator.applyOptions()
             }
+            QuickMenuItemRow(
+                id = "cpu_recompiler", icon = Icons.Default.Speed, label = "CPU recompiler",
+                value = if (Emulator.sh2Recompiler) "On" else "Off",
+            ) {
+                Emulator.sh2Recompiler = !Emulator.sh2Recompiler
+                Emulator.savePrefs()
+                Emulator.applyOptions()
+            }
             fun onOff(value: Boolean) = if (value) "On" else "Off"
             QuickMenuItemRow(
                 id = "skip_loads", icon = Icons.Default.FastForward, label = "Skip loading screens",

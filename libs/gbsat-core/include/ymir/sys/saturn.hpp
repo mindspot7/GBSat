@@ -219,6 +219,14 @@ struct Saturn {
     /// interpreter's. Returns whether it is in use (false where it isn't supported).
     bool EnableSH2Jit(bool enable);
 
+    /// @brief Asks for the SH-2 JIT in approximate mode (option for weak devices: faster, not identical to the
+    /// interpreter). It is used only while the sync step is at least 128 cycles: with shorter steps (Accurate, or a game
+    /// flagged PreciseSH2Sync) entering compiled code every step costs more than it saves.
+    void SetSH2JitApproximate(bool enable) {
+        m_sh2JitRequested = enable;
+        UpdateSH2Jit();
+    }
+
     /// @brief The SH-2 JIT's block cache (statistics), or nullptr when it is off.
     [[nodiscard]] sh2::jit::Cache *GetSH2Jit() const noexcept {
         return m_sh2Jit.get();
@@ -491,9 +499,12 @@ private:
     uint64 m_sh2SyncStep = 32;      ///< Cycles per master/slave SH-2 sync step in use (see SetSH2SyncStep)
     uint64 m_sh2SyncRequested = 32; ///< The step asked for (SetSH2SyncStep)
     bool m_preciseSH2Sync = false;  ///< The loaded game needs the 32-cycle step (game database)
+    bool m_sh2JitRequested = false; ///< SetSH2JitApproximate
     void UpdateSH2SyncStep() {
         m_sh2SyncStep = m_preciseSH2Sync && m_sh2SyncRequested > 32 ? 32 : m_sh2SyncRequested;
+        UpdateSH2Jit();
     }
+    void UpdateSH2Jit();
     uint64 m_msh2SpilloverCycles; ///< Master SH-2 execution cycles spilled over between executions
     uint64 m_ssh2SpilloverCycles; ///< Slave SH-2 execution cycles spilled over between executions
     uint64 m_sh1SpilloverCycles;  ///< SH-1 execution cycles spilled over between executions
