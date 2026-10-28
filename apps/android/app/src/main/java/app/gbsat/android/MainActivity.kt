@@ -160,6 +160,9 @@ class MainActivity : ComponentActivity() {
             Emulator.setPadMask(padMask)
             return true
         }
+        // In game, a gamepad button the Saturn pad doesn't use (L3 in an L3+X hotkey) must not reach the framework: Android
+        // would send its fallback key (L3 → DPAD_CENTER), which presses the focused item of the quick menu
+        if (Emulator.running && KeyEvent.isGamepadButton(event.keyCode)) return true
         // Outside games the menus are driven by the controller like a console: A selects, B goes back
         if (!Emulator.running) {
             if (event.keyCode == KeyEvent.KEYCODE_BUTTON_B) return backKey(event)
