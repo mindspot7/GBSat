@@ -203,6 +203,8 @@ struct VulkanVDPRenderer::Impl {
 
         /// @brief FBRAM download buffer (host-visible).
         GpuBuffer fbramDownloadBuffer;
+        GpuBuffer fbramNativeBuffer; // scaled framebuffers brought down to native FBRAM, for the readback
+        GpuPipeline fbramDownsamplePipe;
         std::atomic_bool fbramDebugSyncRequest{false};
         bool fbramReadbackDirty = false;
         uint32 fbramReadbackCopyPending = false;
@@ -465,6 +467,7 @@ struct VulkanVDPRenderer::Impl {
         GpuBuffer oitCounterBuffer;
 
         VkDescriptorSet fbramWriteSet = VK_NULL_HANDLE;
+        VkDescriptorSet fbramDownsampleSet = VK_NULL_HANDLE;
         VkDescriptorSet eraseSet = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, 2 * 4> polyDrawSets{};
         std::array<VkDescriptorSet, 2 * 3> outputMergerSets{};
@@ -1293,6 +1296,11 @@ struct VulkanVDPRenderer::Impl {
             !r) {
             return r;
         }
+        if (auto r = CreateBuffer(vdp1.fbramNativeBuffer, kVDP1FBRAMSize * 2, kSSBO, false, VK_FORMAT_UNDEFINED,
+                                  "VDP1 FBRAM native");
+            !r) {
+            return r;
+        }
         if (auto r = CreateBuffer(vdp1.fbramDownloadBuffer, kVDP1FBRAMSize * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
                                   VK_FORMAT_UNDEFINED, "VDP1 FBRAM download", true);
             !r) {
@@ -1305,6 +1313,10 @@ struct VulkanVDPRenderer::Impl {
             return r;
         }
         if (auto r = CreatePipeline(vdp1.erasePipe, "src/vdp/cs_vdp1_erase.spv", "VDP1 erase"); !r) {
+            return r;
+        }
+        if (auto r = CreatePipeline(vdp1.fbramDownsamplePipe, "src/vdp/cs_vdp1_fbram_downsample.spv", "VDP1 FBRAM downsample");
+            !r) {
             return r;
         }
         for (size_t shaderIndex = 0; shaderIndex < vdp1.polyDrawPipes.size(); ++shaderIndex) {
@@ -1430,6 +1442,7 @@ struct VulkanVDPRenderer::Impl {
 
             YMIR_VK_TRY(set(f.fbramWriteSet, vdp1.fbramWritePipe, {vdp1.fbramWritesBuffer}, {vdp1.fbramBuffer}));
             YMIR_VK_TRY(set(f.eraseSet, vdp1.erasePipe, {}, {vdp1.fbramBuffer}));
+            YMIR_VK_TRY(set(f.fbramDownsampleSet, vdp1.fbramDownsamplePipe, {}, {vdp1.fbramBuffer, vdp1.fbramNativeBuffer}));
             for (size_t s = 0; s < vdp1.polyDrawPipes.size(); ++s) {
                 const GpuPipeline &pipe = vdp1.polyDrawPipes[s];
                 if (IsVDP1PolyDrawShaderOIT(s)) {
@@ -1821,15 +1834,23 @@ struct VulkanVDPRenderer::Impl {
             return;
         }
         vdp1.fbramReadbackDirty = false;
-        if (vdp1.resScale > 1) {
-            // The GPU framebuffers are stored at the internal resolution scale and cannot be read back as native FBRAM
-            return;
-        }
         vdp1.fbramReadbackCopyPending = true;
 
+        GpuBuffer *source = &vdp1.fbramBuffer;
+        if (vdp1.resScale > 1) {
+            // The GPU framebuffers are stored at the internal resolution scale: bring them down to native FBRAM first
+            if (auto result = Dispatch(vdp1.fbramDownsamplePipe, frames.GetCurrentFrame().fbramDownsampleSet,
+                                       {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)}},
+                                       static_cast<uint32>(kVDP1FBRAMSize * 2 / 4 + 63) / 64, 1, 1);
+                !result) {
+                devlog::warn<grp::dx12_vdp1>("Failed to downsample VDP1 FBRAM: {}", result.Error().message);
+                return;
+            }
+            source = &vdp1.fbramNativeBuffer;
+        }
         FlushBarriers();
         const VkBufferCopy region{0, 0, kVDP1FBRAMSize * 2};
-        vkCmdCopyBuffer(Cmd(), vdp1.fbramBuffer.buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
+        vkCmdCopyBuffer(Cmd(), source->buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
         pendingBarrier = true;
     }
 
