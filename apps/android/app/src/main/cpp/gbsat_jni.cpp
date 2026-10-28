@@ -1632,7 +1632,7 @@ JNI_FN(void, nativeSetSH2SyncStep)(JNIEnv *, jclass, jint cycles) {
 JNI_FN(void, nativeSetSH2Jit)(JNIEnv *, jclass, jint mode) {
     if (g) {
         char v[PROP_VALUE_MAX] = {};
-        const int m = __system_property_get("debug.gbsat.jit", v) > 0 && v[0] != 0 ? atoi(v) : mode;
+        const int m = __system_property_get("debug.gbsat.jit", v) > 0 && v[0] >= '0' && v[0] <= '2' ? v[0] - '0' : mode;
         Post([m] {
             g->saturn->SetSH2JitApproximate(m == 2);
             if (m == 1) {

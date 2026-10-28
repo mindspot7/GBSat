@@ -40,7 +40,7 @@ object Emulator {
     var sh2Cache by mutableStateOf(false)
     var cpuSync by mutableStateOf(1) // SH-2 sync: 0 = Accurate (every 32 cycles), 1 = Fast (every 128, default)
     // SH-2 recompiler with approximate timing (weak devices); only used with Fast sync and games that allow it
-    var sh2Recompiler by mutableStateOf(false)
+    var sh2Recompiler by mutableStateOf(true)
     // Not user options (performance logs: turning them off was never faster). One field only acts with the CPU renderers
     // (the native side ignores it with Vulkan). Idle-loop skipping and threaded VDP stay on unless a game's recommended
     // profile turns them off ("idleSkip": false / "threadedVdp": false in assets/game_profiles.json): the way to fix a
@@ -442,7 +442,7 @@ object Emulator {
         // "sh2Sync": Fast became the default before the option shipped; "cpuSync" only held values from test builds
         prefs.edit().remove("cpuSync").apply()
         cpuSync = prefs.getInt("sh2Sync", 1).coerceIn(0, 1)
-        sh2Recompiler = prefs.getBoolean("sh2Recompiler", false)
+        sh2Recompiler = prefs.getBoolean("cpuRecompiler", true)
         prefs.edit().remove("idleSkip").remove("oneField").remove("threadedVdp").apply() // no longer options (always on)
         scspMode = prefs.getInt("scspMode", 0).coerceIn(0, 2)
         prefs.edit().remove("threadedScsp").remove("threadedScspDevice").apply() // replaced by scspMode + per-game memory
@@ -563,7 +563,7 @@ object Emulator {
     }
 
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
-        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putInt("sh2Sync", cpuSync).putBoolean("sh2Recompiler", sh2Recompiler)
+        .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putInt("sh2Sync", cpuSync).putBoolean("cpuRecompiler", sh2Recompiler)
         .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)

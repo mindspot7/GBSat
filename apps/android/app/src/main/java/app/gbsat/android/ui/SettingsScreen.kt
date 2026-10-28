@@ -307,7 +307,7 @@ private fun PerformancePage() {
         ChoiceRow("CPU sync", "How often the two SH-2 CPUs are kept in step. Fast (default) syncs less often for about 10% less work; use Accurate if a game misbehaves",
             listOf("Accurate", "Fast"), Emulator.cpuSync, ch<Int> { Emulator.cpuSync = it })
         SettingsDivider()
-        ToggleRow(Icons.Default.Speed, "CPU recompiler (experimental)", "Faster on weak devices (e.g. Daytona USA +24% on an RG DS), less accurate. Works with Fast CPU sync; games that need tighter sync (Burning Rangers) keep the interpreter",
+        ToggleRow(Icons.Default.Speed, "CPU recompiler", "On by default: faster on weak devices (Daytona USA +24% on an RG DS) and less CPU use on the others, slightly less accurate. Works with Fast CPU sync; games that need tighter sync (Burning Rangers) keep the interpreter. Turn off if a game misbehaves",
             Emulator.sh2Recompiler, ch { Emulator.sh2Recompiler = it })
     }
     SettingsGroup("Loading", Icons.Default.Album) {
