@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.GBSat.Launch" parent="Theme.GBSat">
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_opaque</item>
+    </style>
+</resources>
