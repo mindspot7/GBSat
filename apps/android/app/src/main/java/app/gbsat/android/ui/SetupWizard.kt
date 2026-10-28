@@ -16,7 +16,7 @@ import gb.frame.WizardStatus
 import gb.frame.WizardStep
 import kotlinx.coroutines.launch
 
-/** First-run setup (shared wizard from the UI kit): welcome, BIOS, games folder, preset. */
+/** First-run setup (shared wizard from the UI kit): welcome, data folder, BIOS, games folder, performance preset. */
 @Composable
 fun SetupWizard(onFinish: () -> Unit) {
     val ctx = LocalContext.current
@@ -44,6 +44,16 @@ fun SetupWizard(onFinish: () -> Unit) {
                 "Pick the folder that holds your Saturn disc images (CUE/BIN, CHD, ISO, MDS, CCD). GBSat only reads that folder.") {
                 Button(onClick = { gamesPicker.launch(null) }) { Text("Choose folder") }
                 if (Emulator.gamesDir.isNotBlank()) WizardStatus(Storage.folderLabel(Emulator.gamesDir))
+            },
+            WizardStep(Icons.Default.Speed, "Performance", listOf(Color(0xFFFFB15A), Color(0xFF8A4B12)),
+                "GBSat picked these settings for this device. You can change every option later in Settings → Performance.") {
+                val preset = Emulator.recommendedPreset
+                Text("${preset.label} · ${Emulator.device.summary}")
+                Text(when (preset) {
+                    Emulator.Preset.High -> "GPU (Vulkan) rendering at the screen's resolution, scanlines"
+                    Emulator.Preset.Mid -> "CPU rendering, scanlines"
+                    Emulator.Preset.Low -> "CPU rendering, no shader, automatic frame skip"
+                })
             },
         ),
         onFinish = onFinish, message = message, onStepChange = { message = null },
