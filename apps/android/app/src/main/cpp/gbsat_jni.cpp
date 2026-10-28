@@ -19,6 +19,7 @@
 #include <ymir/util/wait_stats.hpp>
 #include <ymir/util/data_ops.hpp>
 #include <ymir/db/game_db.hpp>
+#include <ymir/db/ipl_db.hpp>
 #include <ymir/hw/cart/cart.hpp>
 
 #include "gbsat_ra.hpp"
@@ -1392,6 +1393,18 @@ JNI_FN(jstring, nativeLoadIpl)(JNIEnv *env, jclass, jstring path) {
             return "Failed to read IPL ROM";
         }
         g->saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(rom));
+        // Which BIOS (behavior can differ between versions and regions; the log tells devices apart)
+        const auto hash = g->saturn->GetIPLHash();
+        if (const auto *info = ymir::db::GetIPLROMInfo(hash)) {
+            LOGI("BIOS: version %s (%04u-%02u-%02u), region %d", info->version, (unsigned)info->year,
+                 (unsigned)info->month, (unsigned)info->day, (int)info->region);
+        } else {
+            char hex[33];
+            for (int i = 0; i < 16; ++i) {
+                snprintf(hex + i * 2, 3, "%02x", hash[i]);
+            }
+            LOGI("BIOS: unknown (hash %s)", hex);
+        }
         return {};
     });
     return NewJStr(env, err);
