@@ -153,6 +153,18 @@ Both APKs were built locally. The initial build's unit suite had an existing unr
 (BitmapDrawable cast to AdaptiveIconDrawable); the subsequent APK assembly succeeded. Native regression tests
 passed on the device. The original installed APK and Auto frame skip were restored after profiling.
 
+### TST immediate → BT direct-dispatch experiment (2026-10-29, rejected)
+
+Daytona USA - Championship Circuit Edition's hottest SSH2 loop repeatedly contains `TST #imm,R0` followed by `BT`.
+A temporary interpreter-only shortcut dispatched directly to the existing `BT` handler for that pair. On the RG DS
+(RK3568), `sh2cmp` compared 600 frames from Slot 1: the saved-state hashes matched every frame (SCU remains outside
+the hash because its serializer rejects this cart's data array), but time per frame was 51.09 ms without the shortcut
+and 51.10 ms with it. In the app, with CPU/OpenGL, Fast 128-cycle sync, frameskip Off and the SH-2 JIT override Off,
+sequential 30-second windows gave medians of 38.8 vs 37.6 emu FPS, 11.80 vs 13.28 ms for MSH2, and 8.11 vs 8.07 ms
+for SSH2; the enabled run recorded about 6,330 fused pairs per sampled frame. The scene and load changed between
+windows, so the app numbers are only a smoke comparison, but neither measurement showed a gain. The shortcut added
+a per-instruction condition and was removed; a hot opcode pair alone is not sufficient evidence for a dispatch rewrite.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
