@@ -56,7 +56,7 @@ object Emulator {
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     /** Apply built-in Saturn widescreen codes when a matching game runs in 16:9. */
-    var widescreenGameHacks by mutableStateOf(true)
+    var widescreenGameHacks by mutableStateOf(gb.frame.GameHackPolicy.DEFAULT_ENABLED)
     var showFps by mutableStateOf(false)
     var showSpeed by mutableStateOf(false)
     var showFfButton by mutableStateOf(false)
@@ -254,7 +254,9 @@ object Emulator {
 
     private fun applyCheats() {
         val hardcore = RetroAchievements.hardcoreActive
-        val ws = if (widescreenGameHacks && aspect == 2 && running && !hardcore) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
+        val canApplyGameHacks = gb.frame.GameHackPolicy.shouldApply(widescreenGameHacks, hardcore)
+        // Ymir has no native widescreen patch API today, so the Saturn Action Replay catalog is the fallback.
+        val ws = if (canApplyGameHacks && aspect == 2 && running) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
         widescreenHack = ws?.first
         // Never apply cheats while RetroAchievements hardcore is active, including cheats enabled earlier.
         val w = (if (hardcore) emptyList() else cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() }) +
@@ -441,7 +443,7 @@ object Emulator {
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0).coerceIn(0, 2)
-        widescreenGameHacks = prefs.getBoolean("widescreenGameHacks", true)
+        widescreenGameHacks = prefs.getBoolean("widescreenGameHacks", gb.frame.GameHackPolicy.DEFAULT_ENABLED)
         showFps = prefs.getBoolean("showFps", false)
         showSpeed = prefs.getBoolean("showSpeed", false)
         showFfButton = prefs.getBoolean("showFfButton", false)
