@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Auto frame skip on the CPU renderer now keeps small measured render-time savings instead of disabling itself below the previous 10% threshold.
+- Auto frame skip starts earlier on the CPU renderer, compares three-second windows from similar VDP1 scene loads, increases skip cadence after repeatable savings, and retries after a five-second pause when skipping hurts. Vulkan thresholds remain unchanged.
 - Reduce SH-2 JIT code-write watch overhead for writes that do not overlap compiled code.
 - Add a persistent toggle for built-in Saturn widescreen game hacks in Video settings and the in-game Video menu.
 

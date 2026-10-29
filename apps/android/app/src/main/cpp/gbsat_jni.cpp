@@ -156,6 +156,11 @@ struct AudioRing {
 // ---------------------------------------------------------------------------------------------------------------------
 // Global emulator context
 
+struct FrameSkipSample {
+    uint64_t renderedNs = 0, skippedNs = 0;
+    uint32_t renderedFrames = 0, skippedFrames = 0;
+};
+
 struct Context {
     std::unique_ptr<ymir::Saturn> saturn;
     // Last displayed frame (downscaled to at most ~352 px wide), for save state thumbnails. Guarded by lastFrameMutex.
@@ -217,11 +222,17 @@ struct Context {
     int minRenderRun = 2;    // frames shown between skips (adapted every second while skipping: 1..4)
     // Does skipping help? Skipped frames save the VDP's work; when the emulation thread is bound by the SH-2s (rendering
     // runs on other threads) a skipped frame takes as long as a rendered one, and skipping only drops frames from the
-    // screen (RG DS, Virtua Fighter 2: 1 of 2 frames skipped, both ~21 ms). Measured every second while skipping.
+    // screen (RG DS, Virtua Fighter 2: 1 of 2 frames skipped, both ~21 ms). Compare rolling windows from similar scenes.
     int64_t fsRenderedNs = 0, fsSkippedNs = 0;
     int fsRendered = 0, fsSkipped = 0;
     bool fsUseless = false; // skipping did not help the current scene: retry after fsHold (scene may change)
     int fsHold = 0;         // seconds
+    std::array<FrameSkipSample, 3> fsHistory{};
+    size_t fsHistoryCount = 0, fsHistoryNext = 0;
+    uint32_t fsPoorWindows = 0;
+    float fsSceneVdp1Commands = -1.0f;
+    uint32_t fsSceneWidth = 0, fsSceneHeight = 0;
+    int fsSceneRendererMode = -1;
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
     std::atomic<bool> skipPresent{false};
@@ -784,7 +795,7 @@ std::string g_logSettings;
 #ifndef GB_APP_ID
 #error "GB_APP_ID is defined by gb_native_add(gbsat APP_ID ...)"
 #endif
-void WritePerfLog(float fps, float presentedFps) {
+void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     if (auto *jit = g->saturn->GetSH2Jit(); jit != nullptr && jit->mapFile != nullptr) {
         std::fflush(jit->mapFile);
     }
@@ -975,9 +986,15 @@ void WritePerfLog(float fps, float presentedFps) {
     if (g->fsUseless) {
         settings += ";frameskip_paused=useless"; // frame skip on, but held off: skipped frames weren't faster
     }
+    settings += ";frameskip_state=";
+    settings += !g->frameSkip.load(std::memory_order_relaxed) ? "off" :
+                g->fsUseless ? "paused" : g->skipActive ? "active" : "waiting";
+    settings += ";frameskip_history=" + std::to_string(g->fsHistoryCount);
+    settings += ";frameskip_cadence=" + std::to_string(g->minRenderRun);
+    settings += ";frameskip_vdp1_cmds=" + std::to_string((uint32_t)std::max(0.0f, vdp1CommandsPerFrame));
     fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
-            ws::g_vdp1Commands.exchange(0, std::memory_order_relaxed) / std::max(1.0f, fps),
+            vdp1CommandsPerFrame,
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
             cfg.system.emulateSH2Cache.Get() ? 1 : 0, g->ring.underruns.exchange(0, std::memory_order_relaxed), xrunDelta,
             emuCore, emuCore >= 0 && emuCore < (int)probe.coreMHz.size() ? probe.coreMHz[emuCore] : -1, emuPct, vdp1Pct, vdp2Pct, scspPct, otherPct, busiest.c_str(), busiestPct,
@@ -999,6 +1016,11 @@ void EmuLoop() {
     auto nextFrame = steady_clock::now();
     auto fpsWindowStart = steady_clock::now();
     int fpsFrames = 0;
+    const auto resetFrameSkipHistory = [] {
+        g->fsHistory = {};
+        g->fsHistoryCount = g->fsHistoryNext = 0;
+        g->fsPoorWindows = 0;
+    };
 
     while (g->running.load()) {
         DrainCommands();
@@ -1024,6 +1046,8 @@ void EmuLoop() {
             // Hi-res/interlaced screens (704x480, used by many menus and title screens) cost up to 4x the rendering
             // work: there up to 4 frames in a row may be skipped, since such screens are mostly static
             const bool hires = g->videoW.load(std::memory_order_relaxed) >= 560 || g->videoH.load(std::memory_order_relaxed) >= 400;
+            const bool softwareRenderer =
+                g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>() != nullptr;
             const auto t = steady_clock::now();
             bool skip;
             if (FastPath()) {
@@ -1035,24 +1059,28 @@ void EmuLoop() {
                 // games spend the time emulating
                 skip = (t - g->lastRendered < milliseconds(50) || g->skipRun < 2) && g->skipRun < 12;
             } else {
-                // Only skip when clearly behind (below ~92% speed over the last second): skipping 2 of 3 frames to
+                // On the software renderer, start earlier (below 96%) because skipped frames save CPU work. GPU
+                // rendering keeps the 92% threshold; skipping its frames does not reduce SH-2 emulation work.
+                // Skipping 2 of 3 frames to
                 // recover a few percent made the picture much choppier than running slightly slow. One frame at a time
                 // (two on hi-res screens), with minRenderRun frames shown in between: skipping whenever behind showed
                 // only every other frame (~30 fps on screen while emulating 55-58, performance log); the spacing adapts
                 // every second so only as many frames as needed are skipped.
                 const float target = g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f;
+                const float activationRatio = softwareRenderer ? 0.96f : 0.92f;
+                const bool cpuRendererBehind = softwareRenderer && g->fps.load(std::memory_order_relaxed) < target * activationRatio;
                 // Hysteresis: skipping starts when clearly behind and stays on until the game keeps up without help
                 // (not behind for a whole second); deciding from the last second's fps alone made it switch on and
                 // off every second (60 fps while skipping -> stop -> 33 fps -> skip again).
-                if (g->fps.load(std::memory_order_relaxed) < target * 0.92f && g->behind) {
+                if (g->fps.load(std::memory_order_relaxed) < target * activationRatio && (g->behind || cpuRendererBehind)) {
                     g->skipActive = true;
                 }
-                g->notBehindRun = g->behind ? 0 : g->notBehindRun + 1;
+                g->notBehindRun = (g->behind || cpuRendererBehind) ? 0 : g->notBehindRun + 1;
                 if (g->notBehindRun >= 60) {
                     g->skipActive = false;
                 }
                 const int unit = hires ? 2 : 1;
-                skip = g->frameSkip.load() && g->skipActive && !g->fsUseless && g->behind &&
+                skip = g->frameSkip.load() && g->skipActive && !g->fsUseless && (g->behind || cpuRendererBehind) &&
                        (g->skipRun > 0 ? g->skipRun < unit : g->renderRun >= g->minRenderRun * unit);
             }
             if (!skip) {
@@ -1167,26 +1195,87 @@ void EmuLoop() {
             ReadDiagnosticProps();
             const float secs = duration<float>(now - fpsWindowStart).count();
             g->fps = fpsFrames / secs;
-            WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs);
-            // Frame skip that doesn't make frames faster only drops them: off for a while (then tried again)
+            const uint32_t vdp1Commands = util::waitstats::g_vdp1Commands.exchange(0, std::memory_order_relaxed);
+            const float vdp1CommandsPerFrame = vdp1Commands / std::max(1.0f, g->fps.load(std::memory_order_relaxed));
+            WritePerfLog(g->fps, g->presented.exchange(0, std::memory_order_relaxed) / secs, vdp1CommandsPerFrame);
+
+            const bool softwareRenderer =
+                g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>() != nullptr;
+            const int rendererMode = g->rendererMode.load(std::memory_order_relaxed);
+            const uint32_t sceneWidth = g->videoW.load(std::memory_order_relaxed);
+            const uint32_t sceneHeight = g->videoH.load(std::memory_order_relaxed);
+            bool sceneChanged = g->fsSceneWidth != 0 &&
+                                (sceneWidth != g->fsSceneWidth || sceneHeight != g->fsSceneHeight);
+            sceneChanged |= g->fsSceneRendererMode >= 0 && rendererMode != g->fsSceneRendererMode;
+            const float previousCommands = g->fsSceneVdp1Commands;
+            if (previousCommands >= 0.0f) {
+                const float lower = std::min(previousCommands, vdp1CommandsPerFrame);
+                const float upper = std::max(previousCommands, vdp1CommandsPerFrame);
+                sceneChanged |= (lower >= 12.0f && upper > lower * 1.4f) || (lower < 4.0f && upper >= 20.0f);
+            }
+            if (sceneChanged) {
+                resetFrameSkipHistory();
+                g->fsUseless = false;
+                g->fsHold = 0;
+                LOGI("Frame skip retry: scene load changed (VDP1 %.0f -> %.0f commands/frame)", previousCommands,
+                     vdp1CommandsPerFrame);
+            }
+            g->fsSceneVdp1Commands = vdp1CommandsPerFrame;
+            g->fsSceneWidth = sceneWidth;
+            g->fsSceneHeight = sceneHeight;
+            g->fsSceneRendererMode = rendererMode;
+
+            if (!g->frameSkip.load(std::memory_order_relaxed)) {
+                resetFrameSkipHistory();
+                g->fsUseless = false;
+                g->fsHold = 0;
+            }
+
+            // A single second can straddle a scene transition. Use three one-second samples from a similar VDP load,
+            // then require two consecutive poor rolling windows before suppressing skips.
             if (g->fsHold > 0) {
                 if (--g->fsHold == 0) {
                     g->fsUseless = false;
+                    resetFrameSkipHistory();
                 }
-            } else if (g->skipActive && g->fsSkipped >= 5 && g->fsRendered >= 5) {
-                const double skippedAvg = double(g->fsSkippedNs) / g->fsSkipped;
-                const double renderedAvg = double(g->fsRenderedNs) / g->fsRendered;
-                const bool softwareRenderer =
-                    g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>() != nullptr;
-                // A software-rendered frame consumes CPU even when its pixels are presented via OpenGL. Give this
-                // path the full non-regression range: small time savings still free CPU for SH-2/audio work. The
-                // Vulkan path needs a clearer per-frame win because skipped GPU frames do not save emulation CPU.
-                const double requiredRatio = softwareRenderer ? 1.0 : 0.9;
-                if (skippedAvg > renderedAvg * requiredRatio) {
+            } else if (g->frameSkip.load(std::memory_order_relaxed) && g->skipActive && !sceneChanged &&
+                       g->fsSkipped >= 5 && g->fsRendered >= 5) {
+                g->fsHistory[g->fsHistoryNext] = {static_cast<uint64_t>(g->fsRenderedNs),
+                                                  static_cast<uint64_t>(g->fsSkippedNs),
+                                                  static_cast<uint32_t>(g->fsRendered),
+                                                  static_cast<uint32_t>(g->fsSkipped)};
+                g->fsHistoryNext = (g->fsHistoryNext + 1) % g->fsHistory.size();
+                g->fsHistoryCount = std::min(g->fsHistoryCount + 1, g->fsHistory.size());
+
+                uint64_t renderedNs = 0, skippedNs = 0;
+                uint32_t renderedFrames = 0, skippedFrames = 0;
+                for (const auto &sample : g->fsHistory) {
+                    renderedNs += sample.renderedNs;
+                    skippedNs += sample.skippedNs;
+                    renderedFrames += sample.renderedFrames;
+                    skippedFrames += sample.skippedFrames;
+                }
+                if (g->fsHistoryCount == g->fsHistory.size()) {
+                    const double skippedAvg = double(skippedNs) / std::max(1u, skippedFrames);
+                    const double renderedAvg = double(renderedNs) / std::max(1u, renderedFrames);
+                    // CPU rendering only needs to show a repeatable non-regression; the GPU path still needs a 10% win.
+                    const double requiredRatio = softwareRenderer ? 1.0 : 0.9;
+                    if (skippedAvg > renderedAvg * requiredRatio) {
+                        ++g->fsPoorWindows;
+                    } else {
+                        g->fsPoorWindows = 0;
+                        if (softwareRenderer && g->fps <
+                                (g->palMode.load(std::memory_order_relaxed) ? 50.0f : 60.0f) * 0.985f &&
+                            skippedAvg < renderedAvg * 0.98) {
+                            g->minRenderRun = 1;
+                        }
+                    }
+                }
+                if (g->fsHistoryCount == g->fsHistory.size() && g->fsPoorWindows >= 2) {
                     g->fsUseless = true;
-                    g->fsHold = 20;
-                    LOGI("Frame skip off for 20 s: skipped frames %.1f ms, rendered %.1f ms", skippedAvg / 1e6,
-                         renderedAvg / 1e6);
+                    g->fsHold = softwareRenderer ? 5 : 20;
+                    LOGI("Frame skip off for %d s after similar-scene samples", g->fsHold);
+                    resetFrameSkipHistory();
                 }
             }
             g->fsRenderedNs = g->fsSkippedNs = 0;
