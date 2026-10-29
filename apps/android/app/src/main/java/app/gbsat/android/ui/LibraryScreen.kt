@@ -24,11 +24,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -99,8 +95,6 @@ fun LibraryScreen(
             MenuState.menuHasFocus = false
         }
     }
-    var confirmQuit by MenuState.quitOpen
-    MenuState.onQuit = onQuit
 
     // ---- Data: games, save states, play time ----
     // The last scan's list at once (no "no games" flash, no spinner when coming back from a game); scanned again below
@@ -189,20 +183,8 @@ fun LibraryScreen(
     val empty: (@Composable () -> Unit)? = if (emptyKind == null) null else ({ EmptyContent(emptyKind, toSystem) })
 
     Box(Modifier.fillMaxSize().background(AppBackground).onFocusChanged { MenuState.hasFocus = it.hasFocus }.onPreviewKeyEvent { e ->
-        if (openingGame) return@onPreviewKeyEvent true
-        // Quit dialog open: it owns the controller. A confirms, B/Back cancels; acting on key release and consuming the
-        // press too, so the same press can't also reach the library or the system Back
-        if (confirmQuit) {
-            val up = e.type == KeyEventType.KeyUp
-            when (e.key) {
-                Key.ButtonA, Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { if (up) { confirmQuit = false; onQuit() } }
-                Key.ButtonB, Key.Back, Key.Escape -> { if (up) confirmQuit = false }
-                else -> {}
-            }
-            return@onPreviewKeyEvent true
-        }
-        false
-    }) {
+        openingGame
+    }.homeQuitKeys(onQuit)) {
         Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier.safeDrawingPadding().padding(12.dp)),
             verticalArrangement = Arrangement.spacedBy(if (fullscreen) 0.dp else 12.dp)) {
             if (!fullscreen) HomeTopBar(rememberAppIconPainter(R.drawable.ic_launcher_foreground), "GBSat", onClick = {
@@ -260,7 +242,7 @@ fun LibraryScreen(
             onAchievements = { gameMenu = null; achievementsFor = g.key },
             onCover = { picker.launch(arrayOf("image/*")) },
             onCoverApplied = { coverVersion++; gameMenu = null }) }
-        if (confirmQuit) QuitDialog(onConfirm = { confirmQuit = false; onQuit() }, onCancel = { confirmQuit = false })
+        HomeQuitDialog(onQuit)
     }
 }
 
@@ -283,11 +265,6 @@ private val SettingsEntries = listOf(
     Triple(MenuIcon.Controls, "Controls", SettingsPage.Controls), Triple(MenuIcon.Extras, "Extras", SettingsPage.Extras),
     Triple(MenuIcon.About, "About", SettingsPage.About),
 )
-
-/** "Confirm Quit?" drawn in the app window (not a separate dialog window), so the A/B controller mapping applies. */
-@Composable
-private fun QuitDialog(onConfirm: () -> Unit, onCancel: () -> Unit) =
-    ConfirmDialog(title = "Exit", message = "Are you sure you want to exit?", confirm = "Exit", onConfirm = onConfirm, onCancel = onCancel)
 
 private val AppBackground = Brush.verticalGradient(listOf(Color(0xFF11131A), Color(0xFF202431), Color(0xFF0B0D12)))
 private val PanelColor = Color(0xFF1A1D27).copy(alpha = 0.96f)
