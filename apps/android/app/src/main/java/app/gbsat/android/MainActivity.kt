@@ -35,6 +35,7 @@ open class MainActivity : ComponentActivity() {
     // Remember whether gameplay was active before Android backgrounds the activity.
     // Emulator.paused is set to true below, so the pre-pause state must be captured first.
     private var resumeGameplayAfterForeground = false
+    private var launcherIconChecked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,6 +61,16 @@ open class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!launcherIconChecked) {
+            launcherIconChecked = true
+            window.decorView.post {
+                LauncherIconCompatibility.apply(
+                    applicationContext,
+                    android.os.Build.MANUFACTURER,
+                    android.os.Build.MODEL,
+                )
+            }
+        }
         if (resumeGameplayAfterForeground) {
             resumeGameplayAfterForeground = false
             if (Emulator.running) Emulator.pause(false)
