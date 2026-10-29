@@ -589,6 +589,13 @@ void Cache::MarkCode(uint32 first, uint32 last) {
 // A write to work RAM (any size, at busAddress): the halfwords it can touch are checked against the code bitmap
 void Cache::CodeWritten(uint32 busAddress) {
     const uint32 norm = Normalize(busAddress & ~1u);
+    // Most writes touch data only. Test both halfwords with one bitmap load when
+    // they share a word; boundary cases retain the checks below.
+    const sint32 first = CodeIndex(norm);
+    if (first >= 0 && (first & 63) != 63 &&
+        ((m_codeBits[first >> 6] >> (first & 63)) & 3) == 0) {
+        return;
+    }
     for (uint32 h = norm; h <= norm + 2; h += 2) {
         const sint32 i = CodeIndex(h);
         if (i < 0 || !((m_codeBits[i >> 6] >> (i & 63)) & 1)) {

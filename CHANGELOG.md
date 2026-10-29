@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reduce SH-2 JIT code-write watch overhead for writes that do not overlap compiled code.
 - Add a persistent toggle for built-in Saturn widescreen game hacks in Video settings and the in-game Video menu.
 
 ## 1.3.7

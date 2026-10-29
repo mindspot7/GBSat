@@ -11,3 +11,8 @@ set(Ymir_ENABLE_IPO OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../.." ymir-build)
 add_executable(sh2_chain_test sh2_chain_test.cpp)
 target_link_libraries(sh2_chain_test PRIVATE ymir::ymir-core)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$" AND (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+    add_executable(jit_code_watch_test jit_code_watch_test.cpp)
+    target_link_libraries(jit_code_watch_test PRIVATE ymir::ymir-core)
+endif()

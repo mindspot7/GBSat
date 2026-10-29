@@ -125,6 +125,34 @@ validation mechanical (see below). Ymir's timing makes this possible because it 
 
 ## Validation
 
+### RG DS code-write watch optimization (2026-10-28)
+
+A local release profiling build (native symbols retained with `-PgbsatProfile`) resolved a Daytona USA Championship
+Circuit Edition Slot 1 capture: 20 seconds, 49,119 cpu-clock samples, none lost. InterpretNext accounted for 4.60%
+of process samples, RunBlocks 2.37%, and CodeWritten 1.78%. These are CPU shares, not frame-time savings.
+The installed APK's build ID must match the symbols used to resolve addresses; symbols from another local build
+were not interchangeable.
+
+CodeWritten now rejects data-only writes using one bitmap load for the two candidate halfwords when they occupy
+the same bitmap word. Writes overlapping code and bitmap-boundary cases keep the existing invalidation path.
+Instruction timing, synchronization slices, and the generated memory-access paths are unchanged.
+
+On the RK3568, interleaved runs pinned to core 3 measured empty-write checks at 29.40/29.52 ns before and
+22.56/22.49 ns after (about 24% less work in this function). The ARM64 `jit_code_watch_test` passed 512 byte/halfword
+adjacency and bitmap-boundary cases, 3 memory aliases, and 4 actual compiled-block invalidation cases. Build it via
+`apps/sh2-test` on ARM64 Linux/Android, or compile its source with `sh2_jit.cpp`, `sh2_decode.cpp`, C++20 and the core
+include directory using the Android NDK. It needs no BIOS or game data.
+
+Short gameplay checks reloaded Slot 1, ran 25 seconds, and compared the final 22 perf-log rows with frame skip Off,
+OpenGL CPU rendering, JIT On, Fast sync, and threaded audio On. Median emulation/display FPS was 46.50 before and
+48.15 after; master SH-2 time was 7.69 versus 7.475 ms, slave 7.55 ms in both. This is a smoke comparison, not a
+statistically established FPS improvement. Earlier Auto frame-skip runs selected different adaptive states and must
+not be used as an A/B comparison. Manual save slots were only loaded.
+
+Both APKs were built locally. The initial build's unit suite had an existing unrelated AppIconResourcesTest failure
+(BitmapDrawable cast to AdaptiveIconDrawable); the subsequent APK assembly succeeded. Native regression tests
+passed on the device. The original installed APK and Auto frame skip were restored after profiling.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
