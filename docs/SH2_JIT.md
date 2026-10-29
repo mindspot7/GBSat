@@ -197,6 +197,12 @@ ms/frame, 24.95 vs. 24.50 ms on MSH2, and 3.14 vs. 2.62 ms on SSH2. VDP1 command
 cutscene samples, so this validates a CPU/core-path workload, not gameplay rendering. The refreshed profile remains
 enabled; this is evidence of a workload-specific gain, not a promise of the same uplift in all games.
 
+Follow-up on NiGHTS Into Dreams... (2026-10-29): loaded the existing Slot 1 gameplay state on both APKs, with
+CPU/OpenGL, 352x224, 1x scale, Fast 128-cycle sync, approximate SH-2 JIT and frameskip Off. In VDP1-command buckets,
+old vs refreshed medians were 35.0 vs. 34.75 FPS at 200-299 commands/frame (31 vs. 26 samples) and 34.5 vs. 33.8 FPS
+at 300-399 commands/frame (26 vs. 29 samples). The refreshed profile reduced median MSH2/SSH2 times slightly, but
+total emulation FPS was flat to about 2% lower; no additional profile change is justified by this test.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
