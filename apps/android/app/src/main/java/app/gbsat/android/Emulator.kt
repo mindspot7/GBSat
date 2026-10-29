@@ -114,6 +114,17 @@ object Emulator {
         // Modest devices: CPU rendering (OpenGL output), no shader, frame skip
         Preset.Low -> PresetValues(renderer = 1, resScale = 1, shader = 0, filter = 1, frameSkip = true, sh2Cache = false)
     }
+    fun presetWizardOptions(p: Preset): List<String> {
+        val v = presetValues(p)
+        return listOf(
+            "Renderer: ${if (v.renderer == 4) "GPU (Vulkan)" else "CPU (OpenGL)"}",
+            "Resolution: ${if (v.resScale == 0) "Native (${nativeScale}x)" else "${v.resScale}x"}",
+            "Shader: ${if (v.shader == 1) "Scanlines" else "Off"}",
+            "Filter: ${if (v.filter == 0) "Nearest" else "Bilinear"}",
+            "Automatic frame skip: ${if (v.frameSkip) "On" else "Off"}",
+            "SH-2 cache: ${if (v.sh2Cache) "On" else "Off"}",
+        )
+    }
     /** The preset matching the current options, or null ("Custom") when any of them was changed. */
     /** The options in use, for the performance log (key=value pairs separated by ';'). */
     fun logSettings(): String {

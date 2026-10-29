@@ -220,7 +220,7 @@ struct Context {
     // screen (RG DS, Virtua Fighter 2: 1 of 2 frames skipped, both ~21 ms). Measured every second while skipping.
     int64_t fsRenderedNs = 0, fsSkippedNs = 0;
     int fsRendered = 0, fsSkipped = 0;
-    bool fsUseless = false; // skipping saved under 10%: off until fsHold runs out (scenes change)
+    bool fsUseless = false; // skipping did not help the current scene: retry after fsHold (scene may change)
     int fsHold = 0;         // seconds
     std::chrono::steady_clock::time_point lastRendered{}; // fast forward: last frame that was rendered
     bool frameParity = false;
@@ -1176,7 +1176,13 @@ void EmuLoop() {
             } else if (g->skipActive && g->fsSkipped >= 5 && g->fsRendered >= 5) {
                 const double skippedAvg = double(g->fsSkippedNs) / g->fsSkipped;
                 const double renderedAvg = double(g->fsRenderedNs) / g->fsRendered;
-                if (skippedAvg > renderedAvg * 0.9) {
+                const bool softwareRenderer =
+                    g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Software>() != nullptr;
+                // A software-rendered frame consumes CPU even when its pixels are presented via OpenGL. Give this
+                // path the full non-regression range: small time savings still free CPU for SH-2/audio work. The
+                // Vulkan path needs a clearer per-frame win because skipped GPU frames do not save emulation CPU.
+                const double requiredRatio = softwareRenderer ? 1.0 : 0.9;
+                if (skippedAvg > renderedAvg * requiredRatio) {
                     g->fsUseless = true;
                     g->fsHold = 20;
                     LOGI("Frame skip off for 20 s: skipped frames %.1f ms, rendered %.1f ms", skippedAvg / 1e6,

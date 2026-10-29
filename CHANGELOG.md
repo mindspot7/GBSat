@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Auto frame skip on the CPU renderer now keeps small measured render-time savings instead of disabling itself below the previous 10% threshold.
 - Reduce SH-2 JIT code-write watch overhead for writes that do not overlap compiled code.
 - Add a persistent toggle for built-in Saturn widescreen game hacks in Video settings and the in-game Video menu.
 

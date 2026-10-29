@@ -45,12 +45,8 @@ fun SetupWizard(onFinish: () -> Unit) {
                 Button(onClick = { gamesPicker.launch(null) }) { Text("Choose folder") }
                 if (Emulator.gamesDir.isNotBlank()) WizardStatus(Storage.folderLabel(Emulator.gamesDir))
             },
-            gb.frame.performanceWizardStep("GBSat", Emulator.recommendedPreset.label, Emulator.device.summary,
-                when (Emulator.recommendedPreset) {
-                    Emulator.Preset.High -> "GPU (Vulkan) rendering at the screen's resolution, scanlines"
-                    Emulator.Preset.Mid -> "CPU rendering, scanlines"
-                    Emulator.Preset.Low -> "CPU rendering, no shader, automatic frame skip"
-                }),
+            gb.frame.performanceWizardStep(Emulator.recommendedPreset.label,
+                Emulator.presetWizardOptions(Emulator.recommendedPreset)),
         ),
         onFinish = onFinish, message = message, onStepChange = { message = null },
     )
