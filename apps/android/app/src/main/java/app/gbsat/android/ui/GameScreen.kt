@@ -115,50 +115,27 @@ fun GameScreen(onQuitApp: () -> Unit) {
             }
         }
 
-        // Unobtrusive top-left menu handle + optional stats
-        Row(Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalIconButton(
-                onClick = { menu = true; Emulator.pause(true) },
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.Black.copy(alpha = .45f), contentColor = Color.White),
-            ) { Icon(Icons.Default.Menu, "Menu") }
-            // Fast-forward button next to the menu button
-            if (Emulator.showFfButton) {
-                Spacer(Modifier.width(8.dp))
-                FilledTonalIconButton(
-                    onClick = { Emulator.toggleFastForward() },
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = if (Emulator.fastForward) Color(0xFFE8C26A).copy(alpha = .85f) else Color.Black.copy(alpha = .45f),
-                        contentColor = if (Emulator.fastForward) Color.Black else Color.White),
-                ) { Icon(Icons.Default.FastForward, "Fast-forward") }
-            }
-            // Skip Engine running at maximum speed (a load, transition or save wait)
-            if (stats.getOrElse(6) { 0 } == 1L && !Emulator.fastForward) {
-                Spacer(Modifier.width(8.dp))
-                Icon(Icons.Default.FastForward, "Skipping", tint = Color(0xFFE8C26A), modifier = Modifier.size(22.dp))
-            }
-        }
-
-        // Performance overlay, top right
-        // Performance overlay, top right
-        PerfOverlay(
-            PerfOptions(Emulator.showFps, Emulator.showSpeed, Emulator.showCpu, Emulator.showGpu, Emulator.showRenderer,
-                Emulator.showResolution, Emulator.showFrameTime),
-            appName = "GBSat", fps = fps, targetFps = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f,
-            renderer = Emulator.rendererLabel,
-            width = stats.getOrElse(1) { 320 }.toInt(), height = stats.getOrElse(2) { 224 }.toInt(),
-            frameMs = stats.getOrElse(5) { 0 } / 1000f, gpuName = { NativeBridge.nativeGetGpuName() },
-            gpuLoad = { NativeBridge.nativeGetGpuLoad() },
-            modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(10.dp),
+        // The kit's in-game chrome: menu and fast-forward buttons, Skip Engine indicator, performance overlay,
+        // achievement notifications and toasts, placed the same way in every app
+        GameplayOverlayChrome(
+            onMenu = { menu = true; Emulator.pause(true) },
+            showFastForwardButton = Emulator.showFfButton, fastForward = Emulator.fastForward,
+            onFastForward = { Emulator.toggleFastForward() },
+            skipping = stats.getOrElse(6) { 0 } == 1L,
+            message = Emulator.toast,
+            perf = { m ->
+                PerfOverlay(
+                    PerfOptions(Emulator.showFps, Emulator.showSpeed, Emulator.showCpu, Emulator.showGpu, Emulator.showRenderer,
+                        Emulator.showResolution, Emulator.showFrameTime),
+                    appName = "GBSat", fps = fps, targetFps = if (stats.getOrElse(3) { 0 } == 1L) 50f else 60f,
+                    renderer = Emulator.rendererLabel,
+                    width = stats.getOrElse(1) { 320 }.toInt(), height = stats.getOrElse(2) { 224 }.toInt(),
+                    frameMs = stats.getOrElse(5) { 0 } / 1000f, gpuName = { NativeBridge.nativeGetGpuName() },
+                    gpuLoad = { NativeBridge.nativeGetGpuLoad() },
+                    modifier = m,
+                )
+            },
         )
-
-        RaNotifications(Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 56.dp))
-
-        Emulator.toast?.let { msg ->
-            Surface(
-                shape = RoundedCornerShape(20.dp), color = Color.Black.copy(alpha = .7f),
-                modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 12.dp),
-            ) { Text(msg, color = Color.White, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-        }
 
         if (menu) GameMenu(
             onDismiss = { menu = false; Emulator.pause(false) },
