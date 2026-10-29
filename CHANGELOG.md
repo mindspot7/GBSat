@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Library: closing the Exit dialog with Back or B no longer changes the selected game (it moved two covers to the left).
 - Frontends (ES-DE, Daijishou, Pegasus) can start a game directly: an intent with the disc's URI (`VIEW`) or a `ROM` path extra opens the matching game of the games folder, with auto load and play time as from the library. A request while another game runs closes it first, the way Exit does.
 - Hotkey combinations with L3 (e.g. L3+X for the menu) work every time: releasing L3 no longer presses the menu's selected item (Android turned the unhandled L3 into a D-pad center press, which closed the menu right after it opened).
 - GPU (Vulkan) renderer: hi-res interlaced screens (Virtua Fighter 2's fights at 704x448) are now deinterlaced, so moving fighters no longer show combs of alternating lines. On mid and high tier devices; costs ~0.8 ms per frame on a Retroid Pocket Nova (still 60 fps). The CPU renderers keep showing one field of each pair, which has no combs.
