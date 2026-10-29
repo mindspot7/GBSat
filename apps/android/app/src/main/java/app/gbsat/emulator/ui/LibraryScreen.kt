@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import gb.frame.*
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,9 +36,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import app.gbsat.android.Emulator
+import app.gbsat.emulator.Emulator
 import app.gbsat.emulator.R
-import app.gbsat.android.Storage
+import app.gbsat.emulator.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

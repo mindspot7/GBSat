@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import gb.frame.*
 import android.view.SurfaceHolder
@@ -30,8 +30,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import app.gbsat.android.Emulator
-import app.gbsat.android.NativeBridge
+import app.gbsat.emulator.Emulator
+import app.gbsat.emulator.NativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

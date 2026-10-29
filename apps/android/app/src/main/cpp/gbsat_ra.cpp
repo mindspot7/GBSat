@@ -318,7 +318,7 @@ void DeserializeProgress(const std::vector<uint8_t> &data) {
 
 using namespace ra;
 
-#define RA_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_android_NativeBridge_##name
+#define RA_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_emulator_NativeBridge_##name
 
 static std::string JS(JNIEnv *env, jstring s) {
     if (!s) return {};
@@ -334,7 +334,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
-    jclass cls = env->FindClass("app/gbsat/android/NativeBridge");
+    jclass cls = env->FindClass("app/gbsat/emulator/NativeBridge");
     if (cls) {
         g_bridge = static_cast<jclass>(env->NewGlobalRef(cls));
         g_httpMethod = env->GetStaticMethodID(g_bridge, "raHttp",

@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,8 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import app.gbsat.android.Emulator
-import app.gbsat.android.Storage
+import app.gbsat.emulator.Emulator
+import app.gbsat.emulator.Storage
 import gb.frame.WizardStatus
 import gb.frame.WizardStep
 import kotlinx.coroutines.launch

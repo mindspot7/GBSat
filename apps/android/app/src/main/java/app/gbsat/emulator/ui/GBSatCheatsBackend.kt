@@ -1,8 +1,8 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
-import app.gbsat.android.Cheat
-import app.gbsat.android.CheatParser
-import app.gbsat.android.Emulator
+import app.gbsat.emulator.Cheat
+import app.gbsat.emulator.CheatParser
+import app.gbsat.emulator.Emulator
 import gb.frame.CheatActionResult
 import gb.frame.CheatUiItem
 import gb.frame.CheatsBackend

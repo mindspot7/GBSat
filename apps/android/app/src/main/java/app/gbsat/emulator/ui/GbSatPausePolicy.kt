@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 /**
  * Pure policy for pause-menu entry transitions.

@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import gb.frame.MenuState
 import androidx.activity.compose.BackHandler
@@ -9,8 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import app.gbsat.android.Emulator
-import app.gbsat.android.Storage
+import app.gbsat.emulator.Emulator
+import app.gbsat.emulator.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

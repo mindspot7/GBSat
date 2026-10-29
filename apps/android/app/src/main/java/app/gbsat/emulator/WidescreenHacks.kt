@@ -1,4 +1,4 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
 /**
  * Built-in widescreen (16:9 anamorphic) hacks, applied automatically while the 16:9 display mode is selected.

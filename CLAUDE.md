@@ -14,17 +14,15 @@ kit and what to the app. Talk to the owner in Portuguese; code, comments, commit
 
 ## Identity (do not let these drift)
 - `applicationId` = Gradle `namespace` = **`app.gbsat.emulator`** (`apps/android/app/build.gradle.kts`). The Kotlin source
-  package stays `app.gbsat.android`, so the launcher activity is `app.gbsat.android.MainActivity`; use the fully qualified
-  class (`am start -n app.gbsat.emulator/app.gbsat.android.MainActivity`), never `.MainActivity`.
+  package stays `app.gbsat.emulator`, so the launcher activity is `app.gbsat.emulator.MainActivity`; use the fully qualified
+  class (`am start -n app.gbsat.emulator/app.gbsat.emulator.MainActivity`), never `.MainActivity`.
 - `APP_ID` in `apps/android/app/src/main/cpp/CMakeLists.txt` must be the applicationId: PGO data and the perf log live in
   `/sdcard/Android/media/<applicationId>/`, the only folder the app may write on shared storage. Native code uses `GB_APP_ID`,
   never a typed package name.
 - `bash tools/check-app-id.sh` verifies all of it (also run by the `App ID check` workflow). Run it after touching any of them.
 
 ## Build and CI
-- Builds run in GitHub Actions (`android.yml`, about 4 minutes); there is no Gradle wrapper and local builds are signed with the
-  debug key, which cannot update the CI-signed app on the device. Do not uninstall the app to work around that: it deletes
-  the user's app data. Install the CI build instead.
+- Local release-signed builds use `tools/build-local.ps1 -BuildNumber <n> -SigningDirectory <external-key-folder> -Install`; it runs the selected app and GBFrame unit tests, verifies the APK signature, and installs over the existing package. The Gradle wrapper is included. GitHub Actions builds remain available for CI and release artifacts.
 - After a push, watch the run (`gh run list/view/watch`). On failure read the annotations
   (`gh api repos/mindspot7/GBSat/check-runs/<job id>/annotations`); fix errors and warnings, then push again. The `profile.yml`,
   `pgo-train.yml`, `screenshots.yml` (commits README images), `vulkan-dev.yml` and `sh2-test.yml` workflows are run by hand.

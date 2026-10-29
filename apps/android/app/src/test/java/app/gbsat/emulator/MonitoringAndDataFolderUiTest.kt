@@ -1,4 +1,4 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
 import android.content.Context
 import androidx.compose.foundation.layout.Column

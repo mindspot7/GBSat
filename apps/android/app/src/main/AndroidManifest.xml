@@ -6,7 +6,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:name="app.gbsat.android.GBSatApp"
+        android:name="app.gbsat.emulator.GBSatApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_controller_transparent"
         android:roundIcon="@mipmap/ic_controller_transparent"
@@ -14,21 +14,21 @@
         android:theme="@style/Theme.GBSat">
         <meta-data
             android:name="gb.frame.bitmapLauncherAlias"
-            android:value="app.gbsat.android.BitmapLauncherActivity" />
+            android:value="app.gbsat.emulator.BitmapLauncherActivity" />
         <meta-data
             android:name="gb.frame.adaptiveLauncherAlias"
-            android:value="app.gbsat.android.AdaptiveLauncherActivity" />
+            android:value="app.gbsat.emulator.AdaptiveLauncherActivity" />
         <!-- Lets the on-device profiler (simpleperf, adb shell) sample GBSat; no effect for users -->
         <profileable android:shell="true" />
         <activity
-            android:name="app.gbsat.android.MainActivity"
+            android:name="app.gbsat.emulator.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|smallestScreenSize"
             android:launchMode="singleTask"
             android:theme="@style/Theme.GBSat.Launch" />
         <activity-alias
-            android:name="app.gbsat.android.BitmapLauncherActivity"
-            android:targetActivity="app.gbsat.android.MainActivity"
+            android:name="app.gbsat.emulator.BitmapLauncherActivity"
+            android:targetActivity="app.gbsat.emulator.MainActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_controller_transparent"
@@ -40,8 +40,8 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name="app.gbsat.android.AdaptiveLauncherActivity"
-            android:targetActivity="app.gbsat.android.MainActivity"
+            android:name="app.gbsat.emulator.AdaptiveLauncherActivity"
+            android:targetActivity="app.gbsat.emulator.MainActivity"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_controller_adaptive"

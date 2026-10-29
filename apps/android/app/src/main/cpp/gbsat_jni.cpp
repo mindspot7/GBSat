@@ -1346,9 +1346,9 @@ jstring NewJStr(JNIEnv *env, const std::string &s) {
 } // namespace
 
 // =====================================================================================================================
-// JNI exports — class app.gbsat.android.NativeBridge
+// JNI exports — class app.gbsat.emulator.NativeBridge
 
-#define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_android_NativeBridge_##name
+#define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_app_gbsat_emulator_NativeBridge_##name
 
 JNI_FN(void, nativeSetCrashFile)(JNIEnv *env, jclass, jstring path) {
     const std::string p = JStr(env, path);

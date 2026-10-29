@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -22,8 +22,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.gbsat.android.Emulator
-import app.gbsat.android.SaturnButton
+import app.gbsat.emulator.Emulator
+import app.gbsat.emulator.SaturnButton
 import kotlin.math.abs
 import kotlin.math.hypot
 

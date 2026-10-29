@@ -11,7 +11,7 @@ set REPO=mindspot7/GBSat
 set BRANCH=android-port
 set APP=app.gbsat.emulator
 rem APP is both applicationId and namespace; ACTIVITY is the fully qualified source class (it may use a different package).
-set ACTIVITY=app.gbsat.android.MainActivity
+set ACTIVITY=app.gbsat.emulator.MainActivity
 rem Tag do log do Android e thread de emulacao para profiling local
 set LOGTAG=GBSat
 set EMU_THREAD=Thread-3

@@ -1,4 +1,4 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
 import android.content.Context
 import android.content.ComponentName
@@ -34,10 +34,10 @@ class AppIconResourcesTest {
 
     @Test fun adaptiveLauncherAliasUsesConsumerActivityAndTransparentResource() {
         val alias = context.packageManager.getActivityInfo(
-            ComponentName(context.packageName, "app.gbsat.android.AdaptiveLauncherActivity"),
+            ComponentName(context.packageName, "app.gbsat.emulator.AdaptiveLauncherActivity"),
             PackageManager.MATCH_DISABLED_COMPONENTS,
         )
-        assertEquals("app.gbsat.android.MainActivity", alias.targetActivity)
+        assertEquals("app.gbsat.emulator.MainActivity", alias.targetActivity)
         assertEquals(R.mipmap.ic_controller_adaptive, alias.icon)
     }
 

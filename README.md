@@ -84,15 +84,15 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 Frontends (ES-DE, Daijishou, Pegasus) and scripts can start a game directly. The game must be in GBSat's games folder; it is found by its file name:
 
 ```
-am start -n app.gbsat.emulator/app.gbsat.android.MainActivity -a android.intent.action.VIEW -d <content:// or file:// URI of the disc>
-am start -n app.gbsat.emulator/app.gbsat.android.MainActivity --es ROM "/storage/emulated/0/ROMS/SATURN/Virtua Fighter 2.chd"
+am start -n app.gbsat.emulator/app.gbsat.emulator.MainActivity -a android.intent.action.VIEW -d <content:// or file:// URI of the disc>
+am start -n app.gbsat.emulator/app.gbsat.emulator.MainActivity --es ROM "/storage/emulated/0/ROMS/SATURN/Virtua Fighter 2.chd"
 ```
 
 ## Downloads and versions
 
 A release (`GBSat-v<version>.apk`) is published automatically when the version in `apps/android/VERSION` changes; its
 notes come from [CHANGELOG.md](CHANGELOG.md). Development builds of every push are in the **Actions** tab (artifact
-`GBSat-v<version>-build<N>`). APKs built after the package-ID change use both the Gradle `applicationId` and `namespace` `app.gbsat.emulator`, and are signed with the same key, so subsequent builds update that installation. The Kotlin/JNI source package remains `app.gbsat.android`. They are installed separately from older builds whose **application ID** was `app.gbsat.android`; Android does not automatically migrate the old app's private data. Export important saves before switching, then import them into the new installation if needed. The two installations can coexist.
+`GBSat-v<version>-build<N>`). APKs built after the package-ID change use both the Gradle `applicationId` and `namespace` `app.gbsat.emulator`, and are signed with the same key, so subsequent builds update that installation. The Kotlin/JNI package and exported JNI symbols also use `app.gbsat.emulator`. These builds update installations using that application ID. They remain separate from older installations whose **application ID** was `app.gbsat.android`; Android does not automatically migrate that old app's private data. Export important saves before switching, then import them into the new installation if needed.
 
 ## Building
 

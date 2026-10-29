@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -7,8 +7,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.ui.graphics.Color
-import app.gbsat.android.Emulator
-import app.gbsat.android.SaturnButton
+import app.gbsat.emulator.Emulator
+import app.gbsat.emulator.SaturnButton
 import gb.frame.ControlButton
 import gb.frame.ControlsHost
 import gb.frame.HotkeyAction

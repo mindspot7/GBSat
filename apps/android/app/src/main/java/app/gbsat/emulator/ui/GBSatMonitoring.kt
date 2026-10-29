@@ -1,6 +1,6 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
-import app.gbsat.android.Emulator
+import app.gbsat.emulator.Emulator
 import gb.frame.MonitoringSettings
 import gb.frame.PerfOptions
 

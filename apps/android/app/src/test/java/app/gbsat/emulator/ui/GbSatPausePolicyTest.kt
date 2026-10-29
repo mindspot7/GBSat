@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

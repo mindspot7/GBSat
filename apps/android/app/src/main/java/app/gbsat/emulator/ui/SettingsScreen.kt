@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import gb.frame.*
 import android.net.Uri
@@ -43,13 +43,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.gbsat.android.Emulator
+import app.gbsat.emulator.Emulator
 import gb.frame.HotkeyAction
 import gb.frame.keyName
-import app.gbsat.android.NativeBridge
+import app.gbsat.emulator.NativeBridge
 import app.gbsat.emulator.R
-import app.gbsat.android.SaturnButton
-import app.gbsat.android.Storage
+import app.gbsat.emulator.SaturnButton
+import app.gbsat.emulator.Storage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

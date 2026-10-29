@@ -3,7 +3,7 @@
 Sega Saturn emulator for Android, written in Kotlin/Jetpack Compose on top of a native emulator core.
 
 * Native bridge: `app/src/main/cpp/gbsat_jni.cpp` (emulation thread, video, AAudio audio, input)
-* UI: `app/src/main/java/app/gbsat/android/ui` (library, settings, in-game menu, touch controls)
+* UI: `app/src/main/java/app/gbsat/emulator/ui` (library, settings, in-game menu, touch controls)
 * arm64-v8a only. Android 9+ (API 28).
 * Version: `VERSION` (release number); CI appends the build number.
 

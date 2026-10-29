@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Align the Kotlin, manifest, and JNI class package with the installed application ID `app.gbsat.emulator`.
 - Auto frame skip starts earlier on the CPU renderer, compares three-second windows from similar VDP1 scene loads, increases skip cadence after repeatable savings, and retries after a five-second pause when skipping hurts. Vulkan thresholds remain unchanged.
 - Reduce SH-2 JIT code-write watch overhead for writes that do not overlap compiled code.
 - Add a persistent toggle for built-in Saturn widescreen game hacks in Video settings and the in-game Video menu.
@@ -118,7 +119,7 @@
 - Auto load continues from the game's latest save state in any slot (also with Auto save off), and Auto save is also written when you leave GBSat during a game.
 - The library reopens in the layout you used last (all games or recent save states).
 - Presets: the setup wizard recommends one for your device; Mid is CPU (OpenGL) with Scanlines, Low is CPU (OpenGL) with frame skip.
-- Performance log for device tests (Android/media/app.gbsat.android/perf-log.csv, tools/perf-log.bat).
+- Performance log for device tests (`Android/media/<applicationId>/perf-log.csv`, tools/perf-log.bat).
 - The shared framework is now GBFrame (github.com/mindspot7/GBFrame); hotkeys, games folder access (now also GDI track lists), the OpenGL ES presenter, CPU tuning and test tools moved there.
 
 ## 1.3.2

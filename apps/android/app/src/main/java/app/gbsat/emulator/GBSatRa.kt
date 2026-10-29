@@ -1,4 +1,4 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
 import gb.frame.RaBackend
 

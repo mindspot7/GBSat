@@ -1,4 +1,4 @@
-package app.gbsat.android.ui
+package app.gbsat.emulator.ui
 
 import androidx.compose.runtime.Composable
 import gb.frame.EmuPalettes

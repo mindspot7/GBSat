@@ -48,7 +48,7 @@ $Repo = 'mindspot7/GBSat'
 $Branch = 'android-port'
 $App = 'app.gbsat.emulator'
 # APP is both applicationId and namespace; Activity is the fully qualified source class (it may use a different package)
-$Activity = 'app.gbsat.android.MainActivity'
+$Activity = 'app.gbsat.emulator.MainActivity'
 $ApkWorkflow = 'build.yml'
 $EmuThread = 'Thread-3'
 $DiagKeys = @('sh2_plain', 'vdp2_one_fb', 'vdp_nobatch')

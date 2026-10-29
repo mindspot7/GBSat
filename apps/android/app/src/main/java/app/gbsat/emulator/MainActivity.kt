@@ -1,6 +1,6 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
-import app.gbsat.android.ui.SaturnControls
+import app.gbsat.emulator.ui.SaturnControls
 import gb.frame.ControlsCapture
 import gb.frame.HomeKeys
 import gb.frame.HotkeyAction
@@ -21,7 +21,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import app.gbsat.android.ui.GBSatRoot
+import app.gbsat.emulator.ui.GBSatRoot
 import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {

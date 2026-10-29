@@ -1,4 +1,4 @@
-package app.gbsat.android
+package app.gbsat.emulator
 
 import android.content.Context
 import androidx.compose.runtime.MutableState
@@ -10,7 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
-import app.gbsat.android.ui.*
+import app.gbsat.emulator.ui.*
 import com.github.takahirom.roborazzi.captureRoboImage
 import gb.frame.MenuState
 import org.junit.Before
