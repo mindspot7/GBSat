@@ -230,8 +230,19 @@ private fun VideoPage() {
         }
     }
     SettingsGroup("Picture", Icons.Default.AspectRatio) {
-        ChoiceRow("Display mode", "16:9 turns on built-in widescreen hacks for about 20 games; others are stretched",
-            listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect, ch { Emulator.aspect = it })
+        ChoiceRow("Display mode", "16:9 expands the view; built-in game hacks can be toggled below",
+            listOf("4:3", "Fullscreen", "16:9"), Emulator.aspect) {
+            Emulator.aspect = it
+            Emulator.savePrefs()
+            Emulator.applyOptions()
+            Emulator.refreshCheats()
+        }
+        SettingsDivider()
+        gb.frame.WidescreenGameHacksRow(Emulator.widescreenGameHacks) {
+            Emulator.widescreenGameHacks = it
+            Emulator.savePrefs()
+            Emulator.refreshCheats()
+        }
         if (Emulator.renderer != 0) {
             SettingsDivider()
             ChoiceRow("Texture filtering", null, listOf("Nearest", "Bilinear"), Emulator.filter.coerceAtMost(1), ch { Emulator.filter = it })

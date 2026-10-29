@@ -190,6 +190,12 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 Emulator.refreshCheats()
                 Emulator.widescreenHack?.let { Emulator.showToast("Widescreen hack enabled: $it") }
             }
+            gb.frame.WidescreenGameHacksItem(value = Emulator.widescreenGameHacks) {
+                Emulator.widescreenGameHacks = it
+                Emulator.savePrefs()
+                Emulator.refreshCheats()
+                if (!it) Emulator.showToast("Widescreen game hacks disabled")
+            }
             QuickMenuItemRow(
                 id = "renderer", icon = Icons.Default.Memory, label = "Renderer",
                 value = Emulator.rendererLabel,

@@ -55,6 +55,8 @@ object Emulator {
     var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
+    /** Apply built-in Saturn widescreen codes when a matching game runs in 16:9. */
+    var widescreenGameHacks by mutableStateOf(true)
     var showFps by mutableStateOf(false)
     var showSpeed by mutableStateOf(false)
     var showFfButton by mutableStateOf(false)
@@ -252,7 +254,7 @@ object Emulator {
 
     private fun applyCheats() {
         val hardcore = RetroAchievements.hardcoreActive
-        val ws = if (aspect == 2 && running && !hardcore) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
+        val ws = if (widescreenGameHacks && aspect == 2 && running && !hardcore) WidescreenHacks.find(NativeBridge.nativeGetDiscHeader(), currentGame) else null
         widescreenHack = ws?.first
         // Never apply cheats while RetroAchievements hardcore is active, including cheats enabled earlier.
         val w = (if (hardcore) emptyList() else cheats.filter { it.enabled }.flatMap { CheatParser.parse(it.code).orEmpty() }) +
@@ -439,6 +441,7 @@ object Emulator {
         preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0).coerceIn(0, 2)
+        widescreenGameHacks = prefs.getBoolean("widescreenGameHacks", true)
         showFps = prefs.getBoolean("showFps", false)
         showSpeed = prefs.getBoolean("showSpeed", false)
         showFfButton = prefs.getBoolean("showFfButton", false)
@@ -544,7 +547,7 @@ object Emulator {
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putInt("sh2Sync", cpuSync).putBoolean("cpuRecompiler", sh2Recompiler)
         .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
-        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
+        .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("widescreenGameHacks", widescreenGameHacks).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
 
