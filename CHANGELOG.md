@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Frontends (ES-DE, Daijishou, Pegasus) can start a game directly: an intent with the disc's URI (`VIEW`) or a `ROM` path extra opens the matching game of the games folder, with auto load and play time as from the library. A request while another game runs closes it first, the way Exit does.
 - Hotkey combinations with L3 (e.g. L3+X for the menu) work every time: releasing L3 no longer presses the menu's selected item (Android turned the unhandled L3 into a D-pad center press, which closed the menu right after it opened).
 - GPU (Vulkan) renderer: hi-res interlaced screens (Virtua Fighter 2's fights at 704x448) are now deinterlaced, so moving fighters no longer show combs of alternating lines. On mid and high tier devices; costs ~0.8 ms per frame on a Retroid Pocket Nova (still 60 fps). The CPU renderers keep showing one field of each pair, which has no combs.
 - NiGHTS into Dreams: no more slowdowns and white sprite smears at Ideya captures with the GPU renderers. The game's VDP1 command list looped when the VDP1 ran faster than the real one (85 commands drawn ~215 times per frame, 80-100 ms frames at 4x on a Retroid Pocket Nova); the game database now gives it accurate VDP1 timing, and the scene stays at 60 fps.

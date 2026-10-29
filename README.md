@@ -81,6 +81,13 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 2. Follow the setup wizard: select your BIOS, pick your games folder and a preset. No storage permission is needed: GBSat only reads the folder you pick.
 3. Choose a game in the library. In game, Back (or the on-screen menu button) opens the quick menu.
 
+Frontends (ES-DE, Daijishou, Pegasus) and scripts can start a game directly. The game must be in GBSat's games folder; it is found by its file name:
+
+```
+am start -n app.gbsat.emulator/app.gbsat.android.MainActivity -a android.intent.action.VIEW -d <content:// or file:// URI of the disc>
+am start -n app.gbsat.emulator/app.gbsat.android.MainActivity --es ROM "/storage/emulated/0/ROMS/SATURN/Virtua Fighter 2.chd"
+```
+
 ## Downloads and versions
 
 A release (`GBSat-v<version>.apk`) is published automatically when the version in `apps/android/VERSION` changes; its

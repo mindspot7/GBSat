@@ -616,6 +616,13 @@ object Emulator {
         } else closeGame()
     }
 
+    /** Closes the game like [quitGame] but waits for the auto save (an intent starting another game while one runs). */
+    suspend fun endGame() {
+        if (!running) return
+        if (autoSave && currentGame != null) { pause(true); saveState(AUTO_SLOT) }
+        closeGame()
+    }
+
     /** Saves the auto save state without blocking (used when the app goes to the background during a game). */
     fun autoSaveInBackground() {
         rememberScspMode()

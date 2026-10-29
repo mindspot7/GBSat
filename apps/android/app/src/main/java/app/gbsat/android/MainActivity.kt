@@ -41,6 +41,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // The first D-pad press after a touch moves the focus right away (gb.frame.setControllerContent)
         setControllerContent { GBSatRoot(onImmersive = ::setImmersiveMode, onQuitApp = ::quitApp) }
+        // A game requested by a frontend or `am start` (gb.frame.LaunchIntent); started by GBSatRoot once the app is ready
+        if (savedInstanceState == null) gb.frame.LaunchIntent.handle(this, intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        gb.frame.LaunchIntent.handle(this, intent)
     }
 
     override fun onPause() {

@@ -10,7 +10,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import app.gbsat.android.Emulator
+import app.gbsat.android.Storage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class Screen { Library, Settings }
 
@@ -37,6 +40,23 @@ fun GBSatRoot(onImmersive: (Boolean) -> Unit, onQuitApp: () -> Unit) {
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
         val inGame = Emulator.running
+        // Game requested by an intent (frontends, `am start`): matched to the library by file name, then started like a
+        // tap on its cover (auto load included)
+        val requested = gb.frame.LaunchIntent.pending.value
+        LaunchedEffect(requested, Emulator.setupDone) {
+            if (requested == null || !Emulator.setupDone) return@LaunchedEffect
+            gb.frame.LaunchIntent.done() // changes this effect's key: the work runs in the root scope so it isn't cancelled
+            scope.launch {
+                val games = withContext(Dispatchers.IO) {
+                    Storage.cachedScan(Emulator.gamesDir).ifEmpty { Storage.scan(Emulator.gamesDir) }
+                }
+                val game = gb.frame.LaunchIntent.resolve(requested, games)
+                // Another game running: close it the way Exit does (auto save, back to the global options) first
+                if (game != null && Emulator.running) Emulator.endGame()
+                val err = if (game == null) gb.frame.LaunchIntent.notFound(requested) else Emulator.launch(game.path)
+                err?.let { if (Emulator.running) Emulator.showToast(it) else snackbar.showSnackbar(it) }
+            }
+        }
 
         LaunchedEffect(inGame) { onImmersive(true) } // the whole app runs full screen
 
