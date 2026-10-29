@@ -203,6 +203,13 @@ old vs refreshed medians were 35.0 vs. 34.75 FPS at 200-299 commands/frame (31 v
 at 300-399 commands/frame (26 vs. 29 samples). The refreshed profile reduced median MSH2/SSH2 times slightly, but
 total emulation FPS was flat to about 2% lower; no additional profile change is justified by this test.
 
+Follow-up on Guardian Heroes (2026-10-29): ABBA comparison using the existing Slot 1 gameplay state, CPU/OpenGL,
+320x224, 1x scale, Fast 128-cycle sync, approximate SH-2 JIT and frameskip Off. For 200-299 VDP1 commands/frame,
+the old profile measured 43.2 and 42.8 FPS (33 and 27 samples); the refreshed profile measured 44.6 and 44.3 FPS
+(31 and 26 samples), a repeatable 3.2-3.5% gain. Combined medians were 42.9 vs. 44.6 FPS, 22.80 vs. 22.08 ms/frame,
+and 8.53 vs. 8.16 ms on MSH2. The refreshed PGO profile is retained; this confirms a gain on another Saturn game,
+while the NiGHTS result remains effectively neutral.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
