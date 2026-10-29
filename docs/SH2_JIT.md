@@ -183,6 +183,12 @@ they were 46.3 vs 48.6 FPS and 8.08 vs 6.85 ms on SSH2 (13 samples each). These 
 multi-game guarantee; retain the merged profile and validate it on other CPU-heavy titles before attributing a general
 gain.
 
+Follow-up on Virtua Fighter 2 (2026-10-29): loaded the same Slot 3 state from an attract-mode 3D fight on both builds,
+with CPU/OpenGL, 704x448, 1x scale, Fast 128-cycle sync, approximate SH-2 JIT and frameskip Off. Filtering to samples
+with at least 300 VDP1 commands/frame gave 62 old-profile and 81 refreshed-profile samples. Medians were 47.85 vs.
+47.8 emu FPS, 20.66 vs. 20.67 ms/frame, 10.8 vs. 10.9 ms on MSH2 and 4.04 vs. 4.01 ms on SSH2. This workload shows
+no measurable benefit from the refreshed profile; the Daytona gain does not generalize to every CPU-heavy scene.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
