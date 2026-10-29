@@ -21,7 +21,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 | 💾 **Save states** | Slots with screenshot previews, quick save/load, **auto save and auto load**; recent save states are shown within the All in One library layout. |
 | 🏆 **RetroAchievements** | Login, hardcore mode, unlock notifications, achievement list and offline play in casual mode. |
 | 🖼️ **Game library** | Box art downloaded automatically (with fuzzy title matching), custom covers, play time per game. |
-| 📺 **Display** | 4:3, Fullscreen or 16:9 with **built-in widescreen hacks** for ~20 games; CRT, CRT Royale, GTU, LCD3x and Scanlines shaders, bsnes gamma color correction. |
+| 📺 **Display** | 4:3, Fullscreen or 16:9 with **built-in widescreen hacks** for ~20 games (toggle in Video, on by default); CRT, CRT Royale, GTU, LCD3x and Scanlines shaders, bsnes gamma color correction. |
 | ⚡ **Quick presets** | High / Mid / Low tune the renderer, resolution, shader and frame skip in one tap. |
 
 ## Screenshots
@@ -49,7 +49,7 @@ Vulkan GPU rendering up to 4x · Full controller navigation · Save states · Re
 **Emulation and video**
 - Renderers: CPU (OpenGL ES presentation) and GPU (Vulkan compute shaders, 1x–4x internal resolution)
 - Filters (Nearest, Bilinear), shaders (CRT, CRT Royale, GTU, LCD3x, Scanlines) and color correction (bsnes gamma ramp)
-- 4:3, Fullscreen and 16:9 display modes; widescreen hacks applied automatically
+- 4:3, Fullscreen and 16:9 display modes; built-in widescreen hacks default on for supported games and can be toggled in Video
 - Automatic frame skip (only while below full speed), threaded audio Auto/On/Off (Auto measures and remembers the faster mode per game), CD read speed up to 16x (8x by default; videos and music streamed from the CD keep the original speed), Skip Engine (maximum speed through loading screens, transitions and save waits), fast boot (skips the BIOS setup screens), 4 MiB RAM cartridge, NTSC/PAL
 - Overlays: FPS and speed (green/yellow/red), CPU and GPU usage, renderer, resolution, frame time, on-screen fast-forward button
 
