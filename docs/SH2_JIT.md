@@ -165,6 +165,24 @@ for SSH2; the enabled run recorded about 6,330 fused pairs per sampled frame. Th
 windows, so the app numbers are only a smoke comparison, but neither measurement showed a gain. The shortcut added
 a per-instruction condition and was removed; a hot opcode pair alone is not sufficient evidence for a dispatch rewrite.
 
+### Daytona PGO refresh (2026-10-29, retained)
+
+The committed profile was trained on 2026-10-21 with VF2, Burning Rangers, NiGHTS and Panzer Dragoon Saga, but not
+Daytona. A two-minute `-PgbsatPgoGen` run on the RG DS used Daytona Slot 1 with the approximate SH-2 JIT enabled.
+LLVM 18 from the NDK merged that raw profile with the existing profile at equal weight; the resulting profile was
+used to build local APK 397, verified in `build.ninja` with `-fprofile-use`.
+
+With the SH-2 interpreter forced, OpenGL CPU rendering, Fast 128-cycle sync and frameskip Off, two 30-second windows
+per profile gave medians of 40.9 → 42.3 emu FPS and 24.75 → 23.95 ms per frame (old → refreshed profile). The refreshed
+run also had more VDP1 commands per frame (139 vs 118), while MSH2 was effectively unchanged (11.07 → 11.16 ms) and
+SSH2 improved slightly (7.58 → 7.41 ms). This points to a small overall gain, not a large SH-2 interpreter gain.
+
+With the approximate JIT enabled, compare samples by VDP1 load to reduce scene variation. At 100–159 commands/frame,
+old vs refreshed medians were 46.9 vs 49.3 FPS and 7.82 vs 6.40 ms on SSH2 (10 vs 12 samples). At 220+ commands/frame,
+they were 46.3 vs 48.6 FPS and 8.08 vs 6.85 ms on SSH2 (13 samples each). These are short RG DS smoke runs, not a
+multi-game guarantee; retain the merged profile and validate it on other CPU-heavy titles before attributing a general
+gain.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
