@@ -189,6 +189,14 @@ with at least 300 VDP1 commands/frame gave 62 old-profile and 81 refreshed-profi
 47.8 emu FPS, 20.66 vs. 20.67 ms/frame, 10.8 vs. 10.9 ms on MSH2 and 4.04 vs. 4.01 ms on SSH2. This workload shows
 no measurable benefit from the refreshed profile; the Daytona gain does not generalize to every CPU-heavy scene.
 
+Follow-up on Burning Rangers (2026-10-29): ABBA-style repeated 25-second windows from the same Slot 1 opening
+cutscene, using the RG DS, CPU/OpenGL, 352x224, 1x scale, Fast 32-cycle game-specific sync, approximate SH-2 JIT and
+frameskip Off. Both old-profile runs had a median near 31.5-31.8 emu FPS (31 and 23 samples); both refreshed-profile
+runs had 32.9-33.2 FPS (30 and 27 samples), about a 4.4% combined median gain. Combined medians were 31.80 vs. 30.01
+ms/frame, 24.95 vs. 24.50 ms on MSH2, and 3.14 vs. 2.62 ms on SSH2. VDP1 command count remained zero in these
+cutscene samples, so this validates a CPU/core-path workload, not gameplay rendering. The refreshed profile remains
+enabled; this is evidence of a workload-specific gain, not a promise of the same uplift in all games.
+
 1. **Frame-exact comparison**: from the same save state, run N frames with the interpreter and with the JIT and
    compare a hash of the SH-2 registers, WRAM-L/WRAM-H and VDP RAM after every frame. Any difference stops at the
    first frame that diverges; a trace mode then compares slice by slice. Runs on the device (adb), no UI.
