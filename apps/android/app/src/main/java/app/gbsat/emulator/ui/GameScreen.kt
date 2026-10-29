@@ -243,7 +243,7 @@ private fun GameMenu(onDismiss: () -> Unit) {
     val performancePage = remember {
         QuickMenuPage("performance", "Performance") {
             QuickMenuItemRow(
-                id = "frame_skip", icon = Icons.Default.SkipNext, label = "Frame skip",
+                id = "frame_skip", icon = Icons.Default.SkipNext, label = "Adaptive graphics",
                 value = if (Emulator.frameSkip) "Auto" else "Off",
             ) {
                 Emulator.frameSkip = !Emulator.frameSkip
