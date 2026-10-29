@@ -1,9 +1,12 @@
 package app.gbsat.android
 
 import android.content.Context
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import androidx.test.core.app.ApplicationProvider
 import app.gbsat.emulator.R
@@ -20,12 +23,22 @@ class AppIconResourcesTest {
 
     @Test fun launcherDefaultsToTransparencyAndKeepsBlackOnlyAsExplicitFallback() {
         assertEquals(R.mipmap.ic_controller_transparent, context.applicationInfo.icon)
-        for (resource in listOf(R.mipmap.ic_controller_transparent, R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller)) {
+        assertTrue(context.getDrawable(R.mipmap.ic_controller_transparent) is BitmapDrawable)
+        for (resource in listOf(R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller, R.mipmap.ic_controller_adaptive)) {
             val icon = context.getDrawable(resource) as AdaptiveIconDrawable
             assertEquals(0, Color.alpha((icon.background as ColorDrawable).color))
         }
         val fallback = context.getDrawable(R.mipmap.ic_launcher_opaque) as AdaptiveIconDrawable
         assertEquals(Color.BLACK, (fallback.background as ColorDrawable).color)
+    }
+
+    @Test fun adaptiveLauncherAliasUsesConsumerActivityAndTransparentResource() {
+        val alias = context.packageManager.getActivityInfo(
+            ComponentName(context.packageName, "app.gbsat.android.AdaptiveLauncherActivity"),
+            PackageManager.MATCH_DISABLED_COMPONENTS,
+        )
+        assertEquals("app.gbsat.android.MainActivity", alias.targetActivity)
+        assertEquals(R.mipmap.ic_controller_adaptive, alias.icon)
     }
 
     @Test fun inAppArtworkHasTransparentCanvasInsteadOfLauncherBadge() {

@@ -12,6 +12,12 @@
         android:roundIcon="@mipmap/ic_controller_transparent"
         android:label="GBSat"
         android:theme="@style/Theme.GBSat">
+        <meta-data
+            android:name="gb.frame.bitmapLauncherAlias"
+            android:value="app.gbsat.android.BitmapLauncherActivity" />
+        <meta-data
+            android:name="gb.frame.adaptiveLauncherAlias"
+            android:value="app.gbsat.android.AdaptiveLauncherActivity" />
         <!-- Lets the on-device profiler (simpleperf, adb shell) sample GBSat; no effect for users -->
         <profileable android:shell="true" />
         <activity
@@ -19,11 +25,32 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|smallestScreenSize"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.GBSat.Launch">
+            android:theme="@style/Theme.GBSat.Launch" />
+        <activity-alias
+            android:name="app.gbsat.android.BitmapLauncherActivity"
+            android:targetActivity="app.gbsat.android.MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_controller_transparent"
+            android:roundIcon="@mipmap/ic_controller_transparent"
+            android:label="GBSat">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name="app.gbsat.android.AdaptiveLauncherActivity"
+            android:targetActivity="app.gbsat.android.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_controller_adaptive"
+            android:roundIcon="@mipmap/ic_controller_adaptive"
+            android:label="GBSat">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>
