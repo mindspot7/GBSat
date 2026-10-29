@@ -10,20 +10,20 @@ import android.content.pm.PackageManager
  * transparent launcher resource declared as the app's default.
  */
 internal object LauncherIconCompatibility {
-    private const val DEFAULT_LAUNCHER = "app.gbsat.android.MainActivity"
+    private const val DEFAULT_LAUNCHER = "app.gbsat.emulator.LauncherActivity"
     private const val RG_DS_LAUNCHER = "app.gbsat.emulator.RgDsLauncherActivity"
 
     fun apply(context: Context, manufacturer: String, model: String) {
         val useRgDsIcon = shouldUseRgDsIcon(manufacturer, model)
-        setComponentEnabled(context, RG_DS_LAUNCHER, enabled = useRgDsIcon, manifestDefault = false)
-        setComponentEnabled(context, DEFAULT_LAUNCHER, enabled = !useRgDsIcon, manifestDefault = true)
+        setAliasEnabled(context, RG_DS_LAUNCHER, enabled = useRgDsIcon, manifestDefault = false)
+        setAliasEnabled(context, DEFAULT_LAUNCHER, enabled = !useRgDsIcon, manifestDefault = true)
     }
 
     internal fun shouldUseRgDsIcon(manufacturer: String, model: String): Boolean =
         manufacturer.trim().equals("Anbernic", ignoreCase = true) &&
             model.trim().equals("RG DS", ignoreCase = true)
 
-    private fun setComponentEnabled(context: Context, name: String, enabled: Boolean, manifestDefault: Boolean) {
+    private fun setAliasEnabled(context: Context, name: String, enabled: Boolean, manifestDefault: Boolean) {
         val component = ComponentName(context.packageName, name)
         val packageManager = context.packageManager
         val componentState = packageManager.getComponentEnabledSetting(component)

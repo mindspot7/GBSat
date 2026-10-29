@@ -1,10 +1,12 @@
 package app.gbsat.android
 
 import android.app.Application
+import android.os.Build
 
 class GBSatApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        LauncherIconCompatibility.apply(this, Build.MANUFACTURER, Build.MODEL)
         @Suppress("DEPRECATION") externalMediaDirs // creates Android/media/<app> (PGO training build output)
         Thread({
             try {
