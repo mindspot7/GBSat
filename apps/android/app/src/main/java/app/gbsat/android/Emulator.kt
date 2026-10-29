@@ -89,6 +89,16 @@ object Emulator {
     var autoSave by mutableStateOf(false)  // save state when leaving a game
     var autoLoad by mutableStateOf(false)  // load that state when starting the game
     var ffAudio by mutableStateOf(0)       // fast-forward audio: 0 default, 1 speed up, 2 mute
+    /** The kit's standard audio options (Settings → Audio, quick menu → Audio) over [volume] and [ffAudio]. */
+    val audio = object : gb.frame.AudioSettings {
+        override var volume: Int
+            get() = Emulator.volume
+            set(v) { Emulator.volume = v; NativeBridge.nativeSetAudio(v, ffAudio) }
+        override var fastForwardAudio: Int
+            get() = ffAudio
+            set(v) { ffAudio = v; NativeBridge.nativeSetAudio(Emulator.volume, v) }
+        override fun save() = savePrefs()
+    }
 
     // ---- Presets: groups of video/performance options ----
     enum class Preset(val label: String) { Low("Low"), Mid("Mid"), High("High") }

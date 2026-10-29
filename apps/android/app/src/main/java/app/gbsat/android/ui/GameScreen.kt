@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -255,30 +254,7 @@ private fun GameMenu(onDismiss: () -> Unit) {
     }
     val audioPage = remember {
         QuickMenuPage("audio", "Audio") {
-            QuickMenuItemRow(
-                id = "volume_down", icon = Icons.AutoMirrored.Filled.VolumeDown, label = "Volume down",
-                value = "${Emulator.volume}%",
-            ) {
-                Emulator.volume = (Emulator.volume - 10).coerceAtLeast(0)
-                Emulator.savePrefs()
-                Emulator.applyOptions()
-            }
-            QuickMenuItemRow(
-                id = "volume_up", icon = Icons.AutoMirrored.Filled.VolumeUp, label = "Volume up",
-                value = "${Emulator.volume}%",
-            ) {
-                Emulator.volume = (Emulator.volume + 10).coerceAtMost(100)
-                Emulator.savePrefs()
-                Emulator.applyOptions()
-            }
-            QuickMenuItemRow(
-                id = "fast_forward_audio", icon = Icons.Default.FastForward, label = "Fast-forward audio",
-                value = listOf("Default", "Speed up", "Mute")[Emulator.ffAudio.coerceIn(0, 2)],
-            ) {
-                Emulator.ffAudio = (Emulator.ffAudio + 1) % 3
-                Emulator.savePrefs()
-                Emulator.applyOptions()
-            }
+            gb.frame.AudioQuickMenuRows(Emulator.audio) // the kit's standard rows (GBSat has no audio rows of its own)
         }
     }
     val performancePage = remember {

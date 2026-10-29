@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -250,31 +249,8 @@ private fun VideoPage() {
 
 @Composable
 private fun AudioPage() {
-    SettingsGroup("Output", Icons.AutoMirrored.Filled.VolumeUp) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RowIcon(if (Emulator.volume == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp)
-                Spacer(Modifier.width(14.dp))
-                Text("Volume", style = MaterialTheme.typography.titleSmall, color = Color.White, modifier = Modifier.weight(1f))
-                Text("${Emulator.volume}%", color = palette.highlight, fontWeight = FontWeight.SemiBold)
-            }
-            Slider(
-                value = Emulator.volume.toFloat(), valueRange = 0f..100f, steps = 19,
-                onValueChange = { Emulator.volume = it.toInt(); NativeBridge.nativeSetAudio(Emulator.volume, Emulator.ffAudio) },
-                onValueChangeFinished = { Emulator.savePrefs() },
-                colors = SliderDefaults.colors(thumbColor = palette.accent, activeTrackColor = palette.accent),
-            )
-        }
-    }
-    SettingsGroup("Fast-forward", Icons.Default.FastForward) {
-        ChoiceRow("Fast-forward audio",
-            when (Emulator.ffAudio) {
-                1 -> "Plays all the audio faster (higher pitch), following the game speed"
-                2 -> "No sound while fast-forwarding"
-                else -> "Plays short pieces of audio at normal pitch"
-            },
-            listOf("Default", "Speed up", "Mute"), Emulator.ffAudio, ch { Emulator.ffAudio = it })
-    }
+    // The kit's standard options; GBSat has no audio options of its own here (threaded audio is in Performance)
+    gb.frame.AudioSettingsGroups(Emulator.audio)
 }
 
 @Composable
