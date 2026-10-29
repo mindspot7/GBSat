@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import androidx.test.core.app.ApplicationProvider
 import app.gbsat.emulator.R
@@ -20,7 +21,9 @@ class AppIconResourcesTest {
 
     @Test fun launcherDefaultsToTransparencyAndKeepsBlackOnlyAsExplicitFallback() {
         assertEquals(R.mipmap.ic_controller_transparent, context.applicationInfo.icon)
-        for (resource in listOf(R.mipmap.ic_controller_transparent, R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller)) {
+        val android13Launcher = context.getDrawable(R.mipmap.ic_controller_transparent) as BitmapDrawable
+        assertEquals(0, Color.alpha(android13Launcher.bitmap.getPixel(0, 0)))
+        for (resource in listOf(R.mipmap.ic_launcher, R.mipmap.ic_gbsat_controller)) {
             val icon = context.getDrawable(resource) as AdaptiveIconDrawable
             assertEquals(0, Color.alpha((icon.background as ColorDrawable).color))
         }
@@ -60,5 +63,17 @@ class AppIconResourcesTest {
             assertEquals("Controller must retain its proportions", sourceWidth.toFloat() / sourceHeight, width.toFloat() / height, .08f)
             assertEquals(0, Color.alpha(launcher.getPixel(0, 0)))
         } finally { launcher.recycle(); foreground.recycle() }
+    }
+
+    @Test fun rgDsCompatibilityIconUsesAnOpaqueBlackCanvas() {
+        val icon = BitmapFactory.decodeResource(context.resources, R.drawable.ic_controller_rgds)
+        try {
+            for ((x, y) in listOf(0 to 0, icon.width - 1 to 0, 0 to icon.height - 1,
+                icon.width - 1 to icon.height - 1)) {
+                val pixel = icon.getPixel(x, y)
+                assertEquals("Unexpected alpha at $x,$y", 255, Color.alpha(pixel))
+                assertEquals("Unexpected backing color at $x,$y", Color.BLACK, pixel)
+            }
+        } finally { icon.recycle() }
     }
 }
