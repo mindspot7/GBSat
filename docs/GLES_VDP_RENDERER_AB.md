@@ -85,6 +85,23 @@ On 2026-10-30, Virtua Fighter 2 Slot 1 was relaunched from its saved state for t
 
 The CPU route repeated consistently near the 60 FPS target. Vulkan varied more and remained slower in both runs; its GPU fence wait was a median 8.7 ms and 12.8 ms in each run's last 10 samples. This is a comparison of the available CPU and Vulkan VDP paths, not an OpenGL compute VDP A/B. The result is also specific to this VF2 state and scene. Raw logs: `C:\.android\renderer-ab-cpu.csv`, `renderer-ab-cpu-2.csv`, `renderer-ab-vulkan.csv`, and `renderer-ab-vulkan-2.csv`.
 
+### Controlled renderer pass and upload strategy (builds 426–427)
+
+On 2026-10-30, RG Rotate build 426 was installed with per-frame GLES instrumentation. Virtua Fighter 2 was repeatedly reloaded from Slot 2 (30/10/2026 18:00). To remove adaptive skipping and audio-thread auto-selection from this pass, the in-game settings were Adaptive graphics Off, Threaded audio Off, frameskip Off, CPU sync Fast, SH-2 recompiler On, 1x scale, Nearest filter, and GTU shader. Samples cover the title/ranking sequence; the active Saturn output mode changed between 352x240 and 320x224 while the save progressed, so treat these as paired scene windows rather than frame-identical replay.
+
+| Renderer / upload route | Resolution in samples | Samples | Median emulation FPS | Median shown FPS | Median emulation ms/frame | Median GLES buffer-upload CPU time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CPU VDP + GL presenter | 352x240 | 37 | 59.9 | 59.9 | 8.75 ms | — |
+| Vulkan VDP | 352x240 | 20 | 52.2 | 52.6 | 19.6 ms | — |
+| GLES VDP, direct `glBufferSubData` | 352x240 | 9 | 2.9 | 0.0 | 313 ms | 177 ms/frame |
+| GLES VDP, per-frame staging + `glCopyBufferSubData` | 320x224 | 52 | 12.8 | 0.0 | 73 ms | 48 ms/frame |
+
+The direct-upload path regressed sharply on this VDP workload. Returning to the pre-existing staging path improved the GLES rate about 4.4x in these short windows, but the picture remained black and the presenter reported no displayed frames. The staged run spent about 48 ms/frame in buffer uploads, with roughly 13 uploads per frame; the direct run issued roughly 186 uploads per frame and spent about 177 ms/frame there. Since the game changed output mode between those two runs, the direct-versus-staging ratio is directional rather than a clean same-resolution A/B. Neither GLES run is usable for image-quality or 2x/4x testing until it presents correct frames.
+
+During the earlier build 425 run, Mali's GLES driver aborted in `glReadPixels` after GBFrame could no longer import a GLES AHardwareBuffer as an EGLImage. `llvm-addr2line` resolved the application frame to `gles::Image::ReadbackRGBA8()` called from `OpenGLESVDPRenderer::VDP2EndFrame()`. GBFrame now has a CPU-readable AHardwareBuffer presenter fallback that honors the buffer stride, intended to avoid this driver readback path. Builds 426–427 compiled and ran, but the EGLImage import failure did not recur in those runs, so the new CPU-lock fallback itself remains unexercised on-device.
+
+The actionable bottleneck in the controlled GLES run is CPU time spent updating Ymir buffers, and the direct route made that worse for this scene. The renderer remains experimental and its resolution-scaling comparison is deferred. Raw logs: `C:\.android\perf-log-rgrotate-build426.csv` and `C:\.android\perf-log-rgrotate-build427-staging.csv`. Both were local validation builds; no GitHub build was started.
+
 ## Risks and acceptance
 
 - A GLES backend is a second GPU implementation, not a simple API switch. Shader translation, binding/resource mapping, barriers, context ownership, and driver behavior can all differ.

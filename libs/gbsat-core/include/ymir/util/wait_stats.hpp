@@ -20,6 +20,16 @@ inline std::atomic<uint64_t> g_vdp2CopyWaitNs{0};
 // synchronous frame callback (thumbnail/skip analysis and presentation handoff).
 inline std::atomic<uint64_t> g_vulkanFrameFenceWaitNs{0};
 inline std::atomic<uint64_t> g_vulkanFrameCallbackNs{0};
+// GLES VDP renderer diagnostics (read once per second by the Android performance log).
+inline std::atomic<uint64_t> g_glesDispatchTicks{0};
+inline std::atomic<uint64_t> g_glesDispatchCount{0};
+inline std::atomic<uint64_t> g_glesUploadTicks{0};
+inline std::atomic<uint64_t> g_glesUploadCount{0};
+inline std::atomic<uint64_t> g_glesFenceWaitTicks{0};
+inline std::atomic<uint64_t> g_glesPresentCopyTicks{0};
+inline std::atomic<uint64_t> g_glesReadbackTicks{0};
+inline std::atomic<uint64_t> g_glesVDP1SubmitTicks{0};
+inline std::atomic<uint64_t> g_glesVDP2EndTicks{0};
 
 struct Timer {
     Kind kind;
@@ -107,5 +117,12 @@ inline double TicksPerSecond() {
     return 1e9;
 #endif
 }
+
+struct TickTimer {
+    std::atomic<uint64_t> &total;
+    uint64_t start = Ticks();
+    explicit TickTimer(std::atomic<uint64_t> &value) : total(value) {}
+    ~TickTimer() { total.fetch_add(Ticks() - start, std::memory_order_relaxed); }
+};
 
 } // namespace util::waitstats

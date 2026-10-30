@@ -846,7 +846,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "vulkan_frame_callback_ms") == nullptr;
+        fresh = strstr(head, "gles_upload_strategy") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -863,10 +863,16 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
                    "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,"
                    "sched_vdp_ms,sched_sound_ms,sched_cd_ms,sched_other_ms,rendered_frame_ms,skipped_frame_ms,"
                    "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,cd_speed_now,"
-                   "vulkan_fence_wait_ms,vulkan_frame_callback_ms,settings\n");
+                   "vulkan_fence_wait_ms,vulkan_frame_callback_ms,gles_dispatch_cpu_ms_per_frame,"
+                   "gles_dispatches_per_frame,gles_upload_cpu_ms_per_frame,gles_uploads_per_frame,"
+                   "gles_fence_wait_ms_per_frame,gles_present_copy_cpu_ms_per_frame,gles_readback_cpu_ms_per_frame,"
+                   "gles_vdp1_submit_cpu_ms_per_frame,gles_vdp2_end_cpu_ms_per_frame,gles_upload_strategy,settings\n");
     }
     const int mode = g->rendererMode;
-    const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
+    const char *renderer = mode == 5 ? "GPU (OpenGL ES experimental)"
+                           : mode == 4 ? "GPU (Vulkan)"
+                           : mode == 1 ? "CPU (OpenGL)"
+                                       : "CPU (plain)";
     const auto &cfg = g->saturn->configuration;
     char ts[32];
     const time_t now = time(nullptr);
@@ -899,7 +905,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     const double renderedMs = g_renderedFrames ? g_renderedNs / 1e6 / g_renderedFrames : 0.0;
     const double skippedMs = g_skippedFrames ? g_skippedNs / 1e6 / g_skippedFrames : 0.0;
     fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", ts, title.c_str(), renderer,
-            mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
+            (mode == 4 || mode == 5) ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
             presentedFps, g->frameTimeUs.load() / 1000.0,
             waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2],
@@ -1019,7 +1025,19 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     settings += ";frameskip_history=" + std::to_string(g->fsHistoryCount);
     settings += ";frameskip_cadence=" + std::to_string(g->minRenderRun);
     settings += ";frameskip_vdp1_cmds=" + std::to_string((uint32_t)std::max(0.0f, vdp1CommandsPerFrame));
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%s\n",
+    const double perfFrames = std::max(1.0f, fps);
+    const double glesTickMsPerFrame = 1000.0 / ws::TicksPerSecond() / perfFrames;
+    const double glesDispatchMs = ws::g_glesDispatchTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesDispatches = ws::g_glesDispatchCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesUploadMs = ws::g_glesUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesUploads = ws::g_glesUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesFenceWaitMs = ws::g_glesFenceWaitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesPresentCopyMs = ws::g_glesPresentCopyTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesReadbackMs = ws::g_glesReadbackTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesVDP1SubmitMs = ws::g_glesVDP1SubmitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesVDP2EndMs = ws::g_glesVDP2EndTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const char *glesUploadStrategy = mode == 5 ? "staging+glCopyBufferSubData" : "n/a";
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%.2f,%.0f,%.2f,%.0f,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             vdp1CommandsPerFrame,
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
@@ -1032,7 +1050,9 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             ws::g_vdp2CopyWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             g->skip.TakeActiveFrames() * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied,
             ws::g_vulkanFrameFenceWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
-            ws::g_vulkanFrameCallbackNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps), settings.c_str());
+            ws::g_vulkanFrameCallbackNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
+            glesDispatchMs, glesDispatches, glesUploadMs, glesUploads, glesFenceWaitMs, glesPresentCopyMs,
+            glesReadbackMs, glesVDP1SubmitMs, glesVDP2EndMs, glesUploadStrategy, settings.c_str());
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
     fclose(f);

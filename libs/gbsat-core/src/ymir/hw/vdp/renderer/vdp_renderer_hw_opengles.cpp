@@ -588,6 +588,7 @@ struct OpenGLESVDPRenderer::Impl {
     bool CopyAndroidFrame(uint64 token, AHardwareBuffer *buffer, uint32 width, uint32 height,
                          const GpuImage &source, GLsync &fence) {
         if (buffer == nullptr || androidFrameTargets.empty()) return false;
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesPresentCopyTicks);
         const uint32 slot = static_cast<uint32>(token) % static_cast<uint32>(androidFrameTargets.size());
         std::string error;
         gles::AndroidFrameTarget &target = androidFrameTargets[slot];
@@ -692,6 +693,8 @@ struct OpenGLESVDPRenderer::Impl {
         if (size == 0) {
             return {};
         }
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesUploadTicks);
+        util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
         UploadAllocation alloc{};
         if (auto result = AllocateUploadBuffer(size, 4, alloc); !result) {
             return result;
@@ -703,7 +706,8 @@ struct OpenGLESVDPRenderer::Impl {
         if (!frameCtx.uploadBuffer.resource.Upload(static_cast<GLintptr>(alloc.offset), static_cast<GLsizeiptr>(size),
                                                    alloc.data, error) ||
             !frameCtx.uploadBuffer.resource.CopyTo(dst.resource, static_cast<GLintptr>(alloc.offset),
-                                                   static_cast<GLintptr>(dstOffset), static_cast<GLsizeiptr>(size), error)) {
+                                                   static_cast<GLintptr>(dstOffset), static_cast<GLsizeiptr>(size),
+                                                   error)) {
             devlog::error<grp::dx12_base>("GLES buffer upload failed: {}", error);
             return util::ErrorMessage{fmt::format("GLES buffer upload failed: {}", error)};
         }
@@ -718,6 +722,8 @@ struct OpenGLESVDPRenderer::Impl {
         if (x == 0 || y == 0 || z == 0) {
             return {};
         }
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesDispatchTicks);
+        util::waitstats::g_glesDispatchCount.fetch_add(1, std::memory_order_relaxed);
         UploadAllocation alloc{};
         if (auto result = AllocateUploadBuffer(kConstRange, uboAlign, alloc); !result) {
             return result;
@@ -771,6 +777,7 @@ struct OpenGLESVDPRenderer::Impl {
 
     void WaitFrame(FrameContext &frameCtx) {
         if (frameCtx.submitted && frameCtx.fence != nullptr) {
+            util::waitstats::TickTimer perfTimer(util::waitstats::g_glesFenceWaitTicks);
             GLenum result = GL_TIMEOUT_EXPIRED;
             while (result == GL_TIMEOUT_EXPIRED) {
                 result = glClientWaitSync(frameCtx.fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
@@ -1522,6 +1529,7 @@ struct OpenGLESVDPRenderer::Impl {
             frameCtx.cpuCmdCount = 0;
             return {};
         }
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesVDP1SubmitTicks);
 
         // Clear counters even if we fail to submit them to avoid crashes on extreme cases.
         util::ScopeGuard sgFinish{[&] {
@@ -3336,6 +3344,7 @@ struct OpenGLESVDPRenderer::Impl {
     }
 
     void VDP2EndFrame() {
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesVDP2EndTicks);
         const uint32 vShift = vdpState.regs2.TVMD.IsInterlaced() ? 1u : 0u;
         const uint32 vres = VRes >> vShift;
         VDP2RenderLayerLines(vres - 1);
@@ -3372,6 +3381,7 @@ struct OpenGLESVDPRenderer::Impl {
                 const size_t pixelCount = static_cast<size_t>(outW) * outH;
                 frameCtx.readbackPixels.resize(pixelCount);
                 std::string error;
+                util::waitstats::TickTimer readbackTimer(util::waitstats::g_glesReadbackTicks);
                 if (!vdp2.compositeOutTexture.resource.ReadbackRGBA8(outW, outH, frameCtx.readbackPixels.data(), error)) {
                     return;
                 }
