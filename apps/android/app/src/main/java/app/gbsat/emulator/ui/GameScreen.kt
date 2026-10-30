@@ -247,6 +247,13 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 Emulator.savePrefs()
                 Emulator.applyOptions()
             }
+            if (Emulator.renderer == 1) {
+                gb.frame.HalfHeightBackgroundsItem(value = Emulator.halfHeightBackgrounds) { enabled ->
+                    Emulator.halfHeightBackgrounds = enabled
+                    Emulator.savePrefs()
+                    Emulator.applyOptions()
+                }
+            }
             QuickMenuItemRow(
                 id = "threaded_audio", icon = Icons.Default.GraphicEq, label = "Threaded audio",
                 value = when (Emulator.scspMode) { 0 -> "Auto"; 1 -> "On"; else -> "Off" },

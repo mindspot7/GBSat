@@ -273,6 +273,13 @@ private fun PerformancePage() {
     }
     SettingsGroup("Speed", Icons.Default.Speed) {
         AdaptiveGraphicsSettingsRow(Emulator.frameSkip, ch { Emulator.frameSkip = it })
+        if (Emulator.renderer == 1) {
+            SettingsDivider()
+            HalfHeightBackgroundsSettingsRow(Emulator.halfHeightBackgrounds, ch {
+                Emulator.halfHeightBackgrounds = it
+                Emulator.applyOptions()
+            })
+        }
         SettingsDivider()
         val cdSpeeds = listOf(2, 4, 8, 16)
         ChoiceRow("CD read speed", "Shorter loading screens. Videos and music streamed from the CD switch back to the original speed; use Original if one still goes out of sync",

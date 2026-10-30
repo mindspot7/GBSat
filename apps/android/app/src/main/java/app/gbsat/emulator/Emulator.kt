@@ -82,11 +82,12 @@ object Emulator {
     /** Use the built-in recommended settings per game (assets/game_profiles.json). */
     // Per-game settings while a game runs: renderer, frame skip and threaded audio start from the user's own choice for
     // that game, else the recommended profile, else the global settings. The global values are kept aside meanwhile.
-    private data class GameOpts(val renderer: Int, val frameSkip: Boolean, val scspMode: Int)
+    private data class GameOpts(val renderer: Int, val frameSkip: Boolean, val scspMode: Int, val halfHeightBackgrounds: Boolean)
     private var sessionGlobals: GameOpts? = null
     private var sessionStart: GameOpts? = null
     var useGameProfiles by mutableStateOf(true) // recommended per-game settings (assets/game_profiles.json)
     var frameSkip by mutableStateOf(false) // automatic frame skip (only while below full speed)
+    var halfHeightBackgrounds by mutableStateOf(false) // experimental CPU renderer optimization for hi-res interlaced backgrounds
     var volume by mutableStateOf(100)      // audio volume, percent
     var autoSave by mutableStateOf(false)  // save state when leaving a game
     var autoLoad by mutableStateOf(false)  // load that state when starting the game
@@ -138,6 +139,7 @@ object Emulator {
             "aspect=${listOf("4:3", "fill", "16:9").getOrElse(aspect) { "$aspect" }}",
             "widescreen=${widescreenHack ?: "off"}",
             "frameskip=${on(frameSkip)}",
+            "half_height_backgrounds=${on(halfHeightBackgrounds)}",
             "sh2_cache=${on(sh2Cache)}",
             "cpu_sync=${if (cpuSync == 1) "fast" else "accurate"}",
             "sh2_jit=${if (sh2Recompiler) "on" else "off"}",
@@ -474,6 +476,7 @@ object Emulator {
         skipTransitions = prefs.getBoolean("skipTransitions", false)
         skipSaves = prefs.getBoolean("skipSaves", false)
         frameSkip = prefs.getBoolean("frameSkip", false)
+        halfHeightBackgrounds = prefs.getBoolean("halfHeightBackgrounds", false)
         volume = prefs.getInt("volume", 100).coerceIn(0, 100)
         autoSave = prefs.getBoolean("autoSave", false)
         autoLoad = prefs.getBoolean("autoLoad", false)
@@ -527,6 +530,7 @@ object Emulator {
         NativeBridge.nativeSetSH2Jit(if (sh2Recompiler) 2 else 0)
         NativeBridge.nativeSetIdleSkip(idleSkip)
         NativeBridge.nativeSetOneField(oneField)
+        NativeBridge.nativeSetHalfHeightBackgrounds(halfHeightBackgrounds && renderer == 1)
         NativeBridge.nativeSetThreadedVdp(threadedVdp)
         NativeBridge.nativeSetScspMode(scspMode)
         NativeBridge.nativeSetResolutionScale(effectiveScale)
@@ -550,9 +554,10 @@ object Emulator {
             val e = prefs.edit()
             if (renderer != start.renderer) e.putInt("game:$game:renderer", renderer)
             if (frameSkip != start.frameSkip) e.putBoolean("game:$game:frameSkip", frameSkip)
+            if (halfHeightBackgrounds != start.halfHeightBackgrounds) e.putBoolean("game:$game:halfHeightBackgrounds", halfHeightBackgrounds)
             if (scspMode != start.scspMode) e.putInt("game:$game:scspMode", scspMode)
             e.apply()
-            sessionStart = GameOpts(renderer, frameSkip, scspMode)
+            sessionStart = GameOpts(renderer, frameSkip, scspMode, halfHeightBackgrounds)
         }
         savePrefsEditor(g).apply()
     }
@@ -561,7 +566,7 @@ object Emulator {
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putInt("sh2Sync", cpuSync).putBoolean("cpuRecompiler", sh2Recompiler)
         .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("widescreenGameHacks", widescreenGameHacks).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
-        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
+        .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putBoolean("halfHeightBackgrounds", globals?.halfHeightBackgrounds ?: halfHeightBackgrounds).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
 
     /** Validate a staged BIOS in the active data folder before replacing the installed one. */
@@ -672,13 +677,13 @@ object Emulator {
      * for this device class, else the global settings.
      */
     private fun applyGameOptions(path: String) {
-        val globals = sessionGlobals ?: GameOpts(renderer, frameSkip, scspMode)
+        val globals = sessionGlobals ?: GameOpts(renderer, frameSkip, scspMode, halfHeightBackgrounds)
         sessionGlobals = globals
         val header = NativeBridge.nativeGetDiscHeader().orEmpty()
         val title = header.takeIf { it.length > 0x60 }?.substring(0x60, minOf(header.length, 0xD0))?.trim()
         val id = header.takeIf { it.length >= 0x2A }?.substring(0x20, 0x2A)?.trim()
         val profile = if (useGameProfiles) gb.frame.GameProfiles.lookup(title, id, device.tier) else emptyMap()
-        var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode
+        var r = globals.renderer; var fs = globals.frameSkip; var sm = globals.scspMode; var hh = globals.halfHeightBackgrounds
         // Auto threaded audio starts on, on every device. On the Unisoc T618 (2 fast cores) it used to cost the background
         // renderer too much, but with the sound thread no longer polling while it waits it was faster in every game
         // profiled (Daytona USA: emulation thread ~60% of a core instead of ~76%); the tuner still tries the other mode
@@ -699,9 +704,10 @@ object Emulator {
         var userChoice = false
         if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 4 || saved == 2) 4 else 1; userChoice = true }
         if (prefs.contains("game:$path:frameSkip")) { fs = prefs.getBoolean("game:$path:frameSkip", fs); userChoice = true }
+        if (prefs.contains("game:$path:halfHeightBackgrounds")) { hh = prefs.getBoolean("game:$path:halfHeightBackgrounds", hh); userChoice = true }
         if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm).coerceIn(0, 2); userChoice = true }
-        renderer = r; frameSkip = fs; scspMode = sm
-        sessionStart = GameOpts(r, fs, sm)
+        renderer = r; frameSkip = fs; scspMode = sm; halfHeightBackgrounds = hh
+        sessionStart = GameOpts(r, fs, sm, hh)
         applyOptions()
         if (sm == 0) {
             NativeBridge.nativeSetThreadedScsp(startThreaded)
@@ -713,7 +719,7 @@ object Emulator {
     private fun closeGame() {
         rememberScspMode()
         // Back to the global renderer, frame skip and threaded audio
-        sessionGlobals?.let { renderer = it.renderer; frameSkip = it.frameSkip; scspMode = it.scspMode }
+        sessionGlobals?.let { renderer = it.renderer; frameSkip = it.frameSkip; scspMode = it.scspMode; halfHeightBackgrounds = it.halfHeightBackgrounds }
         idleSkip = true; threadedVdp = true
         sessionGlobals = null; sessionStart = null
         applyOptions()
