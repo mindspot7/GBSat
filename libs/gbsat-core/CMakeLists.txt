@@ -536,6 +536,9 @@ if (ANDROID)
     target_sources(ymir-core PRIVATE
         src/ymir/hw/vdp/renderer/opengles/gles_compute.hpp
         src/ymir/hw/vdp/renderer/opengles/gles_compute.cpp
+        include/ymir/hw/vdp/renderer/vdp_renderer_hw_opengles.hpp
+        include/ymir/hw/vdp/renderer/vdp_renderer_hw_opengles_callbacks.hpp
+        src/ymir/hw/vdp/renderer/vdp_renderer_hw_opengles.cpp
     )
 endif ()
 if (WIN32)

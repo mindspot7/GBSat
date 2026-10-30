@@ -1,6 +1,6 @@
 # Experimental GLES VDP renderer A/B
 
-Status: shader translation and the GBFrame shared-context/AHardwareBuffer contract are complete on branch `codex/gles-vdp-ab`. The Ymir GLES VDP backend is under implementation; it is not selectable and does not render Saturn frames yet.
+Status: the experimental Ymir GLES VDP backend is selectable on branch `codex/gles-vdp-ab` and rendered Virtua Fighter 2 on the RG Rotate. The first A/B showed a large performance regression against Vulkan and the software VDP, so the mode remains opt-in and is not suitable for the default or mainline yet.
 
 ## Goal
 
@@ -36,7 +36,27 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 - Added an Android frame-target wrapper that imports GBFrame's `AHardwareBuffer` as an EGLImage, copies the completed GLES image into it, and emits the shared-context GLsync fence expected by GBFrame.
 - On 2026-10-30, an RG Rotate GLES 3.2 probe compiled/linked all 20 translated shaders and resolved every combined sampler uniform from the matching SPIR-V binding names (5 combined samplers total). This validates shader program setup on the Mali-G52, not Ymir rendering.
 - `:app:externalNativeBuildDebug` passed for `arm64-v8a` after the resource, dispatch, and frame-target layer changes. No Saturn rendering is wired to the new path yet.
-- The remaining work is Ymir's renderer resource allocation and synchronization, wiring the API methods, and game-level correctness/performance validation.
+- Ymir's renderer resource allocation, API methods, Android frame-target callback, and menu selection are wired. On-device shader initialization completed on the RG Rotate, with `gles: ready` in logcat. Game image correctness still needs a deliberate visual comparison, and the first performance data shows that the current synchronization path needs profiling before this backend is useful.
+
+## First on-device comparison (RG Rotate, build 422)
+
+On 2026-10-30, build 422 was installed locally and Virtua Fighter 2 was launched from Slot 1 (`Virtua Fighter 2_1.state`, dated 27/10/2026 22:56). The renderer was switched in the same session and Slot 1 was reloaded for each mode. Settings were 1x for the CPU and Vulkan reference runs; the GLES path was measured at 1x, 2x, and 4x. The displayed values below are single HUD snapshots after allowing each run to settle, so they are preliminary rather than a statistically complete benchmark.
+
+| Renderer / scale | Emulation FPS | Speed | Frame time | CPU / GPU shown by app |
+| --- | ---: | ---: | ---: | ---: |
+| CPU VDP + OpenGL ES presenter, 1x | 59.9 | 99.9% | 10.0 ms | 20.4% / 30.3% |
+| Vulkan VDP, 1x (first pass) | 56.4 | 93.9% | 27.1 ms | 10.1% / 24.3% |
+| Vulkan VDP, 1x (repeat) | 33.9 | 56.5% | 25.6 ms | 8.8% / 55.5% |
+| GLES VDP, 1x (pass 1) | 16.6 | 27.7% | 59.0 ms | 11.8% / 4.9% |
+| GLES VDP, 1x (pass 2) | 21.3 | 35.6% | 44.5 ms | 14.2% / 0.0% |
+| GLES VDP, 2x | 16.3 | 27.2% | 59.3 ms | 12.3% / 3.9% |
+| GLES VDP, 4x | 17.4 | 29.0% | 50.5 ms | 12.8% / 4.9% |
+
+The current GLES implementation is substantially slower than the CPU renderer in this scene and below both Vulkan samples. Increasing internal resolution from 1x to 4x did not cause a clear additional FPS drop, which suggests the large loss is in the backend's submission/synchronization path rather than pixel throughput; this is an inference, not a profiler result. The HUD's GPU utilization is not reliable for diagnosing GLES here: it reported 0–5% while the renderer produced frames at 16–21 FPS.
+
+Both Vulkan passes logged `AHardwareBuffer import failed; using CPU readback presentation`; this remains an apples-to-apples renderer comparison at the same output scale, but not a GPU-to-GPU presentation-path comparison. Vulkan varied substantially between the two samples, so its actual performance needs a longer repeated capture. The GLES initialization log reached `gles: ready`, and no GLES pipeline creation failure appeared after correcting the embedded resource path to include `vdp/`.
+
+Next diagnostic: profile/count `SubmitAndWait()` and `WaitFrame()` stalls in the GLES backend and confirm the shared AHardwareBuffer target is being acquired. The renderer currently performs blocking fence waits in `SubmitAndWait()`, and the A/B alone cannot determine how often that path blocks during a frame. Keep GLES experimental and leave the device default on CPU/OpenGL until a profiled change yields correct frames and repeatable performance.
 
 ## Existing-renderer baseline (RG Rotate)
 

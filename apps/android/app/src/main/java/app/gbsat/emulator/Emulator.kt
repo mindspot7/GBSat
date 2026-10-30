@@ -70,14 +70,19 @@ object Emulator {
         get() = showFps && showSpeed && showRenderer && showResolution && showCpu && showGpu && showFrameTime
         set(v) { showFps = v; showSpeed = v; showRenderer = v; showResolution = v; showCpu = v; showGpu = v; showFrameTime = v }
     var fastBoot by mutableStateOf(true)
-    // Renderer: 1 = CPU (OpenGL): VDPs emulated on the CPU, shown through OpenGL ES; 4 = GPU (Vulkan).
+    // Renderer: 1 = CPU + OpenGL ES presenter; 4 = GPU (Vulkan); 5 = experimental GPU (OpenGL ES compute).
     // 0 (CPU, plain window output) is no longer offered: it is only used internally when OpenGL ES can't start.
     var renderer by mutableStateOf(1)
     /** OpenGL ES could not start on this device: CPU frames go to the plain window output instead. */
     var glFallback by mutableStateOf(false)
     /** Renderer id actually used for presentation (see [glFallback]). */
     val displayRenderer get() = if (renderer == 1 && glFallback) 0 else renderer
-    val rendererLabel get() = when (displayRenderer) { 4 -> "GPU (Vulkan)"; 1 -> "CPU (OpenGL)"; else -> "CPU (plain)" }
+    val rendererLabel get() = when (displayRenderer) {
+        4 -> "GPU (Vulkan)"
+        5 -> "GPU (OpenGL ES, experimental)"
+        1 -> "CPU (OpenGL)"
+        else -> "CPU (plain)"
+    }
 
     /** Use the built-in recommended settings per game (assets/game_profiles.json). */
     // Per-game settings while a game runs: renderer, frame skip and threaded audio start from the user's own choice for
@@ -175,7 +180,7 @@ object Emulator {
     var skipLoads by mutableStateOf(false)
     var skipTransitions by mutableStateOf(false)
     var skipSaves by mutableStateOf(false)
-    var resScale by mutableStateOf(1) // GPU (Vulkan) internal resolution scale (1x..4x); 0 = Native (matches the screen)
+    var resScale by mutableStateOf(1) // GPU internal resolution scale (1x..4x); 0 = Native (matches the screen)
     /**
      * Scale used for "Native": the screen's short side divided by the Saturn's ~224 lines, rounded, at most what the GPU
      * handles (4x on Adreno 730+, 3x on Adreno 640-7xx / Mali-G710+, 1x on weaker GPUs).
@@ -465,7 +470,7 @@ object Emulator {
         showFrameTime = prefs.getBoolean("showFrameTime", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         useGameProfiles = prefs.getBoolean("gameProfiles", true)
-        renderer = prefs.getInt("renderer", 1).let { if (it == 4) 4 else 1 }
+        renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 5) it else 1 }
         filter = prefs.getInt("filter", 1).coerceIn(0, 1)
         shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0))
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
@@ -490,15 +495,15 @@ object Emulator {
             runCatching { keyMap = withDefaults(str.split(",").filter { it.isNotBlank() }.associate { e -> e.substringBefore(':').toInt() to e.substringAfter(':').toInt() }) }
         }
 
-        // Crash report from the previous session. If it happened with the GPU (Vulkan) renderer, switch to CPU (OpenGL).
+        // Crash report from the previous session. If it happened with a GPU renderer, switch to CPU (OpenGL).
         val crashFile = File(appContext.filesDir, "crash.txt")
         if (crashFile.exists()) {
             val text = runCatching { crashFile.readText() }.getOrDefault("")
             crashFile.delete()
             if (text.isNotBlank()) {
-                val gpu = text.contains("renderer=4")
+                val gpu = text.contains("renderer=4") || text.contains("renderer=5")
                 if (gpu) { renderer = 1; prefs.edit().putInt("renderer", 1).apply() }
-                lastCrash = (if (gpu) "GBSat closed while using the GPU (Vulkan) renderer, so the renderer was switched to CPU (OpenGL).\n\n" else "") +
+                lastCrash = (if (gpu) "GBSat closed while using a GPU renderer, so the renderer was switched to CPU (OpenGL).\n\n" else "") +
                     "GBSat ${appVersion()} crashed last time. Please send this report:\n\n" + text
             }
         }
@@ -700,7 +705,7 @@ object Emulator {
         if (prefs.contains("scsp3:$path") && !entryThreadedRecommendation) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win
         var userChoice = false
-        if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 4 || saved == 2) 4 else 1; userChoice = true }
+        if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 2) 4 else if (saved == 4 || saved == 5) saved else 1; userChoice = true }
         if (prefs.contains("game:$path:frameSkip")) { fs = prefs.getBoolean("game:$path:frameSkip", fs); userChoice = true }
         if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm).coerceIn(0, 2); userChoice = true }
         renderer = r; frameSkip = fs; scspMode = sm

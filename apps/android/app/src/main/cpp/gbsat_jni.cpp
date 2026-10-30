@@ -250,7 +250,7 @@ struct Context {
 
     // Display
     std::atomic<bool> glMode{false};
-    std::atomic<int> rendererMode{0}; // 0 = software (CPU window), 1 = OpenGL ES, 4 = Vulkan GPU (presented through OpenGL ES)
+    std::atomic<int> rendererMode{0}; // 0 = software, 1 = CPU + OpenGL ES, 4 = Vulkan, 5 = experimental GLES compute
     std::string gpuError; // last Vulkan VDP renderer error (guarded by winMutex)
 
 
@@ -1434,6 +1434,19 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
              OnVulkanHardwareFrame(static_cast<AHardwareBuffer *>(buffer), token, w, h, scale);
          }},
         {nullptr, [](uint64_t token, void *) { glr::CancelVulkanTarget(token); }});
+    g->saturn->VDP.SetOpenGLESFrameReadyCallback({nullptr, [](const uint32_t *fb, uint32_t w, uint32_t h, void *) {
+                                                     OnFrameComplete(const_cast<uint32_t *>(fb), w, h);
+                                                 }});
+    g->saturn->VDP.SetOpenGLESFrameTargetCallbacks(
+        {nullptr, [](uint32_t w, uint32_t h, uint64_t *token, void *) -> void * {
+             const auto target = glr::AcquireGlesTarget(w, h);
+             if (token) *token = target.token;
+             return target.buffer;
+         }},
+        {nullptr, [](void *, uint64_t token, uint32_t w, uint32_t h, uint32_t scale, void *fence, void *) {
+             glr::SubmitGlesTarget(token, w, h, scale, fence);
+         }},
+        {nullptr, [](uint64_t token, void *) { glr::CancelGlesTarget(token); }});
     ConnectPad(false);
 
     g->smpcPath = JStr(env, smpcPath);
@@ -1488,12 +1501,17 @@ JNI_FN(void, nativeShutdown)(JNIEnv *, jclass) {
     g = nullptr;
 }
 
+void ApplyVdpRenderer(bool gpu, bool force);
+
 JNI_FN(void, nativeSetSurface)(JNIEnv *env, jclass, jobject surface) {
     if (!g) {
         return;
     }
     if (g->glMode.load()) {
         glr::SetWindow(surface ? ANativeWindow_fromSurface(env, surface) : nullptr);
+        if (surface && g->rendererMode.load(std::memory_order_relaxed) == 5) {
+            Post([] { ApplyVdpRenderer(true, true); });
+        }
         return;
     }
     std::lock_guard lk(g->winMutex);
@@ -2007,38 +2025,73 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 // Runs on the emulation thread.
 void ApplyEnhancements() {
     auto &vdp = g->saturn->VDP;
-    const bool gpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
+    const bool gpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr ||
+                     vdp.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr;
     const bool deinterlace = gpu && g->deinterlaceAllowed;
     vdp.ModifyEnhancements([deinterlace](ymir::vdp::config::Enhancements &e) { e.deinterlace = deinterlace; });
 }
 
 // Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
-// Switches the VDP emulation between the software renderer and the Vulkan compute (GPU) renderer.
+// Switches the VDP emulation between software, Vulkan compute, and the isolated GLES compute experiment.
 // Runs on the emulation thread. If the GPU renderer cannot be created the software renderer stays active.
 void ApplyVdpRenderer(bool gpu, bool force = false) {
     auto &vdp = g->saturn->VDP;
-    const bool isGpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
-    if (gpu == isGpu && !force) {
+    const int requestedMode = g->rendererMode.load(std::memory_order_relaxed);
+    const bool isVulkan = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
+    const bool isGles = vdp.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr;
+    const bool isGpu = isVulkan || isGles;
+    if (((!gpu && !isGpu) || (gpu && requestedMode == 4 && isVulkan) || (gpu && requestedMode == 5 && isGles)) &&
+        !force) {
         return;
     }
     if (gpu) {
         if (isGpu) {
-            // Recreating the GPU renderer (e.g. new resolution scale): release the current one first
+            // Release the active hardware renderer before switching backend or recreating it.
             vdp.UseSoftwareRenderer();
         }
-        SetStage("vk: switching to the Vulkan GPU renderer");
-        ymir::vdp::VulkanRendererContext ctx{};
-        ctx.resolutionScale = g->resScale;
-        ctx.progress = [](const char *stage) {
+        auto progress = [](const char *stage) {
             SetStage(stage);
             __android_log_print(ANDROID_LOG_INFO, "GBSat", "%s", stage);
         };
-        auto result = vdp.UseVulkanRenderer(ctx);
-        SetStage(result ? "running (Vulkan GPU renderer)" : "running (software renderer, GPU init failed)");
+        bool result = false;
+        std::string error;
+        if (requestedMode == 5) {
+            SetStage("gles: switching to experimental OpenGL ES compute renderer");
+            glr::SharedGlesContext shared{};
+            bool sharedReady = false;
+            for (int attempt = 0; attempt < 200 && !sharedReady; ++attempt) {
+                sharedReady = glr::GetSharedGlesContext(&shared);
+                if (!sharedReady) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            if (sharedReady) {
+                ymir::vdp::OpenGLESRendererContext ctx{};
+                ctx.display = shared.display;
+                ctx.context = shared.context;
+                ctx.surface = shared.surface;
+                ctx.resolutionScale = g->resScale == 0 ? 4 : std::min<uint32_t>(g->resScale, 4);
+                ctx.progress = progress;
+                auto renderer = vdp.UseOpenGLESRenderer(ctx);
+                result = static_cast<bool>(renderer);
+                if (!renderer) error = renderer.Error().message;
+            } else {
+                error = "GBFrame shared GLES context is unavailable";
+            }
+        } else {
+            SetStage("vk: switching to the Vulkan GPU renderer");
+            ymir::vdp::VulkanRendererContext ctx{};
+            ctx.resolutionScale = g->resScale;
+            ctx.progress = progress;
+            auto renderer = vdp.UseVulkanRenderer(ctx);
+            result = static_cast<bool>(renderer);
+            if (!renderer) error = renderer.Error().message;
+        }
+        SetStage(result ? (requestedMode == 5 ? "running (experimental GLES compute renderer)"
+                                               : "running (Vulkan GPU renderer)")
+                        : "running (software renderer, GPU init failed)");
         std::lock_guard lk(g->winMutex);
         if (!result) {
-            g->gpuError = result.Error().message;
-            __android_log_print(ANDROID_LOG_WARN, "GBSat", "Vulkan VDP renderer failed: %s", g->gpuError.c_str());
+            g->gpuError = error;
+            __android_log_print(ANDROID_LOG_WARN, "GBSat", "VDP GPU renderer failed: %s", g->gpuError.c_str());
         } else {
             g->gpuError.clear();
         }
@@ -2054,7 +2107,7 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         // Vulkan GPU (4) emulates the VDPs on the GPU and shows the frames through the OpenGL ES presenter, which
         // provides the filters and shaders
-        const bool newGl = (mode == 1 || mode == 4);
+        const bool newGl = (mode == 1 || mode == 4 || mode == 5);
         const bool oldGl = g->glMode.load();
         if (oldGl && !newGl) {
             glr::Shutdown(); // switching to CPU presentation in game: release the GL surface
@@ -2069,7 +2122,7 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
         g->glMode = newGl;
         g->rendererMode = mode;
         g_crashRenderer = mode;
-        const bool gpu = mode == 4;
+        const bool gpu = mode == 4 || mode == 5;
         Post([gpu] { ApplyVdpRenderer(gpu); });
     }
 }
@@ -2085,7 +2138,8 @@ JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
             return;
         }
         g->resScale = s;
-        if (g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr) {
+        if (g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr ||
+            g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr) {
             ApplyVdpRenderer(true, true);
         }
     });

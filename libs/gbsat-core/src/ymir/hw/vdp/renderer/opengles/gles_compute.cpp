@@ -262,6 +262,10 @@ bool Image::Create(GLenum target, GLenum internalFormat, uint32_t width, uint32_
     } else {
         glTexStorage2D(target, 1, internalFormat, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     }
+    glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     if (!CheckGl("image allocation", error)) {
         Reset();
         return false;
@@ -332,6 +336,7 @@ void Image::Reset() {
 AndroidFrameTarget::AndroidFrameTarget(AndroidFrameTarget &&other) noexcept
     : m_display(std::exchange(other.m_display, EGL_NO_DISPLAY))
     , m_image(std::exchange(other.m_image, EGL_NO_IMAGE_KHR))
+    , m_buffer(std::exchange(other.m_buffer, nullptr))
     , m_texture(std::exchange(other.m_texture, 0))
     , m_framebuffer(std::exchange(other.m_framebuffer, 0))
     , m_readFramebuffer(std::exchange(other.m_readFramebuffer, 0))
@@ -344,6 +349,7 @@ AndroidFrameTarget &AndroidFrameTarget::operator=(AndroidFrameTarget &&other) no
         Reset();
         m_display = std::exchange(other.m_display, EGL_NO_DISPLAY);
         m_image = std::exchange(other.m_image, EGL_NO_IMAGE_KHR);
+        m_buffer = std::exchange(other.m_buffer, nullptr);
         m_texture = std::exchange(other.m_texture, 0);
         m_framebuffer = std::exchange(other.m_framebuffer, 0);
         m_readFramebuffer = std::exchange(other.m_readFramebuffer, 0);
@@ -363,7 +369,7 @@ bool AndroidFrameTarget::Import(EGLDisplay display, AHardwareBuffer *buffer, uin
         error = "Cannot import an empty Android frame target";
         return false;
     }
-    if (m_display == display && m_token == token && m_image != EGL_NO_IMAGE_KHR) {
+    if (m_display == display && m_buffer == buffer && m_token == token && m_image != EGL_NO_IMAGE_KHR) {
         return true;
     }
     Reset();
@@ -402,6 +408,8 @@ bool AndroidFrameTarget::Import(EGLDisplay display, AHardwareBuffer *buffer, uin
     }
 
     m_display = display;
+    AHardwareBuffer_acquire(buffer);
+    m_buffer = buffer;
     m_token = token;
     m_width = desc.width;
     m_height = desc.height;
@@ -476,8 +484,12 @@ void AndroidFrameTarget::Reset() {
             destroyImage(m_display, m_image);
         }
     }
+    if (m_buffer != nullptr) {
+        AHardwareBuffer_release(m_buffer);
+    }
     m_display = EGL_NO_DISPLAY;
     m_image = EGL_NO_IMAGE_KHR;
+    m_buffer = nullptr;
     m_texture = 0;
     m_framebuffer = 0;
     m_readFramebuffer = 0;
@@ -486,10 +498,10 @@ void AndroidFrameTarget::Reset() {
     m_height = 0;
 }
 
-bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, std::initializer_list<ResourceRef> srvs,
-                         std::initializer_list<ResourceRef> uavs, DescriptorSet &out, std::string &error) {
-    out.srvs.assign(srvs.begin(), srvs.end());
-    out.uavs.assign(uavs.begin(), uavs.end());
+bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, const std::vector<ResourceRef> &srvs,
+                         const std::vector<ResourceRef> &uavs, DescriptorSet &out, std::string &error) {
+    out.srvs = srvs;
+    out.uavs = uavs;
     for (const vulkan::SpvBinding &binding : bindings) {
         if (binding.set != 0) {
             error = fmt::format("GLES VDP currently supports descriptor set 0 only (shader uses set {})", binding.set);

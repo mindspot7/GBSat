@@ -109,6 +109,7 @@ public:
 private:
     EGLDisplay m_display = EGL_NO_DISPLAY;
     EGLImageKHR m_image = EGL_NO_IMAGE_KHR;
+    AHardwareBuffer *m_buffer = nullptr;
     GLuint m_texture = 0;
     GLuint m_framebuffer = 0;
     GLuint m_readFramebuffer = 0;
@@ -132,8 +133,8 @@ struct DescriptorSet {
     std::vector<ResourceRef> uavs;
 };
 
-bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, std::initializer_list<ResourceRef> srvs,
-                         std::initializer_list<ResourceRef> uavs, DescriptorSet &out, std::string &error);
+bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, const std::vector<ResourceRef> &srvs,
+                         const std::vector<ResourceRef> &uavs, DescriptorSet &out, std::string &error);
 
 class ComputeProgram {
 public:

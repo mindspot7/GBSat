@@ -217,6 +217,15 @@ public:
         return UseRenderer<OpenGLESVDPRenderer>(m_state, vdp2DebugRenderOptions, vdp2AccessPatternsConfig, context);
     }
 
+    /// @brief Configures the CPU fallback callback for the OpenGL ES renderer.
+    void SetOpenGLESFrameReadyCallback(CBOpenGLESFrameReadyCallback callback) {
+        if (auto *renderer = m_renderer->As<VDPRendererType::OpenGLES>()) {
+            renderer->HwCallbacks.FrameReady = callback;
+        } else {
+            m_openGLESRendererCallbacks.FrameReady = callback;
+        }
+    }
+
     void SetOpenGLESFrameTargetCallbacks(CBOpenGLESFrameTargetAcquireCallback acquire,
                                          CBOpenGLESFrameTargetReadyCallback ready,
                                          CBOpenGLESFrameTargetCancelCallback cancel) {
@@ -228,7 +237,7 @@ public:
         if (auto *renderer = m_renderer->As<VDPRendererType::OpenGLES>()) {
             apply(renderer->HwCallbacks);
         } else {
-            m_openGLESRendererCallbacks = {acquire, ready, cancel};
+            apply(m_openGLESRendererCallbacks);
         }
     }
 #endif

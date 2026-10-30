@@ -212,18 +212,28 @@ private fun SystemPage(
 private fun VideoPage() {
     SettingsGroup("Renderer", Icons.Default.Memory) {
         ChoiceRow("Renderer",
-            if (Emulator.renderer == 4) "Saturn graphics emulated on the GPU with Vulkan; best on strong GPUs (falls back to the CPU if unsupported)"
-            else "Saturn graphics emulated on the CPU, shown with OpenGL ES (filters and shaders); best on most devices",
-            listOf("CPU (OpenGL)", "GPU (Vulkan)"), if (Emulator.renderer == 4) 1 else 0,
-            ch { Emulator.renderer = if (it == 1) 4 else 1 })
+            when (Emulator.renderer) {
+                4 -> "Saturn graphics emulated on the GPU with Vulkan; best on strong GPUs (falls back to the CPU if unsupported)"
+                5 -> "Experimental Saturn rendering with OpenGL ES compute; use for device testing"
+                else -> "Saturn graphics emulated on the CPU, shown with OpenGL ES (filters and shaders); best on most devices"
+            },
+            listOf("CPU (OpenGL)", "GPU (Vulkan)", "GPU (OpenGL ES, experimental)"),
+            when (Emulator.renderer) { 4 -> 1; 5 -> 2; else -> 0 },
+            ch { Emulator.renderer = when (it) { 1 -> 4; 2 -> 5; else -> 1 } })
         SettingsDivider()
         ToggleRow(Icons.Default.Tune, "Recommended settings per game", "Heavy games start with the renderer, frame skip and threaded audio that tested best on similar devices. Changes you make during a game are kept for that game",
             Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
-        if (Emulator.renderer == 4) {
+        if (Emulator.renderer == 4 || Emulator.renderer == 5) {
             SettingsDivider()
-            ChoiceRow("Enhanced resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
-                listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
-                ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
+            if (Emulator.renderer == 4) {
+                ChoiceRow("Enhanced resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
+                    listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
+                    ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
+            } else {
+                ChoiceRow("Enhanced resolution", "Experimental OpenGL ES internal resolution; higher values increase GPU workload",
+                    listOf("1x", "2x", "3x", "4x"), Emulator.effectiveScale.coerceIn(1, 4) - 1,
+                    ch { Emulator.resScale = it + 1 })
+            }
             val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
             if (gpuErr.isNotEmpty()) Text("Last GPU error: $gpuErr", color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
