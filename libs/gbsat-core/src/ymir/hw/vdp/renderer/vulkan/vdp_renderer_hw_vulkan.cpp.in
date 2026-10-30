@@ -1210,7 +1210,7 @@ struct VulkanVDPRenderer::Impl {
                                      VK_FORMAT_UNDEFINED, "VDP2 CRAM rotation coefficients" + sfx));
             YMIR_VK_TRY(CreateImage(f.layerOutTexture, VK_FORMAT_R8G8B8A8_UINT, OutMaxW(), OutMaxH(), 4 + 2 + 1 + 1, true,
                                     kImgUsage, "VDP2 layer outputs" + sfx));
-            YMIR_VK_TRY(CreateImage(f.rbgLineColorOutTexture, VK_FORMAT_R8G8B8A8_UINT, OutMaxW(), OutMaxH(),
+            YMIR_VK_TRY(CreateImage(f.rbgLineColorOutTexture, VK_FORMAT_R8G8B8A8_UINT, kMaxNormalResH, kMaxNormalResV,
                                     2, true, kImgUsage, "VDP2 RBG line colors" + sfx));
             YMIR_VK_TRY(CreateImage(f.colorCalcWindowTexture, VK_FORMAT_R8_UINT, kMaxResH, kMaxResV, 1, false,
                                     kImgUsage, "VDP2 color calc window" + sfx));
@@ -2654,8 +2654,8 @@ struct VulkanVDPRenderer::Impl {
             devlog::warn<grp::dx12_vdp2>("Failed to upload NBG line scroll: {}", result.Error().message);
         }
         if (auto result = Dispatch(vdp2.drawBGsPipe, frames.GetCurrentFrame().drawBGsSet,
-                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
-                                   (HRes * S + 31) / 32, numLines * S, 1);
+                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}}, HRes / 32,
+                                   numLines, 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 background layers: {}", result.Error().message);
         }

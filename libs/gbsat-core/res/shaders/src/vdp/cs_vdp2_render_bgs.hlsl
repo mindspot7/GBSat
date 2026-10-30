@@ -52,12 +52,6 @@ static const uint coeffDataAccess = BitExtract(g_commonParams.rotParams, 1, 4);
 static const bool coeffDataPerDot = BitTest(g_commonParams.rotParams, 5);
 
 static const bool deinterlace = BitTest(g_commonParams.enhancements, 0);
-#ifdef __spirv__
-// Vulkan enhanced resolution renders RBG samples at the same internal scale as VDP1.
-static const uint outScale = max(BitExtract(g_commonParams.enhancements, 2, 3), 1u);
-#else
-static const uint outScale = 1u;
-#endif
 
 static const uint colorRAMMode = BitExtract(g_commonParams.displayParams, 6, 2);
 static const uint kCRAMAddressMask = colorRAMMode == 1 ? 0x7FF : 0x3FF;
@@ -479,7 +473,7 @@ RotCoefficient ReadRotCoefficient(const uint coeffDataSize, const uint coeffData
 // ---------------------------------------------------------------------------------------------------------------------
 // Rotation parameter calculation
 
-uint2 CalcRotationScreenCoords(uint2 pos, uint index, uint subPixelX) {
+uint2 CalcRotationScreenCoords(uint2 pos, uint index) {
     const RotParamBase base = g_rotParamBases[index * kMaxNormalResV + pos.y];
     const uint coeffParamsOffset = 6 + index * 5;
     const bool coeffTableEnable = BitTest(g_commonParams.rotParams, coeffParamsOffset + 0);
@@ -559,8 +553,8 @@ uint2 CalcRotationScreenCoords(uint2 pos, uint index, uint subPixelX) {
     }
 
     // Current screen coordinates (18.10)
-    const int scrX = Xsp + pos.x * scrXIncH + (scrXIncH * int(subPixelX)) / int(outScale);
-    const int scrY = Ysp + pos.x * scrYIncH + (scrYIncH * int(subPixelX)) / int(outScale);
+    const int scrX = Xsp + pos.x * scrXIncH;
+    const int scrY = Ysp + pos.x * scrYIncH;
 
     // Resulting screen coordinates (26.0)
     // (16*10) + 10 = 26 + 10 frac bits
@@ -580,20 +574,6 @@ uint2 CalcRotationScreenCoords(uint2 pos, uint index, uint subPixelX) {
         (((int64_t(ky) * scrY) >> 16) + Yp) >> 10
     );
 #endif
-}
-
-uint2 CalcRotationScreenCoordsScaled(uint2 pos, uint index, uint2 subPixel) {
-    const uint2 current = CalcRotationScreenCoords(pos, index, subPixel.x);
-    if (subPixel.y == 0 || pos.y + 1 >= displayRes.y) {
-        return current;
-    }
-
-    // Interpolate between the adjacent scanline transforms for vertical subpixels. Rotation coefficients and line
-    // state remain sampled per Saturn scanline, while the affine background is evaluated at the higher output scale.
-    const uint2 next = CalcRotationScreenCoords(uint2(pos.x, pos.y + 1), index, subPixel.x);
-    const int2 delta = int2(next) - int2(current);
-    const int2 offset = (delta * int2(subPixel.y, subPixel.y)) / int(outScale);
-    return uint2(int2(current) + offset);
 }
 
 RotCoefficient CalcRotationCoefficient(uint2 pos, uint index) {
@@ -1070,7 +1050,7 @@ uint SelectRotationParameter(const RBGParams params, uint2 pos) {
     return kRotParamA; // shouldn't happen
 }
 
-void StoreRotationLineColorData(uint2 pos, uint2 rotPos, uint2 outputPos, uint index, uint rotSel) {
+void StoreRotationLineColorData(uint2 pos, uint2 rotPos, uint index, uint rotSel) {
     const bool lineColorEnabled = BitTest(g_commonParams.layerParams, 12 + index);
     if (!lineColorEnabled) {
         return;
@@ -1120,10 +1100,10 @@ void StoreRotationLineColorData(uint2 pos, uint2 rotPos, uint2 outputPos, uint i
         }
     }
 
-    g_rbgLineColorOut[uint3(outputPos, index)] = g_cramColor[cramAddress];
+    g_rbgLineColorOut[uint3(pos.xy, index)] = g_cramColor[cramAddress];
 }
 
-uint4 DrawScrollRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 scrollPos) {
+uint4 DrawScrollRBG(uint2 pos, uint index, uint rotSel, uint2 scrollPos) {
     const RBGParams params = g_layerRenderParams[0].rbg[index];
 
     uint2 rotPos = pos;
@@ -1144,7 +1124,7 @@ uint4 DrawScrollRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 s
         : uint2(512 * 4, 512 * 4) << pageShift;
 
     if (all(scrollPos < scrollSize) || usingRepeat) {
-        StoreRotationLineColorData(pos, rotPos, outputPos, index, rotSel);
+        StoreRotationLineColorData(pos, rotPos, index, rotSel);
 
         return FetchScrollRBGPixel(params.base, scrollPos, pageShift, params.pageBaseAddresses[rotSel]);
     }
@@ -1152,7 +1132,7 @@ uint4 DrawScrollRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 s
     // Out of bounds
 
     if (screenOverProcess == kScreenOverProcessRepeatChar) {
-        StoreRotationLineColorData(pos, rotPos, outputPos, index, rotSel);
+        StoreRotationLineColorData(pos, rotPos, index, rotSel);
 
         const uint2 dotPos = scrollPos & 7;
         Character ch = ExtractOneWordCharacter(params.base, rotParams.screenOverPatternName);
@@ -1162,7 +1142,7 @@ uint4 DrawScrollRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 s
     return kTransparentPixel;
 }
 
-uint4 DrawBitmapRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 scrollPos) {
+uint4 DrawBitmapRBG(uint2 pos, uint index, uint rotSel, uint2 scrollPos) {
     const RBGParams params = g_layerRenderParams[0].rbg[index];
     const uint screenOverProcess = params.screenOverProcess;
 
@@ -1182,7 +1162,7 @@ uint4 DrawBitmapRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 s
         : uint2(512 * 4, 512 * 4) << pageShift;
 
     if (all(scrollPos < scrollSize) || usingRepeat) {
-        StoreRotationLineColorData(pos, rotPos, outputPos, index, rotSel);
+        StoreRotationLineColorData(pos, rotPos, index, rotSel);
 
         return FetchBitmapPixel(params.base, g_layerRenderParams[0].rbg[rotSel].base.bitmapBaseAddress, scrollPos);
     }
@@ -1190,9 +1170,7 @@ uint4 DrawBitmapRBG(uint2 pos, uint2 outputPos, uint index, uint rotSel, uint2 s
     return kTransparentPixel;
 }
 
-uint4 DrawRBG(uint2 pos, // native Saturn pixel coordinates
-              uint2 subPixel, // position within the internal-resolution pixel block
-              uint2 outputPos, // internal-resolution output coordinates
+uint4 DrawRBG(uint2 pos, // pixel coordinates
               uint index // RBG index (0 to 1)
              ) {
     const RBGParams params = g_layerRenderParams[0].rbg[index];
@@ -1221,10 +1199,10 @@ uint4 DrawRBG(uint2 pos, // native Saturn pixel coordinates
         return kTransparentPixel;
     }
 
-    const uint2 screenCoords = CalcRotationScreenCoordsScaled(pos, rotSel, subPixel);
+    const uint2 screenCoords = CalcRotationScreenCoords(pos, rotSel);
     return params.base.bitmap
-        ? DrawBitmapRBG(pos, outputPos, index, rotSel, screenCoords)
-        : DrawScrollRBG(pos, outputPos, index, rotSel, screenCoords);
+        ? DrawBitmapRBG(pos, index, rotSel, screenCoords)
+        : DrawScrollRBG(pos, index, rotSel, screenCoords);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1248,20 +1226,13 @@ bool InsideColorCalcWindow(uint2 pos) {
 
 [numthreads(32, 1, 7)]
 void CSMain(uint3 id : SV_DispatchThreadID) {
-    const uint2 hiCoord = uint2(id.x, id.y + g_commonParams.startY * outScale);
-    const uint2 drawCoord = hiCoord / outScale;
-    const uint2 subPixel = hiCoord % outScale;
-    const uint outputY = GetY(drawCoord.y, false) * outScale + subPixel.y;
-    const uint3 outCoord = uint3(hiCoord.x, outputY, id.z);
+    const uint2 drawCoord = uint2(id.x, id.y + g_commonParams.startY);
+    const uint3 outCoord = uint3(drawCoord.x, GetY(drawCoord.y, false), id.z);
     if (id.z <= 3) {
-        if (all(subPixel == 0)) {
-            g_layerOut[uint3(drawCoord.x, GetY(drawCoord.y, false), id.z)] = DrawNBG(drawCoord, id.z);
-        }
+        g_layerOut[outCoord] = DrawNBG(drawCoord, id.z);
     } else if (id.z <= 5) {
-        g_layerOut[outCoord] = DrawRBG(drawCoord, subPixel, outCoord.xy, id.z - 4);
+        g_layerOut[outCoord] = DrawRBG(drawCoord, id.z - 4);
     } else if (id.z == 6) {
-        if (all(subPixel == 0)) {
-            g_colorCalcWindowOut[uint2(drawCoord.x, GetY(drawCoord.y, false))] = InsideColorCalcWindow(drawCoord) ? 1u : 0u;
-        }
+        g_colorCalcWindowOut[outCoord.xy] = InsideColorCalcWindow(drawCoord) ? 1u : 0u;
     }
 }

@@ -67,12 +67,7 @@ static const bool colorGradEnable = BitTest(g_commonParams.layerParams, 28);
 
 static const bool deinterlace = BitTest(g_commonParams.enhancements, 0);
 static const bool transparentMeshes = BitTest(g_commonParams.enhancements, 1);
-#ifdef __spirv__
-// Only Vulkan renders the VDP2 RBG layers at the enhanced internal resolution.
 static const uint outScale = max(BitExtract(g_commonParams.enhancements, 2, 3), 1u);
-#else
-static const uint outScale = 1u;
-#endif
 
 // Position in the sprite layer and sprite attributes textures, which are rendered at the internal resolution scale.
 // Background layers are rendered at native resolution and read at the native position.
@@ -138,16 +133,6 @@ uint GetBGLayerIndex(uint layer) {
     }
 }
 
-uint2 GetBGLayerInputPos(uint layer, uint2 pos) {
-#ifdef __spirv__
-    const uint bgLayer = GetBGLayerIndex(layer);
-    if (outScale > 1 && (bgLayer == kBGLayerRBG0 || bgLayer == kBGLayerRBG1)) {
-        return g_hiPos;
-    }
-#endif
-    return pos;
-}
-
 uint GetColorGradScreenLayerIndex(uint colorGradScreen) {
     switch (colorGradScreen) {
         case kColorGradScreenNBG0_RBG0:
@@ -205,8 +190,7 @@ bool IsColorCalcEnabled(uint layer, uint2 pos) {
     }
     // BG layers use the per-pixel special color calculation flag
     const uint bgLayer = GetBGLayerIndex(layer);
-    const uint2 inputPos = GetBGLayerInputPos(layer, pos);
-    const uint attrs = g_layerIn[uint3(inputPos, bgLayer)].a;
+    const uint attrs = g_layerIn[uint3(pos.xy, bgLayer)].a;
     if (restrictedColorCalc && BitTest(attrs, kPixelAttrBitPaletteFormat)) {
         return false;
     }
@@ -219,11 +203,6 @@ bool IsLineColorEnabled(uint layer, uint2 pos) {
 
 uint3 GetLineColor(uint layer, uint2 pos) {
     if (layer == kLayerRBG0 || (layer == kLayerNBG0_RBG1 && IsBGLayerEnabled(kBGLayerRBG1))) {
-#ifdef __spirv__
-        if (outScale > 1) {
-            return g_rbgLineColorIn[uint3(g_hiPos, layer - kLayerRBG0)].rgb;
-        }
-#endif
         uint y = pos.y;
         if (deinterlace && IsInterlaced()) {
             y >>= 1u;
@@ -274,7 +253,7 @@ uint4 GetLayerOutput(uint layer, uint2 pos) {
         case kLayerNBG1_EXBG:
         case kLayerNBG2:
         case kLayerNBG3:
-            return g_layerIn[uint3(GetBGLayerInputPos(layer, pos), GetBGLayerIndex(layer))];
+            return g_layerIn[uint3(pos.xy, GetBGLayerIndex(layer))];
         case kLayerBack:
             return g_lnclBackIn[GetLoResInputY(pos.y) + kMaxNormalResV];
         case kLayerLine:

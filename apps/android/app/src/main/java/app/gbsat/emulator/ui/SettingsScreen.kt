@@ -221,7 +221,7 @@ private fun VideoPage() {
             Emulator.useGameProfiles, ch { Emulator.useGameProfiles = it })
         if (Emulator.renderer == 4) {
             SettingsDivider()
-            ChoiceRow("Enhanced resolution", "Sharper VDP1 sprites and polygons, plus higher-resolution VDP2 rotated backgrounds. Higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
+            ChoiceRow("Enhanced resolution", "Sharper 3D sprites and polygons; higher values need a faster GPU. Native matches the screen (${Emulator.nativeScale}x here)",
                 listOf("1x", "2x", "3x", "4x", "Native"), if (Emulator.resScale == 0) 4 else Emulator.resScale - 1,
                 ch { Emulator.resScale = if (it == 4) 0 else it + 1 })
             val gpuErr = remember { runCatching { NativeBridge.nativeGetGpuError().orEmpty() }.getOrDefault("") }
