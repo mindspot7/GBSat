@@ -118,6 +118,31 @@ bool Buffer::Upload(GLintptr offset, GLsizeiptr size, const void *data, std::str
     return CheckGl("buffer upload", error);
 }
 
+bool Buffer::CopyTo(Buffer &destination, GLintptr sourceOffset, GLintptr destinationOffset, GLsizeiptr size,
+                    std::string &error) const {
+    if (m_handle == 0 || destination.m_handle == 0 || sourceOffset < 0 || destinationOffset < 0 || size < 0 ||
+        sourceOffset > m_size || size > m_size - sourceOffset || destinationOffset > destination.m_size ||
+        size > destination.m_size - destinationOffset) {
+        error = "GLES buffer copy is outside an allocated range";
+        return false;
+    }
+    if (m_handle == destination.m_handle && sourceOffset < destinationOffset + size &&
+        destinationOffset < sourceOffset + size) {
+        error = "GLES buffer copy ranges overlap within the same buffer";
+        return false;
+    }
+    if (size == 0) {
+        return true;
+    }
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+    glBindBuffer(GL_COPY_READ_BUFFER, m_handle);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, destination.m_handle);
+    glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, sourceOffset, destinationOffset, size);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+    return CheckGl("buffer copy", error);
+}
+
 bool Buffer::Readback(GLintptr offset, GLsizeiptr size, void *data, std::string &error) {
     if (m_handle == 0 || data == nullptr || offset < 0 || size < 0 || offset > m_size || size > m_size - offset) {
         error = "GLES buffer readback is outside the allocated range";
