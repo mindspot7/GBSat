@@ -655,7 +655,9 @@ bool ComputeProgram::Dispatch(const DescriptorSet &set, const Buffer &constantsB
         }
     }
     glDispatchCompute(groupsX, groupsY, groupsZ);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    // The Ymir renderer batches visibility barriers at resource-consumption
+    // points. Emitting a global barrier here duplicates that barrier before
+    // the next dispatch and adds substantial driver work on mobile GLES.
     return CheckGl("compute dispatch", error);
 }
 

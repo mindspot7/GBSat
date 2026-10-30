@@ -44,19 +44,24 @@ On 2026-10-30, build 422 was installed locally and Virtua Fighter 2 was launched
 
 | Renderer / scale | Emulation FPS | Speed | Frame time | CPU / GPU shown by app |
 | --- | ---: | ---: | ---: | ---: |
-| CPU VDP + OpenGL ES presenter, 1x | 59.9 | 99.9% | 10.0 ms | 20.4% / 30.3% |
+| CPU VDP + OpenGL ES presenter, 1x | 59.8–59.9 | 99.6–99.9% | 9.9–10.0 ms | 19.8–20.4% / 30.1–30.3% |
 | Vulkan VDP, 1x (first pass) | 56.4 | 93.9% | 27.1 ms | 10.1% / 24.3% |
 | Vulkan VDP, 1x (repeat) | 33.9 | 56.5% | 25.6 ms | 8.8% / 55.5% |
+| Vulkan VDP, 1x (build 423 repeat) | 57.1 | 95.2% | 17.4 ms | 10.6% / 14.6% |
 | GLES VDP, 1x (pass 1) | 16.6 | 27.7% | 59.0 ms | 11.8% / 4.9% |
 | GLES VDP, 1x (pass 2) | 21.3 | 35.6% | 44.5 ms | 14.2% / 0.0% |
 | GLES VDP, 2x | 16.3 | 27.2% | 59.3 ms | 12.3% / 3.9% |
 | GLES VDP, 4x | 17.4 | 29.0% | 50.5 ms | 12.8% / 4.9% |
 
-The current GLES implementation is substantially slower than the CPU renderer in this scene and below both Vulkan samples. Increasing internal resolution from 1x to 4x did not cause a clear additional FPS drop, which suggests the large loss is in the backend's submission/synchronization path rather than pixel throughput; this is an inference, not a profiler result. The HUD's GPU utilization is not reliable for diagnosing GLES here: it reported 0–5% while the renderer produced frames at 16–21 FPS.
+The current GLES implementation is substantially slower than the CPU renderer in this scene and below the fresh Vulkan repeat. Increasing internal resolution from 1x to 4x did not cause a clear additional FPS drop, which suggests the large loss is in the backend's command/dispatch path rather than pixel throughput; this is an inference, not a profiler result. The HUD's GPU utilization is not reliable for diagnosing GLES here: it reported 0–5% while the renderer produced frames at 16–21 FPS.
 
-Both Vulkan passes logged `AHardwareBuffer import failed; using CPU readback presentation`; this remains an apples-to-apples renderer comparison at the same output scale, but not a GPU-to-GPU presentation-path comparison. Vulkan varied substantially between the two samples, so its actual performance needs a longer repeated capture. The GLES initialization log reached `gles: ready`, and no GLES pipeline creation failure appeared after correcting the embedded resource path to include `vdp/`.
+The build 422 Vulkan samples logged `AHardwareBuffer import failed; using CPU readback presentation`; build 423's repeat did too. This is not a GPU-to-GPU presentation-path comparison. For GLES, gralloc logged allocation of three 704x448 RGBA AHardwareBuffers for the process, and no fallback stage appeared; that supports (but does not prove) that the shared target path was used. The GLES initialization log reached `gles: ready`, and no GLES pipeline creation failure appeared after correcting the embedded resource path to include `vdp/`.
 
-Next diagnostic: profile/count `SubmitAndWait()` and `WaitFrame()` stalls in the GLES backend and confirm the shared AHardwareBuffer target is being acquired. The renderer currently performs blocking fence waits in `SubmitAndWait()`, and the A/B alone cannot determine how often that path blocks during a frame. Keep GLES experimental and leave the device default on CPU/OpenGL until a profiled change yields correct frames and repeatable performance.
+### Barrier batching check (build 423)
+
+The first profile candidate was a redundant global memory barrier after every compute dispatch: the renderer also issued its own barrier before the next dispatch. That extra `glMemoryBarrier(GL_ALL_BARRIER_BITS)` was removed so Ymir's existing pending-barrier path handles resource visibility. Build 423 installed and initialized successfully, but Virtua Fighter 2 Slot 1 at GLES 1x still measured 16.2 FPS (27.0%, 61.0 ms), against 57.1 FPS (95.2%, 17.4 ms) for Vulkan in the same session and 59.8 FPS (99.6%, 9.9 ms) for CPU VDP. The change did not materially improve performance; redundant barriers were not the primary bottleneck.
+
+Next diagnostic: instrument per-frame CPU time spent issuing VDP1/VDP2 dispatches, GL buffer uploads, frame-target copy, and `WaitFrame()` to isolate the stall. Keep GLES experimental and leave the device default on CPU/OpenGL until a profiled change yields correct frames and repeatable performance.
 
 ## Existing-renderer baseline (RG Rotate)
 
