@@ -109,6 +109,8 @@ The next pass used the Virtua Fighter 2 ROM intent and its automatically loaded 
 1. GBFrame tracked the GLES producer's in-flight AHardwareBuffer with one global `writingSlot`. Ymir can acquire another target before delivering an earlier frame, so a later acquire could replace that reservation and invalidate the earlier submission. GBFrame now tracks the writer on each slot. Build 430 confirmed that target submissions reached the presenter after this fix.
 2. Ymir's final GLES composite remained black. In build 432, one-time probes found nonzero pixels in VDP2 layer outputs (L0: 5/25, L1: 5/25, L4: 5/25, L6: 1/25), while the completed composite was zero in all 25 samples. The remaining image failure is in Ymir's GLES composition path, before GBFrame presentation. The temporary probes were removed after the measurement.
 
+Build 434 ruled out a GLES resource-binding limit: the RG Rotate reports 70 SSBO bindings and 21 image units, enough for the current binding indices, and the first compute dispatch reported no GL error. The OpenGL ES `u1` binding at image unit 17 is therefore valid on this device; the composition failure still needs shader/data-path investigation.
+
 Build 430–432 profiles were collected on the RG Rotate (T618/Mali-G52), Virtua Fighter 2, 1x, CPU sync Fast, SH-2 JIT on, threaded VDP on, threaded audio off, frameskip off, nearest filter, and GTU shader. The game changed its active output mode during the run (GLES 320x224; CPU/Vulkan 352x240), so these same-save-state samples are directional rather than frame-identical.
 
 | Renderer | Samples | Median emulation FPS | Median shown FPS | Median emulation frame time | Result |
