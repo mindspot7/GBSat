@@ -26,9 +26,21 @@ struct VulkanRendererContext {
 /// tightly packed) and is only valid during the call.
 using CBVulkanFrameReadyCallback = util::OptionalCallback<void(const uint32 *pixels, uint32 width, uint32 height)>;
 
+/// @brief Optional frontend-owned AHardwareBuffer output. The acquire callback reserves a buffer slot and returns its
+/// opaque AHardwareBuffer pointer plus a token; the renderer copies the completed frame into it using Vulkan. The ready
+/// callback runs after the Vulkan fence has completed, so the frontend may safely inspect or import the buffer.
+using CBVulkanFrameTargetAcquireCallback =
+    util::OptionalCallback<void *(uint32 width, uint32 height, uint64 *token)>;
+using CBVulkanFrameTargetReadyCallback =
+    util::OptionalCallback<void(void *buffer, uint64 token, uint32 width, uint32 height, uint32 scale)>;
+using CBVulkanFrameTargetCancelCallback = util::OptionalCallback<void(uint64 token)>;
+
 /// @brief Callbacks specific to the Vulkan VDP renderer.
 struct VulkanRendererCallbacks {
     CBVulkanFrameReadyCallback FrameReady;
+    CBVulkanFrameTargetAcquireCallback FrameTargetAcquire;
+    CBVulkanFrameTargetReadyCallback FrameTargetReady;
+    CBVulkanFrameTargetCancelCallback FrameTargetCancel;
 };
 
 } // namespace ymir::vdp

@@ -22,10 +22,16 @@
 #include <ymir/util/dev_log.hpp>
 #include <ymir/util/dirty_bitmap.hpp>
 #include <ymir/util/scope_guard.hpp>
-#include <ymir/util/wait_stats.hpp>
 #include <ymir/util/string.hpp>
+#include <ymir/util/wait_stats.hpp>
 
+#if defined(__ANDROID__) && !defined(VK_USE_PLATFORM_ANDROID_KHR)
+#define VK_USE_PLATFORM_ANDROID_KHR
+#endif
 #include <vulkan/vulkan.h>
+#if defined(__ANDROID__)
+#include <android/hardware_buffer.h>
+#endif
 
 #include <fmt/format.h>
 
@@ -203,9 +209,6 @@ struct VulkanVDPRenderer::Impl {
 
         /// @brief FBRAM download buffer (host-visible).
         GpuBuffer fbramDownloadBuffer;
-        GpuBuffer fbramNativeBuffer; // scaled framebuffers brought down to native FBRAM, for the readback
-        void *readbackFrame = nullptr; // FrameContext whose commands hold the last readback copy
-        GpuPipeline fbramDownsamplePipe;
         std::atomic_bool fbramDebugSyncRequest{false};
         bool fbramReadbackDirty = false;
         uint32 fbramReadbackCopyPending = false;
@@ -440,15 +443,15 @@ struct VulkanVDPRenderer::Impl {
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
         bool submitted = false;
-        // GPU time of the command buffer (timestamps at its start and end), read once its fence signaled
-        VkQueryPool timePool = VK_NULL_HANDLE;
-        bool timed = false;
 
         GpuBuffer uploadBuffer;
         VkDeviceSize uploadOffset = 0;
 
         GpuBuffer readbackBuffer;
         bool readbackPending = false;
+        bool externalTargetPending = false;
+        void *externalTarget = nullptr;
+        uint64 externalTargetToken = 0;
         uint32 readbackW = 0;
         uint32 readbackH = 0;
         uint32 readbackScale = 1;
@@ -468,7 +471,6 @@ struct VulkanVDPRenderer::Impl {
         GpuBuffer oitCounterBuffer;
 
         VkDescriptorSet fbramWriteSet = VK_NULL_HANDLE;
-        VkDescriptorSet fbramDownsampleSet = VK_NULL_HANDLE;
         VkDescriptorSet eraseSet = VK_NULL_HANDLE;
         std::array<VkDescriptorSet, 2 * 4> polyDrawSets{};
         std::array<VkDescriptorSet, 2 * 3> outputMergerSets{};
@@ -513,6 +515,21 @@ struct VulkanVDPRenderer::Impl {
     };
 
     FrameSet frames;
+
+#if defined(__ANDROID__)
+    struct AndroidFrameImage {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        AHardwareBuffer *buffer = nullptr;
+        uint64 token = 0;
+        uint32 width = 0, height = 0;
+        VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    };
+    static constexpr uint32 kExternalFrameSlots = 4;
+    std::array<AndroidFrameImage, kExternalFrameSlots> androidFrameImages{};
+    bool androidHardwareBufferInterop = false;
+    PFN_vkGetAndroidHardwareBufferPropertiesANDROID getAndroidHardwareBufferProperties = nullptr;
+#endif
 
     // =================================================================================================================
     // Vulkan helpers
@@ -673,6 +690,129 @@ struct VulkanVDPRenderer::Impl {
                              nullptr, 1, &imb);
         return {};
     }
+
+#if defined(__ANDROID__)
+    void DestroyAndroidFrameImage(AndroidFrameImage &frameImage) {
+        if (frameImage.image != VK_NULL_HANDLE) vkDestroyImage(device, frameImage.image, nullptr);
+        if (frameImage.memory != VK_NULL_HANDLE) vkFreeMemory(device, frameImage.memory, nullptr);
+        if (frameImage.buffer != nullptr) AHardwareBuffer_release(frameImage.buffer);
+        frameImage = {};
+    }
+
+    bool ImportAndroidFrameImage(uint64 token, AHardwareBuffer *buffer, uint32 width, uint32 height) {
+        if (!androidHardwareBufferInterop || !buffer) return false;
+        const uint32 slot = (uint32)token;
+        if (slot >= androidFrameImages.size()) return false;
+        AndroidFrameImage &target = androidFrameImages[slot];
+        if (target.token == token && target.buffer == buffer && target.width == width && target.height == height) {
+            return true;
+        }
+        DestroyAndroidFrameImage(target);
+
+        AHardwareBuffer_Desc desc{};
+        AHardwareBuffer_describe(buffer, &desc);
+        if (desc.width != width || desc.height != height || desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM) {
+            return false;
+        }
+
+        VkAndroidHardwareBufferFormatPropertiesANDROID formatProps{
+            VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID};
+        VkAndroidHardwareBufferPropertiesANDROID ahbProps{
+            VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID};
+        ahbProps.pNext = &formatProps;
+        if (getAndroidHardwareBufferProperties(device, buffer, &ahbProps) != VK_SUCCESS ||
+            formatProps.format != VK_FORMAT_R8G8B8A8_UNORM || formatProps.externalFormat != 0) {
+            return false;
+        }
+
+        VkExternalMemoryImageCreateInfo externalImage{
+            VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
+        externalImage.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+        VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        imageInfo.pNext = &externalImage;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        imageInfo.extent = {width, height, 1};
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(device, &imageInfo, nullptr, &target.image) != VK_SUCCESS) {
+            DestroyAndroidFrameImage(target);
+            return false;
+        }
+
+        VkMemoryRequirements requirements{};
+        vkGetImageMemoryRequirements(device, target.image, &requirements);
+        const uint32 memoryTypeBits = requirements.memoryTypeBits & ahbProps.memoryTypeBits;
+        const int memoryType = FindMemoryType(memoryTypeBits, 0);
+        if (memoryType < 0) {
+            DestroyAndroidFrameImage(target);
+            return false;
+        }
+
+        VkMemoryDedicatedAllocateInfo dedicated{VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
+        dedicated.image = target.image;
+        VkImportAndroidHardwareBufferInfoANDROID importInfo{
+            VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID};
+        importInfo.pNext = &dedicated;
+        importInfo.buffer = buffer;
+        VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocation.pNext = &importInfo;
+        allocation.allocationSize = ahbProps.allocationSize;
+        allocation.memoryTypeIndex = (uint32)memoryType;
+        if (vkAllocateMemory(device, &allocation, nullptr, &target.memory) != VK_SUCCESS ||
+            vkBindImageMemory(device, target.image, target.memory, 0) != VK_SUCCESS) {
+            DestroyAndroidFrameImage(target);
+            return false;
+        }
+
+        AHardwareBuffer_acquire(buffer);
+        target.buffer = buffer;
+        target.token = token;
+        target.width = width;
+        target.height = height;
+        return true;
+    }
+
+    void RecordAndroidFrameCopy(AndroidFrameImage &target, VkImage source, uint32 width, uint32 height) {
+        VkImageMemoryBarrier acquire{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        acquire.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        acquire.oldLayout = target.layout;
+        acquire.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        acquire.srcQueueFamilyIndex = target.layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_QUEUE_FAMILY_IGNORED
+                                                                                 : VK_QUEUE_FAMILY_FOREIGN_EXT;
+        acquire.dstQueueFamilyIndex = target.layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_QUEUE_FAMILY_IGNORED
+                                                                                 : queueFamily;
+        acquire.image = target.image;
+        acquire.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(Cmd(), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &acquire);
+
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.extent = {width, height, 1};
+        vkCmdCopyImage(Cmd(), source, VK_IMAGE_LAYOUT_GENERAL, target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &copy);
+
+        VkImageMemoryBarrier release{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        release.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        release.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        release.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        release.srcQueueFamilyIndex = queueFamily;
+        release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
+        release.image = target.image;
+        release.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(Cmd(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &release);
+        target.layout = VK_IMAGE_LAYOUT_GENERAL;
+        pendingBarrier = true;
+    }
+#endif
 
     util::ValueResult<std::vector<char>> LoadShader(const std::string &path) {
         if (!g_fsShaders.is_file(path)) {
@@ -925,10 +1065,6 @@ struct VulkanVDPRenderer::Impl {
         VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(frameCtx.cmd, &cbbi);
-        if (frameCtx.timePool) {
-            vkCmdResetQueryPool(frameCtx.cmd, frameCtx.timePool, 0, 2);
-            vkCmdWriteTimestamp(frameCtx.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameCtx.timePool, 0);
-        }
         frameCtx.uploadOffset = 0;
         pendingBarrier = true; // order against work from previous submissions
     }
@@ -940,9 +1076,6 @@ struct VulkanVDPRenderer::Impl {
         mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
         vkCmdPipelineBarrier(frameCtx.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
-        if (frameCtx.timePool) {
-            vkCmdWriteTimestamp(frameCtx.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frameCtx.timePool, 1);
-        }
         vkEndCommandBuffer(frameCtx.cmd);
 
         VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -954,7 +1087,6 @@ struct VulkanVDPRenderer::Impl {
             return;
         }
         frameCtx.submitted = true;
-        frameCtx.timed = frameCtx.timePool != VK_NULL_HANDLE;
     }
 
     void WaitFrame(FrameContext &frameCtx) {
@@ -962,29 +1094,18 @@ struct VulkanVDPRenderer::Impl {
             vkWaitForFences(device, 1, &frameCtx.fence, VK_TRUE, UINT64_MAX);
             vkResetFences(device, 1, &frameCtx.fence);
             frameCtx.submitted = false;
-            if (frameCtx.timed) {
-                frameCtx.timed = false;
-                uint64 ts[2] = {};
-                if (vkGetQueryPoolResults(device, frameCtx.timePool, 0, 2, sizeof(ts), ts, sizeof(uint64),
-                                          VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
-                    const uint64 ticks = (ts[1] - ts[0]) & timestampMask;
-                    util::waitstats::g_gpuBusyNs.fetch_add(static_cast<uint64>(ticks * timestampPeriodNs),
-                                                           std::memory_order_relaxed);
-                }
-            }
         }
     }
-
-    // GPU timestamps (overlay's GPU usage): supported by the queue, tick length and valid bits
-    bool gpuTimestamps = false;
-    double timestampPeriodNs = 1.0;
-    uint64 timestampMask = ~0ull;
 
     /// @brief Submits the commands recorded so far, waits for them and restarts recording in the same frame.
     void SubmitAndWait() {
         FrameContext &frameCtx = frames.GetCurrentFrame();
         SubmitCommands(frameCtx);
+        const auto waitStart = std::chrono::steady_clock::now();
         WaitFrame(frameCtx);
+        util::waitstats::g_vulkanFrameFenceWaitNs.fetch_add(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count(),
+            std::memory_order_relaxed);
         BeginCommands(frameCtx);
     }
 
@@ -1087,6 +1208,14 @@ struct VulkanVDPRenderer::Impl {
         VkPhysicalDeviceScalarBlockLayoutFeaturesEXT esbl{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT};
         std::vector<const char *> enabledExts;
+#if defined(__ANDROID__)
+        const bool useAndroidHardwareBuffer = hasExt(VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME) &&
+                                              hasExt(VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME);
+        if (useAndroidHardwareBuffer) {
+            enabledExts.push_back(VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME);
+            enabledExts.push_back(VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME);
+        }
+#endif
         const void *pNext = nullptr;
         if (use12) {
             e12.scalarBlockLayout = f12.scalarBlockLayout;
@@ -1113,6 +1242,13 @@ struct VulkanVDPRenderer::Impl {
             return util::ErrorMessage{fmt::format("vkCreateDevice failed ({})", (int)r)};
         }
         vkGetDeviceQueue(device, queueFamily, 0, &queue);
+#if defined(__ANDROID__)
+        if (useAndroidHardwareBuffer) {
+            getAndroidHardwareBufferProperties = reinterpret_cast<PFN_vkGetAndroidHardwareBufferPropertiesANDROID>(
+                vkGetDeviceProcAddr(device, "vkGetAndroidHardwareBufferPropertiesANDROID"));
+            androidHardwareBufferInterop = getAndroidHardwareBufferProperties != nullptr;
+        }
+#endif
         deviceInfo = fmt::format("{} (vendor {:04X} device {:04X}) api {}.{}.{} driver {:08X}; int64={} extFormats={} "
                                  "scalarLayout={} maxInvocations={}",
                                  props.deviceName, props.vendorID, props.deviceID, VK_API_VERSION_MAJOR(props.apiVersion),
@@ -1214,29 +1350,9 @@ struct VulkanVDPRenderer::Impl {
         }
 
         Step("vk: command buffers");
-        {
-            uint32 qfCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(physDevice, &qfCount, nullptr);
-            std::vector<VkQueueFamilyProperties> qf(qfCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(physDevice, &qfCount, qf.data());
-            VkPhysicalDeviceProperties tprops;
-            vkGetPhysicalDeviceProperties(physDevice, &tprops);
-            const uint32 validBits = queueFamily < qfCount ? qf[queueFamily].timestampValidBits : 0;
-            gpuTimestamps = validBits > 0 && tprops.limits.timestampPeriod > 0.0f;
-            timestampPeriodNs = tprops.limits.timestampPeriod;
-            timestampMask = validBits >= 64 ? ~0ull : (1ull << validBits) - 1;
-        }
         // Command pools, command buffers and fences
         for (size_t i = 0; i < frames.Count(); ++i) {
             FrameContext &frameCtx = frames[i];
-            if (gpuTimestamps) {
-                VkQueryPoolCreateInfo qpci{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-                qpci.queryType = VK_QUERY_TYPE_TIMESTAMP;
-                qpci.queryCount = 2;
-                if (vkCreateQueryPool(device, &qpci, nullptr, &frameCtx.timePool) != VK_SUCCESS) {
-                    frameCtx.timePool = VK_NULL_HANDLE; // not timed
-                }
-            }
             VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
             cpci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
             cpci.queueFamilyIndex = queueFamily;
@@ -1255,7 +1371,6 @@ struct VulkanVDPRenderer::Impl {
                 return util::ErrorMessage{fmt::format("vkCreateFence failed ({})", (int)r)};
             }
         }
-        util::waitstats::g_gpuTimed = gpuTimestamps;
         BeginCommands(frames.GetCurrentFrame());
 
         // Descriptor pool
@@ -1297,11 +1412,6 @@ struct VulkanVDPRenderer::Impl {
             !r) {
             return r;
         }
-        if (auto r = CreateBuffer(vdp1.fbramNativeBuffer, kVDP1FBRAMSize * 2, kSSBO, false, VK_FORMAT_UNDEFINED,
-                                  "VDP1 FBRAM native");
-            !r) {
-            return r;
-        }
         if (auto r = CreateBuffer(vdp1.fbramDownloadBuffer, kVDP1FBRAMSize * 2, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
                                   VK_FORMAT_UNDEFINED, "VDP1 FBRAM download", true);
             !r) {
@@ -1314,10 +1424,6 @@ struct VulkanVDPRenderer::Impl {
             return r;
         }
         if (auto r = CreatePipeline(vdp1.erasePipe, "src/vdp/cs_vdp1_erase.spv", "VDP1 erase"); !r) {
-            return r;
-        }
-        if (auto r = CreatePipeline(vdp1.fbramDownsamplePipe, "src/vdp/cs_vdp1_fbram_downsample.spv", "VDP1 FBRAM downsample");
-            !r) {
             return r;
         }
         for (size_t shaderIndex = 0; shaderIndex < vdp1.polyDrawPipes.size(); ++shaderIndex) {
@@ -1443,7 +1549,6 @@ struct VulkanVDPRenderer::Impl {
 
             YMIR_VK_TRY(set(f.fbramWriteSet, vdp1.fbramWritePipe, {vdp1.fbramWritesBuffer}, {vdp1.fbramBuffer}));
             YMIR_VK_TRY(set(f.eraseSet, vdp1.erasePipe, {}, {vdp1.fbramBuffer}));
-            YMIR_VK_TRY(set(f.fbramDownsampleSet, vdp1.fbramDownsamplePipe, {}, {vdp1.fbramBuffer, vdp1.fbramNativeBuffer}));
             for (size_t s = 0; s < vdp1.polyDrawPipes.size(); ++s) {
                 const GpuPipeline &pipe = vdp1.polyDrawPipes[s];
                 if (IsVDP1PolyDrawShaderOIT(s)) {
@@ -1507,8 +1612,10 @@ struct VulkanVDPRenderer::Impl {
         if (device == VK_NULL_HANDLE) {
             return;
         }
-        util::waitstats::g_gpuTimed = false;
         vkDeviceWaitIdle(device);
+#if defined(__ANDROID__)
+        for (AndroidFrameImage &image : androidFrameImages) DestroyAndroidFrameImage(image);
+#endif
         for (GpuPipeline *p : ownedPipelines) {
             if (p->pipeline) vkDestroyPipeline(device, p->pipeline, nullptr);
             if (p->layout) vkDestroyPipelineLayout(device, p->layout, nullptr);
@@ -1531,7 +1638,6 @@ struct VulkanVDPRenderer::Impl {
         for (size_t i = 0; i < frames.Count(); ++i) {
             FrameContext &f = frames[i];
             if (f.fence) vkDestroyFence(device, f.fence, nullptr);
-            if (f.timePool) vkDestroyQueryPool(device, f.timePool, nullptr);
             if (f.cmdPool) vkDestroyCommandPool(device, f.cmdPool, nullptr);
         }
         if (ownsDevice) {
@@ -1614,25 +1720,6 @@ struct VulkanVDPRenderer::Impl {
 
 // ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 2153-2175 ----
     void VDP1SyncFB() {
-        // Enhanced resolution: answer CPU reads from the copy made when the framebuffers were last swapped, once the GPU
-        // has run that frame's commands (until then the copy before it), instead of submitting and waiting mid-frame for
-        // an up-to-date copy. The
-        // displayed framebuffer (what games read back: Burning Rangers' transitions, ~20 reads/s) doesn't change after
-        // a swap; only the one being drawn can be a frame behind. Each mid-frame wait cost ~5 ms per frame there.
-        if (vdp1.resScale > 1 && vdp1.readbackFrame != nullptr && vdp1.readbackFrame != &frames.GetCurrentFrame()) {
-            auto &ctx = *static_cast<FrameContext *>(vdp1.readbackFrame);
-            // Not done on the GPU yet: keep the previous copy (a frame older) rather than wait for it
-            if (vdp1.fbramReadbackCopyPending && ctx.submitted && vkGetFenceStatus(device, ctx.fence) != VK_SUCCESS) {
-                return;
-            }
-            if (vdp1.fbramReadbackCopyPending) {
-                WaitFrame(ctx);
-                InvalidateForRead(vdp1.fbramDownloadBuffer);
-                memcpy(vdpState.mem1.FBRAM.data(), vdp1.fbramDownloadBuffer.mapped, kVDP1FBRAMSize * 2);
-                vdp1.fbramReadbackCopyPending = false;
-            }
-            return;
-        }
         // NOTE: intentionally not syncing FBRAM writes because these happened before the reads
         if (vdp1.action != VDP1Action::FBRAMWrite) {
             VDP1FlushWork();
@@ -1854,24 +1941,15 @@ struct VulkanVDPRenderer::Impl {
             return;
         }
         vdp1.fbramReadbackDirty = false;
+        if (vdp1.resScale > 1) {
+            // The GPU framebuffers are stored at the internal resolution scale and cannot be read back as native FBRAM
+            return;
+        }
         vdp1.fbramReadbackCopyPending = true;
 
-        GpuBuffer *source = &vdp1.fbramBuffer;
-        if (vdp1.resScale > 1) {
-            // The GPU framebuffers are stored at the internal resolution scale: bring them down to native FBRAM first
-            if (auto result = Dispatch(vdp1.fbramDownsamplePipe, frames.GetCurrentFrame().fbramDownsampleSet,
-                                       {{&vdp1.cpuCommonRenderParams, sizeof(vdp1.cpuCommonRenderParams)}},
-                                       static_cast<uint32>(kVDP1FBRAMSize * 2 / 4 + 63) / 64, 1, 1);
-                !result) {
-                devlog::warn<grp::dx12_vdp1>("Failed to downsample VDP1 FBRAM: {}", result.Error().message);
-                return;
-            }
-            source = &vdp1.fbramNativeBuffer;
-        }
         FlushBarriers();
         const VkBufferCopy region{0, 0, kVDP1FBRAMSize * 2};
-        vkCmdCopyBuffer(Cmd(), source->buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
-        vdp1.readbackFrame = &frames.GetCurrentFrame();
+        vkCmdCopyBuffer(Cmd(), vdp1.fbramBuffer.buffer, vdp1.fbramDownloadBuffer.buffer, 1, &region);
         pendingBarrier = true;
     }
 
@@ -3817,14 +3895,39 @@ struct VulkanVDPRenderer::Impl {
         // Copy the display area of the composited output to this frame's readback buffer (skipped frames: none)
         if (!skipFrame) {
         FlushBarriers();
+        const uint32 outW = HRes * vdp2.outScale;
+        const uint32 outH = VRes * vdp2.outScale;
+        bool externalTarget = false;
+#if defined(__ANDROID__)
+        if (androidHardwareBufferInterop) {
+            uint64 token = 0;
+            void *opaqueBuffer = hwCallbacks.FrameTargetAcquire(outW, outH, &token);
+            if (opaqueBuffer && ImportAndroidFrameImage(token, static_cast<AHardwareBuffer *>(opaqueBuffer), outW,
+                                                        outH)) {
+                AndroidFrameImage &target = androidFrameImages[(uint32)token];
+                RecordAndroidFrameCopy(target, vdp2.compositeOutTexture.image, outW, outH);
+                frameCtx.externalTargetPending = true;
+                frameCtx.externalTarget = opaqueBuffer;
+                frameCtx.externalTargetToken = token;
+                frameCtx.readbackPending = false;
+                frameCtx.readbackW = outW;
+                frameCtx.readbackH = outH;
+                frameCtx.readbackScale = vdp2.outScale;
+                externalTarget = true;
+            } else if (opaqueBuffer) {
+                hwCallbacks.FrameTargetCancel(token);
+                androidHardwareBufferInterop = false; // retain the readback fallback on unsupported driver/format
+                Step("vk: AHardwareBuffer import failed; using CPU readback presentation");
+            }
+        }
+#endif
+        if (!externalTarget) {
         VkBufferImageCopy region{};
         region.bufferOffset = 0;
         region.bufferRowLength = 0; // tightly packed
         region.bufferImageHeight = 0;
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageOffset = {0, 0, 0};
-        const uint32 outW = HRes * vdp2.outScale;
-        const uint32 outH = VRes * vdp2.outScale;
         region.imageExtent = {outW, outH, 1};
         vkCmdCopyImageToBuffer(Cmd(), vdp2.compositeOutTexture.image, VK_IMAGE_LAYOUT_GENERAL,
                                frameCtx.readbackBuffer.buffer, 1, &region);
@@ -3833,6 +3936,7 @@ struct VulkanVDPRenderer::Impl {
         frameCtx.readbackW = outW;
         frameCtx.readbackH = outH;
         frameCtx.readbackScale = vdp2.outScale;
+        }
         }
         vdp2.outScaleLocked = false; // the next frame may pick a different scale
 
@@ -3845,7 +3949,7 @@ struct VulkanVDPRenderer::Impl {
         // Advance to the next frame
         frames.frameIndex = (frames.frameIndex + 1) % kNumFrames;
         FrameContext &nextCtx = frames.GetCurrentFrame();
-        if (nextCtx.readbackPending) {
+        if (nextCtx.readbackPending || nextCtx.externalTargetPending) {
             DeliverFrame(nextCtx);
         }
         WaitFrame(nextCtx);
@@ -3894,6 +3998,8 @@ struct VulkanVDPRenderer::Impl {
         return s;
     }
 
+    std::vector<uint32> deliveredPixels;
+
     /// @brief Makes GPU writes visible to the CPU on non-coherent (cached) host memory.
     void InvalidateForRead(const GpuBuffer &buf) {
         if (buf.coherent || buf.mapped == nullptr) {
@@ -3907,20 +4013,44 @@ struct VulkanVDPRenderer::Impl {
     }
 
     void DeliverFrame(FrameContext &frameCtx) {
-        if (!frameCtx.readbackPending) {
+        if (!frameCtx.readbackPending && !frameCtx.externalTargetPending) {
             return;
         }
+        const auto waitStart = std::chrono::steady_clock::now();
         WaitFrame(frameCtx);
+        util::waitstats::g_vulkanFrameFenceWaitNs.fetch_add(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count(),
+            std::memory_order_relaxed);
+        if (frameCtx.externalTargetPending) {
+            frameCtx.externalTargetPending = false;
+            const auto callbackStart = std::chrono::steady_clock::now();
+            hwCallbacks.FrameTargetReady(frameCtx.externalTarget, frameCtx.externalTargetToken, frameCtx.readbackW,
+                                         frameCtx.readbackH, frameCtx.readbackScale);
+            util::waitstats::g_vulkanFrameCallbackNs.fetch_add(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - callbackStart)
+                    .count(),
+                std::memory_order_relaxed);
+            frameCtx.externalTarget = nullptr;
+            frameCtx.externalTargetToken = 0;
+            return;
+        }
         frameCtx.readbackPending = false;
         deliveredScale = frameCtx.readbackScale;
         InvalidateForRead(frameCtx.readbackBuffer);
         // One sequential pass over the mapped memory into a CPU buffer (with opaque alpha); the frame consumer reads
         // it several times (thumbnail, presentation), which is slow straight from GPU-visible memory
-        // The mapped readback buffer stays valid throughout FrameReady: the frontend consumes/copies the
-        // frame synchronously before this frame slot is reused. The presenter samples RGB only, so pass the
-        // mapped pixels directly and avoid a full-frame CPU copy/alpha pass at every enhanced resolution.
-        auto *pixels = static_cast<uint32 *>(frameCtx.readbackBuffer.mapped);
-        hwCallbacks.FrameReady(pixels, frameCtx.readbackW, frameCtx.readbackH);
+        const auto *src = static_cast<const uint32 *>(frameCtx.readbackBuffer.mapped);
+        const size_t count = (size_t)frameCtx.readbackW * frameCtx.readbackH;
+        deliveredPixels.resize(count);
+        uint32 *dst = deliveredPixels.data();
+        for (size_t i = 0; i < count; ++i) {
+            dst[i] = src[i] | 0xFF000000u; // force opaque alpha
+        }
+        const auto callbackStart = std::chrono::steady_clock::now();
+        hwCallbacks.FrameReady(dst, frameCtx.readbackW, frameCtx.readbackH);
+        util::waitstats::g_vulkanFrameCallbackNs.fetch_add(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - callbackStart).count(),
+            std::memory_order_relaxed);
     }
 };
 

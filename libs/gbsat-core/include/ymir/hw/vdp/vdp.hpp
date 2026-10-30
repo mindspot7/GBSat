@@ -190,6 +190,22 @@ public:
             m_vulkanRendererCallbacks.FrameReady = callback;
         }
     }
+
+    /// @brief Configures optional frontend-owned Vulkan output buffers, used to present without a CPU frame readback.
+    void SetVulkanFrameTargetCallbacks(CBVulkanFrameTargetAcquireCallback acquire,
+                                       CBVulkanFrameTargetReadyCallback ready,
+                                       CBVulkanFrameTargetCancelCallback cancel) {
+        auto apply = [&](VulkanRendererCallbacks &callbacks) {
+            callbacks.FrameTargetAcquire = acquire;
+            callbacks.FrameTargetReady = ready;
+            callbacks.FrameTargetCancel = cancel;
+        };
+        if (auto *hwRenderer = m_renderer->As<VDPRendererType::Vulkan>()) {
+            apply(hwRenderer->HwCallbacks);
+        } else {
+            apply(m_vulkanRendererCallbacks);
+        }
+    }
 #endif
 
     /// @brief Retrieves the enhancements configured for this VDP instance.

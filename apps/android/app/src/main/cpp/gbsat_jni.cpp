@@ -14,6 +14,7 @@
 #include <android/log.h>
 #include <sys/system_properties.h>
 #include <android/native_window_jni.h>
+#include <android/hardware_buffer.h>
 
 #include <ymir/ymir.hpp>
 #include <ymir/hw/vdp/renderer/vdp_renderer_sw.hpp>
@@ -58,6 +59,7 @@ extern "C" {
 #define LOG_TAG "GBSat"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 namespace savestate_io {
 std::string Save(ymir::Saturn &saturn, const std::filesystem::path &path);
@@ -427,21 +429,17 @@ static void ReadDiagnosticProps() {
     util::waitstats::g_vdpBatch.store(!gb::DiagOn("gbsat", "vdp_nobatch"), std::memory_order_relaxed);
 }
 
-void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
-    // Not gated by the frame skip flag: the software renderer no longer delivers skipped frames, and with threaded VDP2
-    // it delivers a drawn frame later (while the next frame runs, which may be a skipped one); the Vulkan renderer
-    // delivers its frames one frame late too.
+void UpdateFrameMetadata(const uint32_t *fb, uint32_t width, uint32_t height, uint32_t stridePixels = 0) {
+    if (stridePixels == 0) stridePixels = width;
     g->presented.fetch_add(1, std::memory_order_relaxed);
-    {
-        g->skip.OnFrame(fb, width, height); // Skip Engine: black / still picture
-    }
-    {
+    if (fb) {
+        g->skip.OnFrame(fb, width, height, stridePixels); // Skip Engine: black / still picture
         const uint32_t step = std::max<uint32_t>(1, width / 352);
         const uint32_t tw = width / step, th = height / step;
         std::lock_guard lk(g->lastFrameMutex);
         g->lastFrame.resize((size_t)tw * th);
         for (uint32_t y = 0; y < th; ++y) {
-            const uint32_t *src = fb + (size_t)(y * step) * width;
+            const uint32_t *src = fb + (size_t)(y * step) * stridePixels;
             uint32_t *dst = g->lastFrame.data() + (size_t)y * tw;
             for (uint32_t x = 0; x < tw; ++x) dst[x] = src[x * step] | 0xFF000000u;
         }
@@ -451,6 +449,12 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
     g->videoW.store(width, std::memory_order_relaxed);
     g->videoH.store(height, std::memory_order_relaxed);
     g->frameCounter.fetch_add(1, std::memory_order_relaxed);
+}
+
+void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
+    // Not gated by the frame skip flag: the software renderer no longer delivers skipped frames, and with threaded VDP2
+    // it delivers a drawn frame later (while the next frame runs, which may be a skipped one); Vulkan delivers one late.
+    UpdateFrameMetadata(fb, width, height);
 
     if (g->glMode.load(std::memory_order_relaxed)) {
         uint32_t scale = 1;
@@ -483,6 +487,28 @@ void OnFrameComplete(uint32_t *fb, uint32_t width, uint32_t height) {
         std::memcpy(dst + (size_t)y * buf.stride * 4, fb + (size_t)y * width, cols * 4);
     }
     ANativeWindow_unlockAndPost(g->window);
+}
+
+void OnVulkanHardwareFrame(AHardwareBuffer *buffer, uint64_t token, uint32_t width, uint32_t height, uint32_t scale) {
+    static std::atomic<bool> reportedSharedOutput{false};
+    if (!reportedSharedOutput.exchange(true, std::memory_order_relaxed)) {
+        LOGI("Vulkan AHardwareBuffer output active: GPU-to-GPU copy, existing GL filters retained");
+    }
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(buffer, &desc);
+    void *pixels = nullptr;
+    const int lockResult = AHardwareBuffer_lock(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, nullptr, &pixels);
+    if (lockResult == 0 && pixels) {
+        UpdateFrameMetadata(static_cast<const uint32_t *>(pixels), width, height, desc.stride);
+        int releaseFence = -1;
+        AHardwareBuffer_unlock(buffer, &releaseFence);
+        if (releaseFence >= 0) close(releaseFence);
+    } else {
+        LOGW("Could not map Vulkan AHardwareBuffer for frame analysis (%d)", lockResult);
+        UpdateFrameMetadata(nullptr, width, height);
+    }
+    g->lastScale.store(scale ? scale : 1, std::memory_order_relaxed);
+    glr::SubmitVulkanTarget(token, width, height, scale);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -820,7 +846,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "cd_speed_now") == nullptr;
+        fresh = strstr(head, "vulkan_frame_callback_ms") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -836,7 +862,8 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
                    "msh2_loop_pct,ssh2_loop_pct,msh2_hot_loop,ssh2_hot_loop,msh2_skip_pct,ssh2_skip_pct,"
                    "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,"
                    "sched_vdp_ms,sched_sound_ms,sched_cd_ms,sched_other_ms,rendered_frame_ms,skipped_frame_ms,"
-                   "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,cd_speed_now,settings\n");
+                   "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,cd_speed_now,"
+                   "vulkan_fence_wait_ms,vulkan_frame_callback_ms,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
@@ -992,7 +1019,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     settings += ";frameskip_history=" + std::to_string(g->fsHistoryCount);
     settings += ";frameskip_cadence=" + std::to_string(g->minRenderRun);
     settings += ";frameskip_vdp1_cmds=" + std::to_string((uint32_t)std::max(0.0f, vdp1CommandsPerFrame));
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             vdp1CommandsPerFrame,
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
@@ -1003,7 +1030,9 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             schedMs[ws::SchedVDP], schedMs[ws::SchedSCSP], schedMs[ws::SchedCD], schedMs[ws::SchedOther], renderedMs, skippedMs,
             ws::g_vdp2FrameWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             ws::g_vdp2CopyWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
-            g->skip.TakeActiveFrames() * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied, settings.c_str());
+            g->skip.TakeActiveFrames() * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied,
+            ws::g_vulkanFrameFenceWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
+            ws::g_vulkanFrameCallbackNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps), settings.c_str());
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
     fclose(f);
@@ -1395,6 +1424,16 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
     g->saturn->VDP.SetVulkanFrameReadyCallback({nullptr, [](const uint32_t *fb, uint32_t w, uint32_t h, void *) {
                                                     OnFrameComplete(const_cast<uint32_t *>(fb), w, h);
                                                 }});
+    g->saturn->VDP.SetVulkanFrameTargetCallbacks(
+        {nullptr, [](uint32_t w, uint32_t h, uint64_t *token, void *) -> void * {
+             const auto target = glr::AcquireVulkanTarget(w, h);
+             if (token) *token = target.token;
+             return target.buffer;
+         }},
+        {nullptr, [](void *buffer, uint64_t token, uint32_t w, uint32_t h, uint32_t scale, void *) {
+             OnVulkanHardwareFrame(static_cast<AHardwareBuffer *>(buffer), token, w, h, scale);
+         }},
+        {nullptr, [](uint64_t token, void *) { glr::CancelVulkanTarget(token); }});
     ConnectPad(false);
 
     g->smpcPath = JStr(env, smpcPath);

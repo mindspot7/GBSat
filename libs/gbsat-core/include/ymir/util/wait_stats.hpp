@@ -16,6 +16,10 @@ inline std::atomic<uint64_t> g_waitNs[Count]{};
 // the VDP1 framebuffer (before a VDP1 erase or swap). The rest of VDP2 is erase/swap without the copy.
 inline std::atomic<uint64_t> g_vdp2FrameWaitNs{0};
 inline std::atomic<uint64_t> g_vdp2CopyWaitNs{0};
+// Vulkan presentation diagnostics: host time blocked on the submitted frame fence and time spent in the frontend's
+// synchronous frame callback (thumbnail/skip analysis and presentation handoff).
+inline std::atomic<uint64_t> g_vulkanFrameFenceWaitNs{0};
+inline std::atomic<uint64_t> g_vulkanFrameCallbackNs{0};
 
 struct Timer {
     Kind kind;
