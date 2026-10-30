@@ -155,6 +155,27 @@ private:
     std::vector<vulkan::SpvBinding> m_bindings;
 };
 
+/// Small compute helper for clearing storage-buffer ranges without constructing a CPU-side fill buffer.
+class BufferFillKernel {
+public:
+    BufferFillKernel() = default;
+    BufferFillKernel(const BufferFillKernel &) = delete;
+    BufferFillKernel &operator=(const BufferFillKernel &) = delete;
+    BufferFillKernel(BufferFillKernel &&other) noexcept;
+    BufferFillKernel &operator=(BufferFillKernel &&other) noexcept;
+    ~BufferFillKernel();
+
+    bool Initialize(std::string &error);
+    bool Fill(const Buffer &buffer, GLintptr offset, GLsizeiptr size, uint32_t value, std::string &error) const;
+    void Reset();
+
+private:
+    GLuint m_program = 0;
+    GLint m_wordOffsetLocation = -1;
+    GLint m_wordCountLocation = -1;
+    GLint m_valueLocation = -1;
+};
+
 void MemoryBarrier(GLbitfield barriers = GL_ALL_BARRIER_BITS);
 
 } // namespace ymir::vdp::gles
