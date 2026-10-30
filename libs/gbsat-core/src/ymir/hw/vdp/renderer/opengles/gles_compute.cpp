@@ -231,6 +231,163 @@ void Image::Reset() {
     m_layers = 0;
 }
 
+AndroidFrameTarget::AndroidFrameTarget(AndroidFrameTarget &&other) noexcept
+    : m_display(std::exchange(other.m_display, EGL_NO_DISPLAY))
+    , m_image(std::exchange(other.m_image, EGL_NO_IMAGE_KHR))
+    , m_texture(std::exchange(other.m_texture, 0))
+    , m_framebuffer(std::exchange(other.m_framebuffer, 0))
+    , m_readFramebuffer(std::exchange(other.m_readFramebuffer, 0))
+    , m_token(std::exchange(other.m_token, 0))
+    , m_width(std::exchange(other.m_width, 0))
+    , m_height(std::exchange(other.m_height, 0)) {}
+
+AndroidFrameTarget &AndroidFrameTarget::operator=(AndroidFrameTarget &&other) noexcept {
+    if (this != &other) {
+        Reset();
+        m_display = std::exchange(other.m_display, EGL_NO_DISPLAY);
+        m_image = std::exchange(other.m_image, EGL_NO_IMAGE_KHR);
+        m_texture = std::exchange(other.m_texture, 0);
+        m_framebuffer = std::exchange(other.m_framebuffer, 0);
+        m_readFramebuffer = std::exchange(other.m_readFramebuffer, 0);
+        m_token = std::exchange(other.m_token, 0);
+        m_width = std::exchange(other.m_width, 0);
+        m_height = std::exchange(other.m_height, 0);
+    }
+    return *this;
+}
+
+AndroidFrameTarget::~AndroidFrameTarget() {
+    Reset();
+}
+
+bool AndroidFrameTarget::Import(EGLDisplay display, AHardwareBuffer *buffer, uint64_t token, std::string &error) {
+    if (display == EGL_NO_DISPLAY || buffer == nullptr) {
+        error = "Cannot import an empty Android frame target";
+        return false;
+    }
+    if (m_display == display && m_token == token && m_image != EGL_NO_IMAGE_KHR) {
+        return true;
+    }
+    Reset();
+
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(buffer, &desc);
+    if (desc.width == 0 || desc.height == 0 || desc.layers != 1 ||
+        desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM) {
+        error = fmt::format("Unsupported Android frame target ({}x{}, layers {}, format {})", desc.width, desc.height,
+                            desc.layers, desc.format);
+        return false;
+    }
+
+    const auto getNativeClientBuffer =
+        reinterpret_cast<PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC>(eglGetProcAddress("eglGetNativeClientBufferANDROID"));
+    const auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
+    const auto destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+    const auto imageTargetTexture = reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(
+        eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+    if (getNativeClientBuffer == nullptr || createImage == nullptr || destroyImage == nullptr ||
+        imageTargetTexture == nullptr) {
+        error = "EGL_ANDROID_get_native_client_buffer or EGL_KHR_image_base is unavailable";
+        return false;
+    }
+
+    const EGLint attrs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
+    const EGLClientBuffer clientBuffer = getNativeClientBuffer(buffer);
+    if (clientBuffer == nullptr) {
+        error = fmt::format("eglGetNativeClientBufferANDROID failed (EGL error 0x{:04X})", eglGetError());
+        return false;
+    }
+    m_image = createImage(display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, clientBuffer, attrs);
+    if (m_image == EGL_NO_IMAGE_KHR) {
+        error = fmt::format("eglCreateImageKHR for AHardwareBuffer failed (EGL error 0x{:04X})", eglGetError());
+        return false;
+    }
+
+    m_display = display;
+    m_token = token;
+    m_width = desc.width;
+    m_height = desc.height;
+    glGenTextures(1, &m_texture);
+    glBindTexture(GL_TEXTURE_2D, m_texture);
+    imageTargetTexture(GL_TEXTURE_2D, m_image);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &m_framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
+    const GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE || !CheckGl("AHardwareBuffer EGLImage framebuffer", error)) {
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            error = fmt::format("AHardwareBuffer framebuffer is incomplete (0x{:04X})", status);
+        }
+        Reset();
+        return false;
+    }
+    glGenFramebuffers(1, &m_readFramebuffer);
+    if (!CheckGl("AHardwareBuffer EGLImage import", error)) {
+        Reset();
+        return false;
+    }
+    return true;
+}
+
+bool AndroidFrameTarget::CopyFrom(const Image &source, uint32_t width, uint32_t height, std::string &error) {
+    if (m_framebuffer == 0 || m_readFramebuffer == 0 || source.Handle() == 0 || source.Target() != GL_TEXTURE_2D ||
+        width == 0 || height == 0 || width > source.Width() || height > source.Height() || width > m_width ||
+        height > m_height) {
+        error = "Invalid GLES frame copy source or target dimensions";
+        return false;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, source.Handle(), 0);
+    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        error = "GLES VDP source image is not framebuffer complete";
+        return false;
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
+    glBlitFramebuffer(0, 0, static_cast<GLint>(width), static_cast<GLint>(height), 0, 0,
+                      static_cast<GLint>(width), static_cast<GLint>(height), GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return CheckGl("GLES VDP frame copy to AHardwareBuffer", error);
+}
+
+GLsync AndroidFrameTarget::CreateFence() {
+    GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+    return fence;
+}
+
+void AndroidFrameTarget::Reset() {
+    if (m_readFramebuffer != 0) {
+        glDeleteFramebuffers(1, &m_readFramebuffer);
+    }
+    if (m_framebuffer != 0) {
+        glDeleteFramebuffers(1, &m_framebuffer);
+    }
+    if (m_texture != 0) {
+        glDeleteTextures(1, &m_texture);
+    }
+    if (m_image != EGL_NO_IMAGE_KHR) {
+        const auto destroyImage =
+            reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+        if (destroyImage != nullptr && m_display != EGL_NO_DISPLAY) {
+            destroyImage(m_display, m_image);
+        }
+    }
+    m_display = EGL_NO_DISPLAY;
+    m_image = EGL_NO_IMAGE_KHR;
+    m_texture = 0;
+    m_framebuffer = 0;
+    m_readFramebuffer = 0;
+    m_token = 0;
+    m_width = 0;
+    m_height = 0;
+}
+
 bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, std::initializer_list<ResourceRef> srvs,
                          std::initializer_list<ResourceRef> uavs, DescriptorSet &out, std::string &error) {
     out.srvs.assign(srvs.begin(), srvs.end());

@@ -3,7 +3,10 @@
 #if defined(__ANDROID__)
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES3/gl31.h>
+#include <GLES2/gl2ext.h>
+#include <android/hardware_buffer.h>
 #include <cmrc/cmrc.hpp>
 #include <ymir/hw/vdp/renderer/vulkan/spirv_reflect.hpp>
 
@@ -78,6 +81,35 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
     uint32_t m_layers = 0;
+};
+
+class AndroidFrameTarget {
+public:
+    AndroidFrameTarget() = default;
+    AndroidFrameTarget(const AndroidFrameTarget &) = delete;
+    AndroidFrameTarget &operator=(const AndroidFrameTarget &) = delete;
+    AndroidFrameTarget(AndroidFrameTarget &&other) noexcept;
+    AndroidFrameTarget &operator=(AndroidFrameTarget &&other) noexcept;
+    ~AndroidFrameTarget();
+
+    bool Import(EGLDisplay display, AHardwareBuffer *buffer, uint64_t token, std::string &error);
+    bool CopyFrom(const Image &source, uint32_t width, uint32_t height, std::string &error);
+    GLsync CreateFence();
+    void Reset();
+
+    uint64_t Token() const { return m_token; }
+    GLuint Texture() const { return m_texture; }
+    GLuint Framebuffer() const { return m_framebuffer; }
+
+private:
+    EGLDisplay m_display = EGL_NO_DISPLAY;
+    EGLImageKHR m_image = EGL_NO_IMAGE_KHR;
+    GLuint m_texture = 0;
+    GLuint m_framebuffer = 0;
+    GLuint m_readFramebuffer = 0;
+    uint64_t m_token = 0;
+    uint32_t m_width = 0;
+    uint32_t m_height = 0;
 };
 
 struct ResourceRef {
