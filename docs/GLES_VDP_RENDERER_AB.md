@@ -15,7 +15,7 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 
 ## Implementation route
 
-1. Validate RG Rotate GLES version, compute support, relevant limits, and EGL/AHardwareBuffer interop while the display is awake; restore sleep after device work.
+1. Device capability check on RG Rotate: Android 12, ARM Mali-G52, OpenGL ES 3.2 (`ro.opengles.version=196610`; SurfaceFlinger reports driver `v1.r34p0`). ES 3.2 includes compute shaders. The app GLES context and the exact buffer/context-sharing path still need validation. The device is being kept awake for the ongoing work and will be returned to sleep when device testing is finished.
 2. Prototype conversion of one existing VDP HLSL compute shader to GLSL ES 3.1 and validate its bindings, buffer layout, atomics, and output. Evaluate the existing DXC/SPIR-V build and SPIRV-Cross route before choosing generated or runtime-translated GLSL.
 3. Add an Android-only Ymir renderer type and resource/synchronization layer. Reuse the API-independent VDP command and parameter logic where practical; do not change the existing software or Vulkan paths.
 4. Deliver completed GLES frames to the existing presenter without CPU readback. Preserve instrumentation and frame scale metadata.
