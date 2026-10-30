@@ -215,7 +215,8 @@ Image::Image(Image &&other) noexcept
     , m_internalFormat(std::exchange(other.m_internalFormat, 0))
     , m_width(std::exchange(other.m_width, 0))
     , m_height(std::exchange(other.m_height, 0))
-    , m_layers(std::exchange(other.m_layers, 0)) {}
+    , m_layers(std::exchange(other.m_layers, 0))
+    , m_readFramebuffer(std::exchange(other.m_readFramebuffer, 0)) {}
 
 Image &Image::operator=(Image &&other) noexcept {
     if (this != &other) {
@@ -226,6 +227,7 @@ Image &Image::operator=(Image &&other) noexcept {
         m_width = std::exchange(other.m_width, 0);
         m_height = std::exchange(other.m_height, 0);
         m_layers = std::exchange(other.m_layers, 0);
+        m_readFramebuffer = std::exchange(other.m_readFramebuffer, 0);
     }
     return *this;
 }
@@ -272,7 +274,49 @@ bool Image::Create(GLenum target, GLenum internalFormat, uint32_t width, uint32_
     return true;
 }
 
+bool Image::ReadbackRGBA8(uint32_t width, uint32_t height, void *pixels, std::string &error) const {
+    if (m_handle == 0 || m_target != GL_TEXTURE_2D || m_internalFormat != GL_RGBA8 || pixels == nullptr || width == 0 ||
+        height == 0 || width > m_width || height > m_height ||
+        width > static_cast<uint32_t>(std::numeric_limits<GLsizei>::max()) ||
+        height > static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+        error = "Invalid GLES RGBA8 image readback request";
+        return false;
+    }
+
+    if (m_readFramebuffer == 0) {
+        glGenFramebuffers(1, &m_readFramebuffer);
+        if (m_readFramebuffer == 0) {
+            error = "Could not allocate GLES RGBA8 readback framebuffer";
+            return false;
+        }
+        if (!CheckGl("RGBA8 readback framebuffer allocation", error)) {
+            glDeleteFramebuffers(1, &m_readFramebuffer);
+            m_readFramebuffer = 0;
+            return false;
+        }
+    }
+
+    GLint previousReadFramebuffer = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+    glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_handle, 0);
+    const GLenum status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFramebuffer));
+        error = fmt::format("GLES RGBA8 readback framebuffer is incomplete (0x{:04X})", status);
+        return false;
+    }
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFramebuffer));
+    return CheckGl("RGBA8 image readback", error);
+}
+
 void Image::Reset() {
+    if (m_readFramebuffer != 0) {
+        glDeleteFramebuffers(1, &m_readFramebuffer);
+    }
     if (m_handle != 0) {
         glDeleteTextures(1, &m_handle);
     }
@@ -282,6 +326,7 @@ void Image::Reset() {
     m_width = 0;
     m_height = 0;
     m_layers = 0;
+    m_readFramebuffer = 0;
 }
 
 AndroidFrameTarget::AndroidFrameTarget(AndroidFrameTarget &&other) noexcept

@@ -65,6 +65,7 @@ public:
 
     bool Create2D(GLenum internalFormat, uint32_t width, uint32_t height, std::string &error);
     bool Create2DArray(GLenum internalFormat, uint32_t width, uint32_t height, uint32_t layers, std::string &error);
+    bool ReadbackRGBA8(uint32_t width, uint32_t height, void *pixels, std::string &error) const;
     void Reset();
 
     GLuint Handle() const { return m_handle; }
@@ -84,6 +85,7 @@ private:
     uint32_t m_width = 0;
     uint32_t m_height = 0;
     uint32_t m_layers = 0;
+    mutable GLuint m_readFramebuffer = 0;
 };
 
 class AndroidFrameTarget {
