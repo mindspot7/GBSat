@@ -3,7 +3,18 @@
   "games": [
     {
       "titles": ["VIRTUA FIGHTER 2"],
-      "low": { "renderer": "cpu", "threadedAudio": true, "frameSkip": true }
+      "low": { "renderer": "cpu", "threadedAudio": true, "frameSkip": true },
+      "entry": { "threadedAudio": true }
+    },
+    {
+      "titles": ["DAYTONA USA CHAMPIONSHIP CIRCUIT EDITION"],
+      "ids": ["MK-81213"],
+      "entry": { "threadedAudio": true }
+    },
+    {
+      "titles": ["GUARDIANHEROES"],
+      "ids": ["MK-81035"],
+      "entry": { "threadedAudio": true }
     },
     {
       "titles": ["J:AZEL PANZER DRAGOON RPG U:PANZER DRAGOON SAGA", "PANZER DRAGOON SAGA", "AZEL PANZER DRAGOON RPG"],

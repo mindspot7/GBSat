@@ -68,6 +68,18 @@ The same RG DS measurements justify `threadedAudio=true` for Burning Rangers on 
 
 After the Entry profile update, local signed build 420 passed the app/GBFrame unit suites and vital lint, then was installed over the existing app. A fresh Burning Rangers intent launch confirmed the savestate loaded and, with the UI set to Auto, perf-log rows reported `threaded_scsp=1`. The 20-row confirmation capture had 34.9 median emu FPS, 32.88 ms/frame and 47 median audio underruns/s. This verifies profile selection; it is not a new A/B comparison. No GitHub build was run.
 
+## VF2, Daytona and Guardian Heroes — Entry SCSP A/B
+
+Each run relaunched the exact ROM intent and confirmed the same existing gameplay savestate loaded. Only threaded SCSP changed, in A/B/B/A order. Results are grouped by 200–399 VDP1 commands/frame to compare similar rendering load. VF2's 1 kHz simpleperf captures include sampling overhead; Daytona and Guardian Heroes used the ordinary performance logger.
+
+| Game | Off samples | On samples | Median FPS Off -> On | Sound scheduler ms Off -> On | Audio underruns/s Off -> On |
+|---|---:|---:|---:|---:|---:|
+| Virtua Fighter 2 | 52 | 54 | 41.9 -> 55.3 | 11.06 -> 0.49 | 50 -> 10 |
+| Daytona USA CCE | 20 | 14 | 44.5 -> 57.7 | 7.88 -> 0.79 | 38 -> 1 |
+| Guardian Heroes | 40 | 40 | 47.3 -> 57.4 | 8.85 -> 0.62 | 45 -> 5 |
+
+All three improved consistently with threaded SCSP. The measured Entry profiles now recommend it for these games; manual per-game On/Off remains honored. After adding the entries, local signed build 420 passed the app/GBFrame unit suites and vital lint. Intent launches of all three games loaded their savestates and confirmed `threaded_audio=auto` with `threaded_scsp=1` in the perf log. No GitHub build was run.
+
 Filtering the same simpleperf profiles by CPU confirms the existing affinity policy: on VF2 with SCSP on, 94.6% of the emulation thread's CPU samples were on CPU 3 while SCSP, VDP1 and VDP2 shared CPUs 0–2. With SCSP off, 99.3% of its samples were on CPU 3 while render workers remained on CPUs 0–2. This supports keeping the current placement; it describes where the thread ran, not continuous saturation of CPU 3.
 
 ## NiGHTS on the RG DS — SCSP A/B and profile fix
@@ -97,4 +109,4 @@ A separate 12-second `simpleperf stat --per-thread` capture on the normal signed
 
 No experimental renderer code or diagnostic override from these experiments remains in source. The measured NiGHTS Entry-tier SCSP recommendation is retained. Local signed build 420 with this recommendation is installed on the RG DS and at the Gradle release APK path. The device was returned to sleep. No GitHub build was triggered for these measurements.
 
-Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. NiGHTS SCSP captures are `nights-scsp-off-A1-20261030.csv`, `nights-scsp-on-B1-20261030.csv`, `nights-scsp-on-B2-20261030.csv` and `nights-scsp-off-A2-20261030.csv`; the installed-profile validation is `nights-entry-profile-validate-20261030.csv`. The latest frequency check is in `vf2-cpu-frequency-20261030.csv`, `vf2-thermal-20261030.txt` and `vf2-frequency-perf-log.csv`; the hardware-counter run is `vf2-hw-counters-20261030.txt`. The app and core source trees contain no temporary profile flags or experimental renderer changes.
+Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. NiGHTS SCSP captures are `nights-scsp-off-A1-20261030.csv`, `nights-scsp-on-B1-20261030.csv`, `nights-scsp-on-B2-20261030.csv` and `nights-scsp-off-A2-20261030.csv`; its installed-profile validation is `nights-entry-profile-validate-20261030.csv`. The VF2, Daytona and Guardian Heroes captures are named `vf2-scsp-*`, `daytona-scsp-*-20261030.csv` and `guardian-scsp-*-20261030.csv`; Auto-profile validations are `vf2-entry-profile-validate-20261030.csv`, `daytona-entry-profile-validate-20261030.csv` and `guardian-entry-profile-validate-20261030.csv`. The latest frequency check is in `vf2-cpu-frequency-20261030.csv`, `vf2-thermal-20261030.txt` and `vf2-frequency-perf-log.csv`; the hardware-counter run is `vf2-hw-counters-20261030.txt`. The app and core source trees contain no temporary profile flags or experimental renderer changes.
