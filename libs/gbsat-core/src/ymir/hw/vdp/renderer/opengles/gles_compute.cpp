@@ -676,6 +676,139 @@ void ComputeProgram::Reset() {
     m_bindings.clear();
 }
 
+BufferFillKernel::BufferFillKernel(BufferFillKernel &&other) noexcept
+    : m_program(std::exchange(other.m_program, 0))
+    , m_wordOffsetLocation(std::exchange(other.m_wordOffsetLocation, -1))
+    , m_wordCountLocation(std::exchange(other.m_wordCountLocation, -1))
+    , m_valueLocation(std::exchange(other.m_valueLocation, -1)) {}
+
+BufferFillKernel &BufferFillKernel::operator=(BufferFillKernel &&other) noexcept {
+    if (this != &other) {
+        Reset();
+        m_program = std::exchange(other.m_program, 0);
+        m_wordOffsetLocation = std::exchange(other.m_wordOffsetLocation, -1);
+        m_wordCountLocation = std::exchange(other.m_wordCountLocation, -1);
+        m_valueLocation = std::exchange(other.m_valueLocation, -1);
+    }
+    return *this;
+}
+
+BufferFillKernel::~BufferFillKernel() {
+    Reset();
+}
+
+bool BufferFillKernel::Initialize(std::string &error) {
+    Reset();
+    static constexpr char kSource[] = R"glsl(#version 310 es
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) writeonly buffer FillTarget { uint words[]; };
+uniform uint wordOffset;
+uniform uint wordCount;
+uniform uint fillValue;
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    uint stride = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    for (; index < wordCount; index += stride) {
+        words[wordOffset + index] = fillValue;
+    }
+}
+)glsl";
+
+    const GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
+    if (shader == 0) {
+        error = "Could not create the GLES buffer fill shader";
+        return false;
+    }
+    const GLchar *source = kSource;
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    GLint compiled = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (compiled != GL_TRUE) {
+        error = fmt::format("GLES buffer fill shader failed to compile: {}", GetShaderLog(shader));
+        glDeleteShader(shader);
+        return false;
+    }
+
+    m_program = glCreateProgram();
+    if (m_program == 0) {
+        glDeleteShader(shader);
+        error = "Could not create the GLES buffer fill program";
+        return false;
+    }
+    glAttachShader(m_program, shader);
+    glLinkProgram(m_program);
+    glDeleteShader(shader);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(m_program, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) {
+        error = fmt::format("GLES buffer fill program failed to link: {}", GetProgramLog(m_program));
+        Reset();
+        return false;
+    }
+
+    m_wordOffsetLocation = glGetUniformLocation(m_program, "wordOffset");
+    m_wordCountLocation = glGetUniformLocation(m_program, "wordCount");
+    m_valueLocation = glGetUniformLocation(m_program, "fillValue");
+    if (m_wordOffsetLocation < 0 || m_wordCountLocation < 0 || m_valueLocation < 0) {
+        error = "GLES buffer fill program is missing a required uniform";
+        Reset();
+        return false;
+    }
+    return CheckGl("buffer fill program initialization", error);
+}
+
+bool BufferFillKernel::Fill(const Buffer &buffer, GLintptr offset, GLsizeiptr size, uint32_t value,
+                            std::string &error) const {
+    if (m_program == 0 || buffer.Handle() == 0 || buffer.Target() != GL_SHADER_STORAGE_BUFFER || offset < 0 || size < 0 ||
+        offset % static_cast<GLintptr>(sizeof(uint32_t)) != 0 ||
+        size % static_cast<GLsizeiptr>(sizeof(uint32_t)) != 0 || offset > buffer.Size() || size > buffer.Size() - offset) {
+        error = "Invalid GLES storage-buffer fill range";
+        return false;
+    }
+    if (size == 0) {
+        return true;
+    }
+    const uint64_t offsetWords = static_cast<uint64_t>(offset) / sizeof(uint32_t);
+    const uint64_t wordCount64 = static_cast<uint64_t>(size) / sizeof(uint32_t);
+    const uint64_t maxWordIndex = std::numeric_limits<GLuint>::max();
+    if (offsetWords > maxWordIndex || wordCount64 > maxWordIndex || offsetWords + wordCount64 > maxWordIndex) {
+        error = "GLES storage-buffer fill range exceeds 32-bit shader indexing";
+        return false;
+    }
+
+    GLint maxGroupsX = 0;
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &maxGroupsX);
+    if (maxGroupsX <= 0) {
+        error = "GLES reports no compute work groups for storage-buffer fill";
+        return false;
+    }
+    constexpr uint32_t kLocalSize = 256;
+    const uint32_t wordCount = static_cast<uint32_t>(wordCount64);
+    const uint64_t neededGroups = (wordCount64 + kLocalSize - 1) / kLocalSize;
+    const GLuint groupsX = static_cast<GLuint>(std::min<uint64_t>(neededGroups, static_cast<uint32_t>(maxGroupsX)));
+
+    glUseProgram(m_program);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer.Handle());
+    glUniform1ui(m_wordOffsetLocation, static_cast<GLuint>(offsetWords));
+    glUniform1ui(m_wordCountLocation, wordCount);
+    glUniform1ui(m_valueLocation, value);
+    glDispatchCompute(groupsX, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+    glUseProgram(0);
+    return CheckGl("storage-buffer fill", error);
+}
+
+void BufferFillKernel::Reset() {
+    if (m_program != 0) {
+        glDeleteProgram(m_program);
+    }
+    m_program = 0;
+    m_wordOffsetLocation = -1;
+    m_wordCountLocation = -1;
+    m_valueLocation = -1;
+}
+
 void MemoryBarrier(GLbitfield barriers) {
     glMemoryBarrier(barriers);
 }
