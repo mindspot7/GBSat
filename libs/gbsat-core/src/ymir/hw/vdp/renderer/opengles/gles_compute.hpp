@@ -5,11 +5,18 @@
 #include <EGL/egl.h>
 #include <GLES3/gl31.h>
 #include <cmrc/cmrc.hpp>
+#include <ymir/hw/vdp/renderer/vulkan/spirv_reflect.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#ifndef GL_TEXTURE_BUFFER
+#define GL_TEXTURE_BUFFER 0x8C2A
+#endif
 
 namespace ymir::vdp::gles {
 
@@ -25,17 +32,20 @@ public:
     ~Buffer();
 
     bool Create(GLenum target, GLsizeiptr size, const void *data, GLenum usage, std::string &error);
+    bool CreateTextureView(GLenum internalFormat, std::string &error);
     bool Upload(GLintptr offset, GLsizeiptr size, const void *data, std::string &error);
     void Reset();
 
     GLuint Handle() const { return m_handle; }
     GLsizeiptr Size() const { return m_size; }
     GLenum Target() const { return m_target; }
+    GLuint TextureView() const { return m_textureView; }
 
 private:
     GLuint m_handle = 0;
     GLsizeiptr m_size = 0;
     GLenum m_target = 0;
+    GLuint m_textureView = 0;
 };
 
 class Image {
@@ -70,6 +80,24 @@ private:
     uint32_t m_layers = 0;
 };
 
+struct ResourceRef {
+    const Buffer *buffer = nullptr;
+    const Image *image = nullptr;
+
+    ResourceRef(const Buffer &resource)
+        : buffer(&resource) {}
+    ResourceRef(const Image &resource)
+        : image(&resource) {}
+};
+
+struct DescriptorSet {
+    std::vector<ResourceRef> srvs;
+    std::vector<ResourceRef> uavs;
+};
+
+bool CreateDescriptorSet(const std::vector<vulkan::SpvBinding> &bindings, std::initializer_list<ResourceRef> srvs,
+                         std::initializer_list<ResourceRef> uavs, DescriptorSet &out, std::string &error);
+
 class ComputeProgram {
 public:
     ComputeProgram() = default;
@@ -79,13 +107,19 @@ public:
     ComputeProgram &operator=(ComputeProgram &&other) noexcept;
     ~ComputeProgram();
 
-    bool Load(std::string_view resourcePath, std::string_view label, std::string &error);
+    bool Load(std::string_view glesResourcePath, std::string_view spirvResourcePath, std::string_view label,
+              std::string &error);
     void Reset();
     void Use() const { glUseProgram(m_handle); }
     GLuint Handle() const { return m_handle; }
+    const std::vector<vulkan::SpvBinding> &Bindings() const { return m_bindings; }
+    bool Dispatch(const DescriptorSet &set, const Buffer &constantsBuffer, GLintptr constantsOffset,
+                  GLsizeiptr constantsSize, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ,
+                  std::string &error) const;
 
 private:
     GLuint m_handle = 0;
+    std::vector<vulkan::SpvBinding> m_bindings;
 };
 
 void MemoryBarrier(GLbitfield barriers = GL_ALL_BARRIER_BITS);

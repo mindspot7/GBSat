@@ -9,6 +9,7 @@ Header-only, no dependencies beyond the standard library and the Vulkan descript
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -28,6 +29,7 @@ struct SpvBinding {
     uint32_t set = 0;
     uint32_t binding = 0;
     SpvDescriptorKind kind = SpvDescriptorKind::StorageBuffer;
+    std::string name;
 };
 
 struct SpvReflection {
@@ -51,6 +53,7 @@ inline SpvReflection ReflectSpirv(const uint32_t *code, size_t wordCount) {
     };
     std::unordered_map<uint32_t, TypeInfo> types;
     std::unordered_map<uint32_t, uint32_t> setOf, bindingOf;
+    std::unordered_map<uint32_t, std::string> nameOf;
     struct Var {
         uint32_t id, type, storage;
     };
@@ -66,6 +69,17 @@ inline SpvReflection ReflectSpirv(const uint32_t *code, size_t wordCount) {
         }
         const uint32_t *p = &code[i + 1];
         switch (op) {
+        case 5: // OpName: target, null-terminated name
+            if (len >= 3) {
+                const char *name = reinterpret_cast<const char *>(&p[1]);
+                const size_t maxBytes = (len - 2) * sizeof(uint32_t);
+                const char *nameEnd = std::find(name, name + maxBytes, '\0');
+                if (nameEnd != name + maxBytes) {
+                    const size_t nameLength = static_cast<size_t>(nameEnd - name);
+                    nameOf[p[0]] = std::string(name, nameLength);
+                }
+            }
+            break;
         case 16: // OpExecutionMode: entry, mode, ...
             if (len >= 6 && p[1] == 17) { // LocalSize
                 out.localSize[0] = p[2];
@@ -131,6 +145,9 @@ inline SpvReflection ReflectSpirv(const uint32_t *code, size_t wordCount) {
         SpvBinding b{};
         b.set = setOf[v.id];
         b.binding = bindingOf[v.id];
+        if (const auto name = nameOf.find(v.id); name != nameOf.end()) {
+            b.name = name->second;
+        }
         if (ti.op == 25) {
             const bool storage = ti.b == 2;
             const bool buffer = ti.a == 5; // Dim::Buffer

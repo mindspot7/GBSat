@@ -28,8 +28,10 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 
 - Added the Android-only `OpenGLESVDPRenderer` Ymir type and the callback/context contract, without changing the selected renderer or app settings.
 - Added move-only GLES RAII wrappers for compute programs, buffers, and 2D/array images. Shader programs load from the packaged `ymir-core-gles-shaders` resource filesystem and report compile/link logs with shader labels.
-- `:app:externalNativeBuildDebug --rerun-tasks` passed for `arm64-v8a` after adding those resources to `ymir-core`. This verifies native compilation/linking of the compute resource layer only; no Saturn rendering is wired to it yet.
-- The remaining work is the Ymir GPU resource/descriptor mapping, compute dispatch and barriers, frame delivery to GBFrame's shared GLES target, and runtime correctness/performance validation.
+- Extended the small SPIR-V reflection helper to retain resource names, allowing GLES to assign translated combined-sampler uniforms to their original Ymir binding numbers. The GLES layer now maps reflected SRV/UAV bindings, buffer/image resources, compute dispatch, and memory barriers.
+- The mapping check over the packaged artifacts found names for all 5 SPIRV-Cross combined samplers among the 20 translated shaders.
+- `:app:externalNativeBuildDebug --rerun-tasks` passed for `arm64-v8a` after the resource and dispatch layer changes. This verifies native compilation/linking only; no Saturn rendering is wired to it yet.
+- The remaining work is Ymir's renderer resource allocation and synchronization, frame delivery to GBFrame's shared GLES target, wiring the API methods, and runtime correctness/performance validation.
 
 ## Existing-renderer baseline (RG Rotate)
 
