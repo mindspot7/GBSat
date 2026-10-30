@@ -1775,9 +1775,6 @@ JNI_FN(void, nativeSetOneField)(JNIEnv *, jclass, jboolean on) {
     }
 }
 
-JNI_FN(void, nativeSetHalfHeightBackgrounds)(JNIEnv *, jclass, jboolean on) {
-    util::waitstats::g_halfHeightBackgrounds.store(on, std::memory_order_relaxed);
-}
 JNI_FN(void, nativeSetThreadedVdp)(JNIEnv *, jclass, jboolean on) {
     if (g) {
         Post([on] {

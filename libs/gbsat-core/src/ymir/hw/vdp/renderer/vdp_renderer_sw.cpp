@@ -2746,31 +2746,23 @@ void SoftwareVDPRenderer::VDP2DrawLine(uint32 y, bool altField) {
         VDP2CalcWindows<deinterlace, false>(y, regs2);
     }
 
-    // In high-resolution double-density interlace, optionally reuse the previous VDP2 background line on alternate
-    // lines. VDP1 sprites and composition still run at full resolution. The option is experimental and intentionally
-    // limited to the software renderer; it trades vertical background detail for less raster work.
-    const bool halfHeightBackgrounds = util::waitstats::g_halfHeightBackgrounds.load(std::memory_order_relaxed) &&
-                                       interlaced && regs2.TVMD.LSMDn == InterlaceMode::DoubleDensity &&
-                                       m_VRes >= 448 && !m_exclusiveMonitor && !deinterlace && !altField;
-    const bool reuseBackgroundLine = halfHeightBackgrounds && (y & 1u) != 0;
-    if (!reuseBackgroundLine) {
-        if (regs2.bgEnabled[4] && regs2.bgEnabled[5]) {
-            VDP2DrawRotationBG<0>(regs2, colorMode, altField); // RBG0
-            VDP2DrawRotationBG<1>(regs2, colorMode, altField); // RBG1
+    // Draw background layers
+    if (regs2.bgEnabled[4] && regs2.bgEnabled[5]) {
+        VDP2DrawRotationBG<0>(regs2, colorMode, altField); // RBG0
+        VDP2DrawRotationBG<1>(regs2, colorMode, altField); // RBG1
+    } else {
+        VDP2DrawRotationBG<0>(regs2, colorMode, altField); // RBG0
+        VDP2DrawRotationBG<1>(regs2, colorMode, altField); // RBG1
+        if (interlaced) {
+            VDP2DrawNormalBG<0, deinterlace>(regs2, colorMode, altField); // NBG0
+            VDP2DrawNormalBG<1, deinterlace>(regs2, colorMode, altField); // NBG1
+            VDP2DrawNormalBG<2, deinterlace>(regs2, colorMode, altField); // NBG2
+            VDP2DrawNormalBG<3, deinterlace>(regs2, colorMode, altField); // NBG3
         } else {
-            VDP2DrawRotationBG<0>(regs2, colorMode, altField); // RBG0
-            VDP2DrawRotationBG<1>(regs2, colorMode, altField); // RBG1
-            if (interlaced) {
-                VDP2DrawNormalBG<0, deinterlace>(regs2, colorMode, altField); // NBG0
-                VDP2DrawNormalBG<1, deinterlace>(regs2, colorMode, altField); // NBG1
-                VDP2DrawNormalBG<2, deinterlace>(regs2, colorMode, altField); // NBG2
-                VDP2DrawNormalBG<3, deinterlace>(regs2, colorMode, altField); // NBG3
-            } else {
-                VDP2DrawNormalBG<0, false>(regs2, colorMode, altField); // NBG0
-                VDP2DrawNormalBG<1, false>(regs2, colorMode, altField); // NBG1
-                VDP2DrawNormalBG<2, false>(regs2, colorMode, altField); // NBG2
-                VDP2DrawNormalBG<3, false>(regs2, colorMode, altField); // NBG3
-            }
+            VDP2DrawNormalBG<0, false>(regs2, colorMode, altField); // NBG0
+            VDP2DrawNormalBG<1, false>(regs2, colorMode, altField); // NBG1
+            VDP2DrawNormalBG<2, false>(regs2, colorMode, altField); // NBG2
+            VDP2DrawNormalBG<3, false>(regs2, colorMode, altField); // NBG3
         }
     }
 

@@ -25,7 +25,6 @@ object NativeBridge {
     @JvmStatic external fun nativeReopenBackup(backupRamPath: String)
     @JvmStatic external fun nativeSetIdleSkip(on: Boolean)
     @JvmStatic external fun nativeSetOneField(on: Boolean)
-    @JvmStatic external fun nativeSetHalfHeightBackgrounds(on: Boolean)
     @JvmStatic external fun nativeSetThreadedVdp(on: Boolean)
     @JvmStatic external fun nativeSetResolutionScale(scale: Int)
     @JvmStatic external fun nativeSetDeinterlace(allowed: Boolean)
