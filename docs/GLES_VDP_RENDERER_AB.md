@@ -24,6 +24,17 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 6. Expose the experimental backend and 1x–4x scale in the shared GBFrame settings/quick menu only after the renderer initializes and produces correct frames; keep Vulkan and software selections available.
 7. Build and validate locally, then run paired tests on the RG Rotate from the same savestate and scene at 1x, 2x, 3x, and 4x. Compare emulation FPS, displayed FPS, frame time, GPU time, and output correctness. Use NiGHTS, Daytona, Virtua Fighter 2, Guardian Heroes, and Burning Rangers; record each run and leave defaults untouched.
 
+## Existing-renderer baseline (RG Rotate)
+
+On 2026-10-30, the installed build 420 ran Virtua Fighter 2's existing Slot 1 state in both current modes. Each mode produced 12 one-second samples at 1x, 704x448, with frameskip enabled and nearly identical median VDP1 command counts (310 CPU / 312 Vulkan).
+
+| Existing mode | Median emulation FPS | Median shown FPS | Median emulation ms/frame |
+| --- | ---: | ---: | ---: |
+| CPU renderer + OpenGL presenter | 60.0 | 29.9 | 9.28 |
+| Vulkan VDP renderer + OpenGL presenter | 56.7 | 30.8 | 17.94 |
+
+This is a useful device baseline, not the intended GPU-to-GPU comparison: “CPU (OpenGL)” means Ymir's software VDP renderer presented through OpenGL ES. During the Vulkan run, Ymir logged `AHardwareBuffer import failed; using CPU readback presentation`, so Vulkan's presentation path also fell back to CPU readback. The CPU-rendered route was modestly faster for this sampled scene; the result does not establish that an OpenGL compute VDP renderer would be faster than Vulkan. Raw performance log: `C:\.android\perf-log-rgrotate-before-gles.csv` (CPU window 18:02:54–18:03:05; Vulkan window 18:04:26–18:04:37). The device was returned to sleep after the run.
+
 ## Risks and acceptance
 
 - A GLES backend is a second GPU implementation, not a simple API switch. Shader translation, binding/resource mapping, barriers, context ownership, and driver behavior can all differ.
