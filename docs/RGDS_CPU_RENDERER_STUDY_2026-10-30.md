@@ -76,4 +76,4 @@ A separate 12-second `simpleperf stat --per-thread` capture on the normal signed
 
 No renderer optimization or diagnostic override from these experiments remains in source. The normal, signed build 420 was restored on the RG DS and at the local Gradle release APK path. No GitHub build was triggered for these measurements.
 
-Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. The app and core source trees contain no temporary profile flags or experimental renderer changes.
+Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. The latest frequency check is in `vf2-cpu-frequency-20261030.csv`, `vf2-thermal-20261030.txt` and `vf2-frequency-perf-log.csv`; the hardware-counter run is `vf2-hw-counters-20261030.txt`. The app and core source trees contain no temporary profile flags or experimental renderer changes.
