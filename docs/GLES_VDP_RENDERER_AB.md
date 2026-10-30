@@ -1,6 +1,6 @@
 # Experimental GLES VDP renderer A/B
 
-Status: shader-port spike is complete on branch `codex/gles-vdp-ab`; the GLES VDP backend and UI are not implemented yet.
+Status: shader translation and the GBFrame shared-context/AHardwareBuffer contract are complete on branch `codex/gles-vdp-ab`. The Ymir GLES VDP backend is not implemented yet.
 
 ## Goal
 
@@ -11,7 +11,8 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 - `SoftwareVDPRenderer` composes the Saturn frame on the CPU at the emulated output resolution. The Android OpenGL ES presenter displays that completed frame; scaling its texture would not increase Saturn rendering detail.
 - `VulkanVDPRenderer` runs Ymir VDP1/VDP2 compute shaders on the GPU. Its HLSL sources are compiled to SPIR-V, and its hardware renderer supports internal scaling.
 - The shared GBFrame presenter already displays Vulkan output through `AHardwareBuffer`/EGLImage, with a CPU readback fallback. An A/B backend must preserve GPU-to-GPU delivery so readback does not distort the result.
-- The current GBFrame EGL context requests OpenGL ES 3. A GLES compute backend needs ES 3.1; the context and context-sharing/lifetime contract need to be designed before enabling the renderer.
+- GBFrame commit `1274a71` adds a shared GLES render context, GPU-writable AHardwareBuffer targets, and shared GL-sync handoff to its presenter. Its EGL config prefers window+pbuffer support and falls back to the old window-only config, leaving the GLES VDP path unavailable on devices without a pbuffer.
+- Local `:app:externalNativeBuildDebug` passed with that GBFrame commit integrated. This validates the current interface compiles in the Android app; it does not yet exercise the shared context on-device.
 
 ## Implementation route
 
