@@ -102,6 +102,25 @@ During the earlier build 425 run, Mali's GLES driver aborted in `glReadPixels` a
 
 The actionable bottleneck in the controlled GLES run is CPU time spent updating Ymir buffers, and the direct route made that worse for this scene. The renderer remains experimental and its resolution-scaling comparison is deferred. Raw logs: `C:\.android\perf-log-rgrotate-build426.csv` and `C:\.android\perf-log-rgrotate-build427-staging.csv`. Both were local validation builds; no GitHub build was started.
 
+### RG Rotate follow-up (builds 428–432)
+
+The next pass used the Virtua Fighter 2 ROM intent and its automatically loaded gameplay state. It found two distinct correctness issues:
+
+1. GBFrame tracked the GLES producer's in-flight AHardwareBuffer with one global `writingSlot`. Ymir can acquire another target before delivering an earlier frame, so a later acquire could replace that reservation and invalidate the earlier submission. GBFrame now tracks the writer on each slot. Build 430 confirmed that target submissions reached the presenter after this fix.
+2. Ymir's final GLES composite remained black. In build 432, one-time probes found nonzero pixels in VDP2 layer outputs (L0: 5/25, L1: 5/25, L4: 5/25, L6: 1/25), while the completed composite was zero in all 25 samples. The remaining image failure is in Ymir's GLES composition path, before GBFrame presentation. The temporary probes were removed after the measurement.
+
+Build 430–432 profiles were collected on the RG Rotate (T618/Mali-G52), Virtua Fighter 2, 1x, CPU sync Fast, SH-2 JIT on, threaded VDP on, threaded audio off, frameskip off, nearest filter, and GTU shader. The game changed its active output mode during the run (GLES 320x224; CPU/Vulkan 352x240), so these same-save-state samples are directional rather than frame-identical.
+
+| Renderer | Samples | Median emulation FPS | Median shown FPS | Median emulation frame time | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| CPU VDP + OpenGL presenter | 14 | 60.0 | 30.4 | 8.59 ms | Correct image |
+| Vulkan VDP | 15 | 51.3 | 51.5 | 19.65 ms | Correct image |
+| Experimental GLES VDP | 13 | 12.2 | 0.0 | 81.09 ms | Black output; not a valid performance comparison |
+
+The GLES sample spent a median 59.25 ms/frame uploading buffers, with 14 uploads/frame; dispatch submission cost was 8.72 ms/frame. Since the output is black, this rate cannot be used to judge the renderer's real performance, and no 2x–4x result can be interpreted. Keep GLES opt-in and experimental until the composition shader produces the expected image and shown FPS.
+
+Raw logs: `C:\.android\gles-buffer-probe-build430.csv`, `vf2-cpu-build432.csv`, and `vf2-vulkan-build432.csv`. Builds 428–432 were local; no GitHub build was started.
+
 ## Risks and acceptance
 
 - A GLES backend is a second GPU implementation, not a simple API switch. Shader translation, binding/resource mapping, barriers, context ownership, and driver behavior can all differ.
