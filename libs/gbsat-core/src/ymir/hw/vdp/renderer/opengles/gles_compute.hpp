@@ -37,6 +37,7 @@ public:
     bool Create(GLenum target, GLsizeiptr size, const void *data, GLenum usage, std::string &error);
     bool CreateTextureView(GLenum internalFormat, std::string &error);
     bool Upload(GLintptr offset, GLsizeiptr size, const void *data, std::string &error);
+    bool Readback(GLintptr offset, GLsizeiptr size, void *data, std::string &error);
     void Reset();
 
     GLuint Handle() const { return m_handle; }

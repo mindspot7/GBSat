@@ -118,6 +118,34 @@ bool Buffer::Upload(GLintptr offset, GLsizeiptr size, const void *data, std::str
     return CheckGl("buffer upload", error);
 }
 
+bool Buffer::Readback(GLintptr offset, GLsizeiptr size, void *data, std::string &error) {
+    if (m_handle == 0 || data == nullptr || offset < 0 || size < 0 || offset > m_size || size > m_size - offset) {
+        error = "GLES buffer readback is outside the allocated range";
+        return false;
+    }
+    if (size == 0) {
+        return true;
+    }
+
+    // Force prior shader writes to become visible to buffer mapping. Mapping is intentionally synchronous; callers
+    // use it only at VDP readback/save/debug synchronization points, not on the per-frame present path.
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+    glBindBuffer(m_target, m_handle);
+    void *mapped = glMapBufferRange(m_target, offset, size, GL_MAP_READ_BIT);
+    if (mapped == nullptr) {
+        error = "GLES buffer readback mapping failed";
+        return false;
+    }
+
+    std::memcpy(data, mapped, static_cast<size_t>(size));
+    const GLboolean unmapped = glUnmapBuffer(m_target);
+    if (unmapped != GL_TRUE) {
+        error = "GLES buffer contents became invalid while mapped for readback";
+        return false;
+    }
+    return CheckGl("buffer readback", error);
+}
+
 bool Buffer::CreateTextureView(GLenum internalFormat, std::string &error) {
     if (m_handle == 0) {
         error = "Cannot create a texture view for an uninitialized GLES buffer";

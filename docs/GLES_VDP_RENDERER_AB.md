@@ -28,6 +28,7 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 
 - Added the Android-only `OpenGLESVDPRenderer` Ymir type and the callback/context contract, without changing the selected renderer or app settings.
 - Added move-only GLES RAII wrappers for compute programs, buffers, and 2D/array images. Shader programs load from the packaged `ymir-core-gles-shaders` resource filesystem and report compile/link logs with shader labels.
+- Added a synchronous `gles::Buffer::Readback` path that maps only at explicit readback/debug/save synchronization points; it inserts shader/buffer visibility barriers and avoids any CPU copy on normal frame submission. The Android arm64 native build passed after this addition. It is not wired into a Ymir renderer yet.
 - Extended the small SPIR-V reflection helper to retain resource names, allowing GLES to assign translated combined-sampler uniforms to their original Ymir binding numbers. The GLES layer now maps reflected SRV/UAV bindings, buffer/image resources, compute dispatch, and memory barriers.
 - Added an Android frame-target wrapper that imports GBFrame's `AHardwareBuffer` as an EGLImage, copies the completed GLES image into it, and emits the shared-context GLsync fence expected by GBFrame.
 - On 2026-10-30, an RG Rotate GLES 3.2 probe compiled/linked all 20 translated shaders and resolved every combined sampler uniform from the matching SPIR-V binding names (5 combined samplers total). This validates shader program setup on the Mali-G52, not Ymir rendering.
