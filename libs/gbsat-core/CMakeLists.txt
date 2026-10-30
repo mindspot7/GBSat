@@ -533,6 +533,10 @@ target_link_libraries(ymir-core PUBLIC
 if (ANDROID)
     target_link_libraries(ymir-core PUBLIC ymir-core::gles-shaders)
     target_link_libraries(ymir-core PRIVATE EGL GLESv3 android)
+    target_sources(ymir-core PRIVATE
+        src/ymir/hw/vdp/renderer/opengles/gles_compute.hpp
+        src/ymir/hw/vdp/renderer/opengles/gles_compute.cpp
+    )
 endif ()
 if (WIN32)
     target_link_libraries(ymir-core PUBLIC

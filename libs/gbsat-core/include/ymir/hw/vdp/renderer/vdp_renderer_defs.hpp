@@ -19,6 +19,9 @@ enum class VDPRendererType {
 #if YMIR_PLATFORM_HAS_VULKAN
     Vulkan,
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    OpenGLES,
+#endif
 };
 
 /// @brief Retrieves the name of a given VDP renderer type.
@@ -34,6 +37,9 @@ inline std::string_view GetRendererName(VDPRendererType type) {
 #if YMIR_PLATFORM_HAS_VULKAN
     case VDPRendererType::Vulkan: return "Vulkan";
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    case VDPRendererType::OpenGLES: return "OpenGL ES compute";
+#endif
     default: return "Invalid";
     }
 }
@@ -48,6 +54,9 @@ inline constexpr VDPRendererType kRendererTypes[] = {
 #if YMIR_PLATFORM_HAS_VULKAN
     VDPRendererType::Vulkan,
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    VDPRendererType::OpenGLES,
+#endif
 };
 
 // Forward declarations of concrete VDP renderer implementations.
@@ -61,6 +70,9 @@ class Direct3D12VDPRenderer;
 #endif
 #if YMIR_PLATFORM_HAS_VULKAN
 class VulkanVDPRenderer;
+#endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+class OpenGLESVDPRenderer;
 #endif
 
 namespace detail {
@@ -95,6 +107,13 @@ namespace detail {
     template <>
     struct VDPRendererTypeMeta<VDPRendererType::Vulkan> {
         using type = VulkanVDPRenderer;
+    };
+#endif
+
+#if YMIR_PLATFORM_HAS_OPENGLES
+    template <>
+    struct VDPRendererTypeMeta<VDPRendererType::OpenGLES> {
+        using type = OpenGLESVDPRenderer;
     };
 #endif
 

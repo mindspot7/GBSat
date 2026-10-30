@@ -8,3 +8,6 @@
 #if YMIR_PLATFORM_HAS_VULKAN
     #include "vdp_renderer_hw_vulkan.hpp"
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    #include "vdp_renderer_hw_opengles.hpp"
+#endif

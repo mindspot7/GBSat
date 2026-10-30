@@ -1,6 +1,6 @@
 # Experimental GLES VDP renderer A/B
 
-Status: shader translation and the GBFrame shared-context/AHardwareBuffer contract are complete on branch `codex/gles-vdp-ab`. The Ymir GLES VDP backend is not implemented yet.
+Status: shader translation and the GBFrame shared-context/AHardwareBuffer contract are complete on branch `codex/gles-vdp-ab`. The Ymir GLES VDP backend is under implementation; it is not selectable and does not render Saturn frames yet.
 
 ## Goal
 
@@ -23,6 +23,13 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 5. Deliver completed GLES frames to the existing presenter without CPU readback. Preserve instrumentation and frame scale metadata.
 6. Expose the experimental backend and 1x–4x scale in the shared GBFrame settings/quick menu only after the renderer initializes and produces correct frames; keep Vulkan and software selections available.
 7. Build and validate locally, then run paired tests on the RG Rotate from the same savestate and scene at 1x, 2x, 3x, and 4x. Compare emulation FPS, displayed FPS, frame time, GPU time, and output correctness. Use NiGHTS, Daytona, Virtua Fighter 2, Guardian Heroes, and Burning Rangers; record each run and leave defaults untouched.
+
+## Current implementation checkpoint
+
+- Added the Android-only `OpenGLESVDPRenderer` Ymir type and the callback/context contract, without changing the selected renderer or app settings.
+- Added move-only GLES RAII wrappers for compute programs, buffers, and 2D/array images. Shader programs load from the packaged `ymir-core-gles-shaders` resource filesystem and report compile/link logs with shader labels.
+- `:app:externalNativeBuildDebug --rerun-tasks` passed for `arm64-v8a` after adding those resources to `ymir-core`. This verifies native compilation/linking of the compute resource layer only; no Saturn rendering is wired to it yet.
+- The remaining work is the Ymir GPU resource/descriptor mapping, compute dispatch and barriers, frame delivery to GBFrame's shared GLES target, and runtime correctness/performance validation.
 
 ## Existing-renderer baseline (RG Rotate)
 

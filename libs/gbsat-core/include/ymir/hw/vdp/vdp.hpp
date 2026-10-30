@@ -15,6 +15,9 @@
 #if YMIR_PLATFORM_HAS_VULKAN
     #include "renderer/vdp_renderer_hw_vulkan_callbacks.hpp"
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    #include "renderer/vdp_renderer_hw_opengles_callbacks.hpp"
+#endif
 
 #include "vdp_devlog.hpp"
 
@@ -208,6 +211,28 @@ public:
     }
 #endif
 
+#if YMIR_PLATFORM_HAS_OPENGLES
+    /// @brief Switches to the experimental OpenGL ES compute renderer.
+    util::PointerResult<OpenGLESVDPRenderer> UseOpenGLESRenderer(const OpenGLESRendererContext &context) {
+        return UseRenderer<OpenGLESVDPRenderer>(m_state, vdp2DebugRenderOptions, vdp2AccessPatternsConfig, context);
+    }
+
+    void SetOpenGLESFrameTargetCallbacks(CBOpenGLESFrameTargetAcquireCallback acquire,
+                                         CBOpenGLESFrameTargetReadyCallback ready,
+                                         CBOpenGLESFrameTargetCancelCallback cancel) {
+        auto apply = [&](OpenGLESRendererCallbacks &callbacks) {
+            callbacks.FrameTargetAcquire = acquire;
+            callbacks.FrameTargetReady = ready;
+            callbacks.FrameTargetCancel = cancel;
+        };
+        if (auto *renderer = m_renderer->As<VDPRendererType::OpenGLES>()) {
+            apply(renderer->HwCallbacks);
+        } else {
+            m_openGLESRendererCallbacks = {acquire, ready, cancel};
+        }
+    }
+#endif
+
     /// @brief Retrieves the enhancements configured for this VDP instance.
     /// @return the current enhancements configuration
     const config::Enhancements &GetEnhancements() const {
@@ -363,6 +388,11 @@ private:
             m_vulkanRendererCallbacks = hwRenderer->HwCallbacks;
         }
 #endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+        if (OpenGLESVDPRenderer *hwRenderer = m_renderer->As<VDPRendererType::OpenGLES>()) {
+            m_openGLESRendererCallbacks = hwRenderer->HwCallbacks;
+        }
+#endif
 
         renderer->Callbacks = callbacks;
         if constexpr (std::is_same_v<T, SoftwareVDPRenderer>) {
@@ -374,6 +404,10 @@ private:
 #if YMIR_PLATFORM_HAS_VULKAN
         } else if constexpr (std::is_same_v<T, VulkanVDPRenderer>) {
             renderer->HwCallbacks = m_vulkanRendererCallbacks;
+#endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+        } else if constexpr (std::is_same_v<T, OpenGLESVDPRenderer>) {
+            renderer->HwCallbacks = m_openGLESRendererCallbacks;
 #endif
         }
         renderer->ConfigureEnhancements(m_enhancements);
@@ -417,6 +451,9 @@ private:
 #endif
 #if YMIR_PLATFORM_HAS_VULKAN
     VulkanRendererCallbacks m_vulkanRendererCallbacks;
+#endif
+#if YMIR_PLATFORM_HAS_OPENGLES
+    OpenGLESRendererCallbacks m_openGLESRendererCallbacks;
 #endif
 
     // -------------------------------------------------------------------------
