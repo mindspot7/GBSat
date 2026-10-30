@@ -5,6 +5,7 @@ import android.app.Application
 class GBSatApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        gb.frame.LauncherIconCompatibility.applyFromMetadata(this)
         @Suppress("DEPRECATION") externalMediaDirs // creates Android/media/<app> (PGO training build output)
         Thread({
             try {
