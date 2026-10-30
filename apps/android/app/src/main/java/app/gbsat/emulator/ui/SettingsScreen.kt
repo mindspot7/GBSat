@@ -272,8 +272,7 @@ private fun PerformancePage() {
         InfoRow("Recommended preset", "${Emulator.recommendedPreset.label}, applied on first run")
     }
     SettingsGroup("Speed", Icons.Default.Speed) {
-        ToggleRow(Icons.Default.SkipNext, "Adaptive graphics", "Automatically skips rendering only while the game is below its speed target. Audio keeps its normal pace; Fast Forward stays separate.",
-            Emulator.frameSkip, ch { Emulator.frameSkip = it })
+        AdaptiveGraphicsSettingsRow(Emulator.frameSkip, ch { Emulator.frameSkip = it })
         SettingsDivider()
         val cdSpeeds = listOf(2, 4, 8, 16)
         ChoiceRow("CD read speed", "Shorter loading screens. Videos and music streamed from the CD switch back to the original speed; use Original if one still goes out of sync",
