@@ -505,6 +505,18 @@ cmrc_add_resource_library(ymir-core-shaders
     ${COMPILED_SHADERS}
 )
 
+if (ANDROID)
+    file(GLOB GLES_COMPUTE_SHADERS CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/gles/vdp/*.comp.glsl"
+    )
+    cmrc_add_resource_library(ymir-core-gles-shaders
+        ALIAS ymir-core::gles-shaders
+        NAMESPACE ymir_core_gles_shaders
+        WHENCE "${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/gles"
+        ${GLES_COMPUTE_SHADERS}
+    )
+endif ()
+
 
 ## Add dependencies
 target_link_libraries(ymir-core PUBLIC
@@ -518,6 +530,10 @@ target_link_libraries(ymir-core PUBLIC
     stb::stb
     dr_libs::dr_libs
 )
+if (ANDROID)
+    target_link_libraries(ymir-core PUBLIC ymir-core::gles-shaders)
+    target_link_libraries(ymir-core PRIVATE EGL GLESv3 android)
+endif ()
 if (WIN32)
     target_link_libraries(ymir-core PUBLIC
         synchronization  # for WaitOnAddress and WakeByAddressAll
@@ -638,6 +654,7 @@ target_compile_definitions(ymir-core PUBLIC "Ymir_DEV_ASSERTIONS=$<BOOL:${Ymir_E
 target_compile_definitions(ymir-core PUBLIC "Ymir_EXTRA_INLINING=$<BOOL:${Ymir_EXTRA_INLINING}>")
 target_compile_definitions(ymir-core PUBLIC "YMIR_PLATFORM_HAS_DIRECT3D=$<BOOL:${WIN32}>")
 target_compile_definitions(ymir-core PUBLIC "YMIR_PLATFORM_HAS_VULKAN=$<BOOL:${Vulkan_FOUND}>")
+target_compile_definitions(ymir-core PUBLIC "YMIR_PLATFORM_HAS_OPENGLES=$<BOOL:${ANDROID}>")
 target_compile_definitions(ymir-core PUBLIC "YMIR_PLATFORM_HAS_METAL=$<BOOL:${APPLE}>")
 target_compile_definitions(ymir-core PUBLIC "TOML_EXCEPTIONS=0")
 
