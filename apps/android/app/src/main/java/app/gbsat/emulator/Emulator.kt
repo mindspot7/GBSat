@@ -690,11 +690,14 @@ object Emulator {
         // Escape hatches for games that misbehave (no user option): applied even when the user chose other settings
         idleSkip = profile["idleSkip"] as? Boolean ?: true
         threadedVdp = profile["threadedVdp"] as? Boolean ?: true
-        // The threaded audio choices were measured on chips with 2 fast cores, where sound and the background renderer compete
-        // for the second one; with 3+ (e.g. Snapdragon 662 in the Low class) both get a core and Auto decides
-        if (device.fastCores <= 2) (profile["threadedAudio"] as? Boolean)?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
-        // Auto threaded audio: what the tuner measured for this game on this device beats the profile
-        if (prefs.contains("scsp3:$path")) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
+        // The profile can specify a measured choice for Entry devices as well as devices with <=2 fast cores.
+        val profileThreadedAudio = profile["threadedAudio"] as? Boolean
+        val entryThreadedRecommendation = device.tier == gb.frame.DeviceTier.Tier.Entry && profileThreadedAudio != null
+        if (device.fastCores <= 2 || device.tier == gb.frame.DeviceTier.Tier.Entry) {
+            profileThreadedAudio?.let { on -> if (sm == 0) { startThreaded = on; audioKnown = true } else sm = if (on) 1 else 2 }
+        }
+        // A tested Entry-tier profile supersedes an older Auto result for that game; user On/Off choices still win below.
+        if (prefs.contains("scsp3:$path") && !entryThreadedRecommendation) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win
         var userChoice = false
         if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 4 || saved == 2) 4 else 1; userChoice = true }

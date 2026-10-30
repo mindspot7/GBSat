@@ -66,6 +66,23 @@ The renderer remained CPU (OpenGL), with threaded VDP on and adaptive frame skip
 
 Filtering the same simpleperf profiles by CPU confirms the existing affinity policy: on VF2 with SCSP on, 94.6% of the emulation thread's CPU samples were on CPU 3 while SCSP, VDP1 and VDP2 shared CPUs 0–2. With SCSP off, 99.3% of its samples were on CPU 3 while render workers remained on CPUs 0–2. This supports keeping the current placement; it describes where the thread ran, not continuous saturation of CPU 3.
 
+## NiGHTS on the RG DS — SCSP A/B and profile fix
+
+NiGHTS was relaunched through its ROM intent and the existing gameplay savestate was confirmed loaded on every run. CPU/OpenGL, Low, 1x, threaded VDP, adaptive frame skip, Fast 128-cycle sync and the SH-2 JIT stayed fixed. A/B/B/A runs changed only threaded SCSP; each run started from the same saved state. To reduce scene variation, results below use the 250–349 VDP1-command bucket:
+
+| Run | SCSP | Samples | Median emu FPS | Frame ms | Sound scheduler ms | Emu CPU % | SCSP CPU % | Audio underruns/s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| A1 | Off | 16 | 36.8 | 27.56 | 11.29 | 97 | 0 | 44 |
+| B1 | On | 17 | 49.2 | 19.98 | 0.69 | 74 | 51 | 29 |
+| B2 | On | 12 | 48.6 | 20.01 | 0.79 | 72 | 50 | 32 |
+| A2 | Off | 10 | 36.8 | 26.35 | 11.30 | 97 | 0 | 44 |
+
+Combined medians were 36.8 -> 48.7 emu FPS (+32%), 26.56 -> 19.99 ms/frame, 11.29 -> 0.74 ms in the sound scheduler, and 44 -> 31 audio underruns/s. SCSP wait when threaded on was about 4.2 ms, while VDP1/VDP2 waits stayed below 0.2 ms. The CPU emulation thread was the bottleneck; its work was reduced by moving SCSP execution off it. The result repeated across both On runs and both Off runs.
+
+The Auto path had kept an old per-game Off result, and GBSat applied `threadedAudio` profiles only to devices with at most two fast cores. The RG DS is Entry (four Cortex-A55 cores), so NiGHTS's existing `low.threadedAudio=true` recommendation was skipped. GBSat now accepts a measured Entry-tier SCSP recommendation and lets it supersede a cached Auto result; an explicit per-game On/Off choice still wins. NiGHTS has `entry.threadedAudio=true` in `game_profiles.json`.
+
+Local release build 420 passed the app and GBFrame unit suites and vital lint, then was installed over the existing app without clearing data. A fresh intent launch again loaded the savestate; with the UI still set to Auto, perf logs confirmed `threaded_scsp=1`. The 33-row post-install capture measured 50.3 median emu FPS, 20.27 ms/frame, 0.63 ms sound scheduler time and 28 median audio underruns/s. This validates the profile selection and matches the A/B direction. No GitHub build was run.
+
 ## CPU frequency, thermal state and hardware counters
 
 With the same VF2 gameplay state loaded, 25 one-second samples of `scaling_cur_freq` reported 1,992,000 kHz on all four CPUs. The RK3568 exposes one `cpufreq-dt` policy covering CPUs 0–3, with the `performance` governor and a 1,992,000 kHz maximum. Thermal status was 0; the final CPU/SoC reading was 60.0 °C, below the reported 70 °C hot-throttling threshold. This capture shows no evidence that clock scaling or thermal throttling limited this workload. The frequency value is the kernel driver's reported rate, not an independent clock probe.
@@ -74,6 +91,6 @@ A separate 12-second `simpleperf stat --per-thread` capture on the normal signed
 
 ## Decision and status
 
-No renderer optimization or diagnostic override from these experiments remains in source. The normal, signed build 420 was restored on the RG DS and at the local Gradle release APK path. No GitHub build was triggered for these measurements.
+No experimental renderer code or diagnostic override from these experiments remains in source. The measured NiGHTS Entry-tier SCSP recommendation is retained. Local signed build 420 with this recommendation is installed on the RG DS and at the Gradle release APK path. The device was returned to sleep. No GitHub build was triggered for these measurements.
 
-Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. The latest frequency check is in `vf2-cpu-frequency-20261030.csv`, `vf2-thermal-20261030.txt` and `vf2-frequency-perf-log.csv`; the hardware-counter run is `vf2-hw-counters-20261030.txt`. The app and core source trees contain no temporary profile flags or experimental renderer changes.
+Raw VDP1/VDP2 captures, SCSP A/B CSVs, frequency samples, hardware-counter output, `simpleperf` reports, address maps and run logs are preserved locally under `C:\.android\gbsat_vdp1clip_ab` and `C:\.android\gbsat_cpu_profile`. NiGHTS SCSP captures are `nights-scsp-off-A1-20261030.csv`, `nights-scsp-on-B1-20261030.csv`, `nights-scsp-on-B2-20261030.csv` and `nights-scsp-off-A2-20261030.csv`; the installed-profile validation is `nights-entry-profile-validate-20261030.csv`. The latest frequency check is in `vf2-cpu-frequency-20261030.csv`, `vf2-thermal-20261030.txt` and `vf2-frequency-perf-log.csv`; the hardware-counter run is `vf2-hw-counters-20261030.txt`. The app and core source trees contain no temporary profile flags or experimental renderer changes.

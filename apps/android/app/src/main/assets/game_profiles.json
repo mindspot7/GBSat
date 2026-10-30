@@ -15,7 +15,8 @@
     },
     {
       "titles": ["NIGHTS", "NiGHTS"],
-      "low": { "renderer": "cpu", "threadedAudio": true }
+      "low": { "renderer": "cpu", "threadedAudio": true },
+      "entry": { "threadedAudio": true }
     }
   ]
 }
