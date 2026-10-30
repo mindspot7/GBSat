@@ -45,6 +45,17 @@ On 2026-10-30, the installed build 420 ran Virtua Fighter 2's existing Slot 1 st
 
 This is a useful device baseline, not the intended GPU-to-GPU comparison: “CPU (OpenGL)” means Ymir's software VDP renderer presented through OpenGL ES. During the Vulkan run, Ymir logged `AHardwareBuffer import failed; using CPU readback presentation`, so Vulkan's presentation path also fell back to CPU readback. The CPU-rendered route was modestly faster for this sampled scene; the result does not establish that an OpenGL compute VDP renderer would be faster than Vulkan. Raw performance log: `C:\.android\perf-log-rgrotate-before-gles.csv` (CPU window 18:02:54–18:03:05; Vulkan window 18:04:26–18:04:37). The device was returned to sleep after the run.
 
+### Repeat check on the current installed build
+
+On 2026-10-30, Virtua Fighter 2 Slot 1 was relaunched from its saved state for two runs in each existing renderer. Order was Vulkan → CPU/OpenGL → Vulkan → CPU/OpenGL. Each run collected 15–20 one-second samples at 1x and 704×448. The app reported `frameskip=on`, `CPU sync=fast`, `SH-2 JIT=on`, `threaded VDP=on`, and `CRT Royale`; both Vulkan launches logged the AHardwareBuffer import failure and used CPU readback.
+
+| Renderer | Run 1, median FPS / frame time | Run 2, median FPS / frame time | Last 10 samples, median FPS / frame time |
+| --- | ---: | ---: | ---: |
+| CPU VDP + OpenGL ES presenter | 60.3 / 9.9 ms | 60.5 / 9.8 ms | 60.4–60.5 / 9.7–9.8 ms |
+| Vulkan VDP + OpenGL ES presenter | 50.8 / 19.8 ms | 41.5 / 23.9 ms | 52.8 / 20.1 ms; 41.5 / 25.7 ms |
+
+The CPU route repeated consistently near the 60 FPS target. Vulkan varied more and remained slower in both runs; its GPU fence wait was a median 8.7 ms and 12.8 ms in each run's last 10 samples. This is a comparison of the available CPU and Vulkan VDP paths, not an OpenGL compute VDP A/B. The result is also specific to this VF2 state and scene. Raw logs: `C:\.android\renderer-ab-cpu.csv`, `renderer-ab-cpu-2.csv`, `renderer-ab-vulkan.csv`, and `renderer-ab-vulkan-2.csv`.
+
 ## Risks and acceptance
 
 - A GLES backend is a second GPU implementation, not a simple API switch. Shader translation, binding/resource mapping, barriers, context ownership, and driver behavior can all differ.
