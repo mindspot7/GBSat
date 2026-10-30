@@ -11,7 +11,8 @@
     },
     {
       "titles": ["BURNING RANGERS"],
-      "low": { "renderer": "cpu", "threadedAudio": true }
+      "low": { "renderer": "cpu", "threadedAudio": true },
+      "entry": { "threadedAudio": true }
     },
     {
       "titles": ["NIGHTS", "NiGHTS"],

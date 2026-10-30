@@ -64,6 +64,10 @@ A temporary `debug.gbsat.force_scsp` switch forced the SCSP worker on or off wit
 
 The renderer remained CPU (OpenGL), with threaded VDP on and adaptive frame skip. `audio_xruns` stayed at zero in all four groups. Turning off the worker removes `wait_sound_ms` but shifts SCSP work onto the SH-2 emulation thread; FPS falls and audio underruns rise. Keep automatic/per-game threaded audio behavior on this device. Do not treat `wait_sound_ms` by itself as evidence that disabling the SCSP thread will improve speed.
 
+The same RG DS measurements justify `threadedAudio=true` for Burning Rangers on Entry devices: its existing low-tier profile already recommends threaded SCSP, but that recommendation was skipped for four-A55 Entry devices just like NiGHTS. The measured results were 30.9 FPS On vs 25.6 Off, with fewer audio underruns (50 vs 54/s). The Entry profile now carries this tested setting too.
+
+After the Entry profile update, local signed build 420 passed the app/GBFrame unit suites and vital lint, then was installed over the existing app. A fresh Burning Rangers intent launch confirmed the savestate loaded and, with the UI set to Auto, perf-log rows reported `threaded_scsp=1`. The 20-row confirmation capture had 34.9 median emu FPS, 32.88 ms/frame and 47 median audio underruns/s. This verifies profile selection; it is not a new A/B comparison. No GitHub build was run.
+
 Filtering the same simpleperf profiles by CPU confirms the existing affinity policy: on VF2 with SCSP on, 94.6% of the emulation thread's CPU samples were on CPU 3 while SCSP, VDP1 and VDP2 shared CPUs 0–2. With SCSP off, 99.3% of its samples were on CPU 3 while render workers remained on CPUs 0–2. This supports keeping the current placement; it describes where the thread ran, not continuous saturation of CPU 3.
 
 ## NiGHTS on the RG DS — SCSP A/B and profile fix
