@@ -72,6 +72,14 @@ constexpr size_t kNumFrames = 2;
 /// @brief Size of each per-frame host-visible upload buffer, in bytes. Also holds the per-dispatch shader constants.
 constexpr VkDeviceSize kUploadBufferSize = 8 * 1024 * 1024;
 
+/// @brief std430-compatible VDP1 span layout used by the GLES compute shaders.
+/// The translated GLSL stores each uvec3 at a 16-byte aligned offset, unlike the compact 48-byte HLSL CPU struct.
+struct alignas(16) GlesVDP1SpanParams {
+    std::array<uint32, 16> words{};
+};
+static_assert(sizeof(VDP1SpanParams) == 48);
+static_assert(sizeof(GlesVDP1SpanParams) == 64);
+
 /// @brief Size reserved for the shader constants of each dispatch (D3D12 root constants are limited to 256 bytes).
 constexpr VkDeviceSize kConstRange = 256;
 
@@ -490,6 +498,7 @@ struct OpenGLESVDPRenderer::Impl {
         GpuBuffer spanParamsBuffer;
         GpuBuffer spanPrefixSumsBuffer;
         std::array<VDP1SpanParams, kMaxVDP1Spans> cpuSpanParams{};
+        std::array<GlesVDP1SpanParams, kMaxVDP1Spans> glesSpanParams{};
         std::array<HLSLuint, kMaxVDP1Spans + 1> cpuSpanPrefixSums{};
         size_t cpuSpanCount = 0;
         GpuBuffer cmdParamsBuffer;
@@ -612,8 +621,10 @@ struct OpenGLESVDPRenderer::Impl {
         GLenum internalFormat = 0;
         switch (format) {
         case VK_FORMAT_R8G8B8A8_UINT: internalFormat = GL_RGBA8UI; break;
-        case VK_FORMAT_R8_UINT: internalFormat = GL_R8UI; break;
-        case VK_FORMAT_R16_UINT: internalFormat = GL_R16UI; break;
+        // GLES image load/store requires the matching 32-bit shader image format used by the translated shaders.
+        // The shader writes scalar uint values, so widening these textures preserves their logical contents.
+        case VK_FORMAT_R8_UINT: internalFormat = GL_R32UI; break;
+        case VK_FORMAT_R16_UINT: internalFormat = GL_R32UI; break;
         case VK_FORMAT_R8G8B8A8_UNORM: internalFormat = GL_RGBA8; break;
         default:
             return util::ErrorMessage{fmt::format("Unsupported GLES image format for {}", name)};
@@ -1041,7 +1052,7 @@ struct OpenGLESVDPRenderer::Impl {
                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true,
                                      VK_FORMAT_UNDEFINED, "Upload" + sfx));
             // VDP1
-            YMIR_VK_TRY(CreateBuffer(f.spanParamsBuffer, sizeof(VDP1SpanParams) * f.cpuSpanParams.size(), kSSBO, false,
+            YMIR_VK_TRY(CreateBuffer(f.spanParamsBuffer, sizeof(GlesVDP1SpanParams) * f.cpuSpanParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 span params" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.spanPrefixSumsBuffer, sizeof(HLSLuint) * f.cpuSpanPrefixSums.size(),
                                      kUniformTexel | kSSBO, false, VK_FORMAT_R32_UINT, "VDP1 span prefix sums" + sfx));
@@ -1595,8 +1606,19 @@ struct OpenGLESVDPRenderer::Impl {
         }
 
         // NOTE: uploads may flush the GPU (SubmitAndWait) but never switch frames, so frameCtx stays valid
-        if (auto result = UploadToBuffer(frameCtx.spanParamsBuffer, 0, frameCtx.cpuSpanParams.data(),
-                                         sizeof(VDP1SpanParams) * frameCtx.cpuSpanCount);
+        for (uint32 i = 0; i < frameCtx.cpuSpanCount; ++i) {
+            const VDP1SpanParams &src = frameCtx.cpuSpanParams[i];
+            GlesVDP1SpanParams &dst = frameCtx.glesSpanParams[i];
+            std::memcpy(dst.words.data(), &src, 24);
+            dst.words[8] = src.gouraud0.r;
+            dst.words[9] = src.gouraud0.g;
+            dst.words[10] = src.gouraud0.b;
+            dst.words[12] = src.gouraud1.r;
+            dst.words[13] = src.gouraud1.g;
+            dst.words[14] = src.gouraud1.b;
+        }
+        if (auto result = UploadToBuffer(frameCtx.spanParamsBuffer, 0, frameCtx.glesSpanParams.data(),
+                                         sizeof(GlesVDP1SpanParams) * frameCtx.cpuSpanCount);
             !result) {
             return result;
         }
@@ -3285,7 +3307,6 @@ struct OpenGLESVDPRenderer::Impl {
     bool skipFrame = false;
     /// @brief Internal resolution scale of the frame being delivered (valid during the frame ready callback).
     uint32 deliveredScale = 1;
-
     void VDP2ComposeLines(uint32 y) {
         // Bail out if there's nothing to render
         if (y < vdp2.nextComposeLine) {
