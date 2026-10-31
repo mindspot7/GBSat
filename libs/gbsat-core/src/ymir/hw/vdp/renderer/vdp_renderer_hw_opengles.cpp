@@ -770,7 +770,14 @@ struct OpenGLESVDPRenderer::Impl {
         FlushBarriers();
         FrameContext &frameCtx = frames.GetCurrentFrame();
         std::string error;
-        if (!frameCtx.uploadBuffer.resource.Upload(static_cast<GLintptr>(alloc.offset), kConstRange, alloc.data, error) ||
+        bool constantsUploaded = false;
+        {
+            util::waitstats::TickTimer uploadTimer(util::waitstats::g_glesUploadTicks);
+            util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
+            constantsUploaded = frameCtx.uploadBuffer.resource.Upload(static_cast<GLintptr>(alloc.offset), kConstRange,
+                                                                      alloc.data, error);
+        }
+        if (!constantsUploaded ||
             !pipe.program.Dispatch(set, frameCtx.uploadBuffer.resource, static_cast<GLintptr>(alloc.offset), kConstRange,
                                    x, y, z, error)) {
             return util::ErrorMessage{fmt::format("GLES dispatch {} failed: {}", pipe.name, error)};
