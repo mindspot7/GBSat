@@ -125,14 +125,15 @@ Raw logs: `C:\.android\gles-buffer-probe-build430.csv`, `vf2-cpu-build432.csv`, 
 
 ## Daytona USA 1x threshold pass (RG Rotate, build 440)
 
-On 2026-10-30, Daytona USA: Championship Circuit Edition was measured on the RG Rotate (T618/Mali-G52) from Slot 1 (27/10/2026 22:56). The ROM was launched with a file URI; Slot 1 was reloaded before each renderer window. Both runs used 1x, 352x224, CPU sync Fast, SH-2 JIT on, threaded VDP on, frameskip off, Nearest filtering, and GTU shader. Each window contains 18 one-second samples.
+On 2026-10-30, Daytona USA: Championship Circuit Edition was measured on the RG Rotate (T618/Mali-G52) from Slot 1 (27/10/2026 22:56). The ROM was launched with a file URI; Slot 1 was reloaded before each renderer window. All runs used 1x, 352x224, CPU sync Fast, SH-2 JIT on, threaded VDP on, frameskip off, Nearest filtering, and GTU shader. Each window contains 18 one-second samples.
 
 | Renderer | Median emulation FPS | Median shown FPS | Median emulation ms/frame | Other timing |
 | --- | ---: | ---: | ---: | --- |
 | CPU (OpenGL) | 60.05 | 60.05 | 9.13 ms | — |
+| Vulkan | 60.05 | 60.05 | 15.53 ms | 7.78 ms fence wait/frame; 0.49 ms frame callback/frame |
 | Experimental GLES | 20.80 | 20.80 | 47.19 ms | 31.88 ms dispatch CPU/frame; 12 dispatches/frame; 4.87 ms upload CPU/frame; 2.31 ms fence wait/frame |
 
-The GLES 1x result did not clear the 30 FPS threshold, so 2x was not measured. The GLES image path reported no CPU readback time. Source inspection confirms that this build's buffer upload implementation uses `glBufferSubData`; the CSV's `gles_upload_strategy` label was stale and incorrectly said `staging+glCopyBufferSubData`. The label is corrected in source for subsequent builds. Raw log: `C:\.android\daytona-build440.csv`.
+The GLES 1x result did not clear the 30 FPS threshold, so 2x was not measured. The GLES image path reported no CPU readback time. Source inspection confirms that this build's buffer upload implementation uses `glBufferSubData`; the CSV's `gles_upload_strategy` label was stale and incorrectly said `staging+glCopyBufferSubData`. The label is corrected in source for subsequent builds. CPU/GLES raw log: `C:\.android\daytona-build440.csv`; Vulkan raw log: `C:\.android\daytona-build440-vulkan.csv`.
 
 ### Dispatch-check candidate (build 441, reverted)
 
@@ -140,7 +141,7 @@ To isolate the cost of checking `glGetError()` after every dispatch, a local Rel
 
 ### Vulkan presentation clarification
 
-The CPU-readback fallback recorded in the build 420/422/423 sections above is historical evidence for those specific runs, not a claim that the current source always presents Vulkan frames through CPU memory. Current Vulkan code first imports GBFrame's `AHardwareBuffer` and records a GPU-to-GPU copy; it falls back to `vkCmdCopyImageToBuffer` only when that import path is unavailable or fails. Separately, `OnVulkanHardwareFrame` locks the buffer for CPU frame metadata (skip analysis and a reduced last-frame copy) before submitting the shared target. That CPU access is distinct from the presentation fallback and may still synchronize; the Daytona test did not measure Vulkan.
+The CPU-readback fallback recorded in the build 420/422/423 sections above is historical evidence for those specific runs, not a claim that the current source always presents Vulkan frames through CPU memory. Current Vulkan code first imports GBFrame's `AHardwareBuffer` and records a GPU-to-GPU copy; it falls back to `vkCmdCopyImageToBuffer` only when that import path is unavailable or fails. Separately, `OnVulkanHardwareFrame` locks the buffer for CPU frame metadata (skip analysis and a reduced last-frame copy) before submitting the shared target. That CPU access is distinct from the presentation fallback and may still synchronize. The build 440 Daytona Vulkan window ran at 60.05 FPS, but its runtime log did not capture either the AHardwareBuffer-success or fallback message, so the active presentation route remains unconfirmed for that window.
 
 ## Risks and acceptance
 
