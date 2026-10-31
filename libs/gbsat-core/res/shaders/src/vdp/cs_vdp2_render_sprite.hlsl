@@ -23,13 +23,7 @@ StructuredBuffer<RotParamBase> g_rotParamBases : register(t4);
 ByteAddressBuffer g_spriteFB : register(t5);
 
 VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_layerOut : register(u1);
-#ifdef YMIR_GLES
-// OpenGL ES does not provide the r16ui image format in its core image load/store set. Keep the packed attributes in
-// the low 16 bits while storing this GLES-only output in a 32-bit integer image.
-VK_IMAGE_FORMAT("r32ui") RWTexture2DArray<uint> g_spriteAttrsOut : register(u2);
-#else
 VK_IMAGE_FORMAT("r16ui") RWTexture2DArray<uint> g_spriteAttrsOut : register(u2);
-#endif
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Parameters

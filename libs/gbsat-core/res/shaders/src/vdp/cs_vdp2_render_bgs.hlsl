@@ -30,13 +30,7 @@ StructuredBuffer<uint4> g_nbgLineScroll : register(t7);
 
 VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_layerOut : register(u1);
 VK_IMAGE_FORMAT("rgba8ui") RWTexture2DArray<uint4> g_rbgLineColorOut : register(u2);
-#ifdef YMIR_GLES
-// OpenGL ES image load/store has no core r8ui image format. The GLES hardware renderer uses a 32-bit integer
-// component for this one-byte flag plane; the shader still writes the same low eight bits consumed by composition.
-VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> g_colorCalcWindowOut : register(u3);
-#else
 VK_IMAGE_FORMAT("r8ui") RWTexture2D<uint> g_colorCalcWindowOut : register(u3);
-#endif
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Parameters

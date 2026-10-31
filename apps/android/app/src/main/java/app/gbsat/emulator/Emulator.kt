@@ -70,7 +70,7 @@ object Emulator {
         get() = showFps && showSpeed && showRenderer && showResolution && showCpu && showGpu && showFrameTime
         set(v) { showFps = v; showSpeed = v; showRenderer = v; showResolution = v; showCpu = v; showGpu = v; showFrameTime = v }
     var fastBoot by mutableStateOf(true)
-    // Renderer: 1 = CPU + OpenGL ES presenter; 4 = GPU (Vulkan); 5 = experimental GPU (OpenGL ES compute).
+    // Renderer: 1 = CPU VDP + OpenGL ES presenter; 4 = GPU VDP (Vulkan).
     // 0 (CPU, plain window output) is no longer offered: it is only used internally when OpenGL ES can't start.
     var renderer by mutableStateOf(1)
     /** OpenGL ES could not start on this device: CPU frames go to the plain window output instead. */
@@ -79,7 +79,6 @@ object Emulator {
     val displayRenderer get() = if (renderer == 1 && glFallback) 0 else renderer
     val rendererLabel get() = when (displayRenderer) {
         4 -> "GPU (Vulkan)"
-        5 -> "GPU (OpenGL ES, experimental)"
         1 -> "CPU (OpenGL)"
         else -> "CPU (plain)"
     }
@@ -470,7 +469,7 @@ object Emulator {
         showFrameTime = prefs.getBoolean("showFrameTime", false)
         fastBoot = prefs.getBoolean("fastBoot", true)
         useGameProfiles = prefs.getBoolean("gameProfiles", true)
-        renderer = prefs.getInt("renderer", 1).let { if (it == 4 || it == 5) it else 1 }
+        renderer = prefs.getInt("renderer", 1).let { if (it == 4) it else 1 }
         filter = prefs.getInt("filter", 1).coerceIn(0, 1)
         shader = gb.frame.Shaders.sanitize(prefs.getInt("shader", 0))
         resScale = prefs.getInt("resScale", 1).coerceIn(0, 4)
@@ -705,7 +704,7 @@ object Emulator {
         if (prefs.contains("scsp3:$path") && !entryThreadedRecommendation) { startThreaded = prefs.getBoolean("scsp3:$path", startThreaded); audioKnown = true }
         // The user's own choices for this game win
         var userChoice = false
-        if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 2) 4 else if (saved == 4 || saved == 5) saved else 1; userChoice = true }
+        if (prefs.contains("game:$path:renderer")) { val saved = prefs.getInt("game:$path:renderer", r); r = if (saved == 2 || saved == 4) 4 else 1; userChoice = true }
         if (prefs.contains("game:$path:frameSkip")) { fs = prefs.getBoolean("game:$path:frameSkip", fs); userChoice = true }
         if (prefs.contains("game:$path:scspMode")) { sm = prefs.getInt("game:$path:scspMode", sm).coerceIn(0, 2); userChoice = true }
         renderer = r; frameSkip = fs; scspMode = sm

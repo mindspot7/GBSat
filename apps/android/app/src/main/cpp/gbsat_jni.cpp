@@ -250,7 +250,7 @@ struct Context {
 
     // Display
     std::atomic<bool> glMode{false};
-    std::atomic<int> rendererMode{0}; // 0 = software, 1 = CPU + OpenGL ES, 4 = Vulkan, 5 = experimental GLES compute
+    std::atomic<int> rendererMode{0}; // 0 = software fallback, 1 = CPU + OpenGL ES presenter, 4 = Vulkan
     std::string gpuError; // last Vulkan VDP renderer error (guarded by winMutex)
 
 
@@ -846,7 +846,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "gles_vdp1_vram_upload_ms") == nullptr;
+        fresh = strstr(head, "vulkan_frame_callback_ms,settings") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -863,22 +863,10 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
                    "audio_burst,audio_target,audio_min_fill,msh2_hot_ops,ssh2_hot_ops,msh2_idle_fail,ssh2_idle_fail,"
                    "sched_vdp_ms,sched_sound_ms,sched_cd_ms,sched_other_ms,rendered_frame_ms,skipped_frame_ms,"
                    "wait_vdp2_frame_ms,wait_vdp2_copy_ms,auto_skip_pct,cd_speed_now,"
-                   "vulkan_fence_wait_ms,vulkan_frame_callback_ms,gles_dispatch_cpu_ms_per_frame,"
-                   "gles_dispatches_per_frame,gles_upload_cpu_ms_per_frame,gles_uploads_per_frame,"
-                   "gles_fence_wait_ms_per_frame,gles_present_copy_cpu_ms_per_frame,gles_readback_cpu_ms_per_frame,"
-                   "gles_vdp1_submit_cpu_ms_per_frame,gles_vdp2_end_cpu_ms_per_frame,gles_upload_strategy,"
-                   "gles_persistent_upload_ms,gles_persistent_uploads,gles_persistent_bytes,"
-                   "gles_staged_copy_ms,gles_staged_copies,gles_staged_bytes,"
-                   "gles_subdata_upload_ms,gles_subdata_uploads,gles_subdata_bytes,"
-                   "gles_vdp1_vram_upload_ms,gles_vdp1_vram_uploads,gles_vdp1_vram_bytes,"
-                   "gles_vdp1_fbram_upload_ms,gles_vdp1_fbram_uploads,gles_vdp1_fbram_bytes,"
-                   "gles_vdp2_vram_upload_ms,gles_vdp2_vram_uploads,gles_vdp2_vram_bytes,settings\n");
+                   "vulkan_fence_wait_ms,vulkan_frame_callback_ms,settings\n");
     }
     const int mode = g->rendererMode;
-    const char *renderer = mode == 5 ? "GPU (OpenGL ES experimental)"
-                           : mode == 4 ? "GPU (Vulkan)"
-                           : mode == 1 ? "CPU (OpenGL)"
-                                       : "CPU (plain)";
+    const char *renderer = mode == 4 ? "GPU (Vulkan)" : mode == 1 ? "CPU (OpenGL)" : "CPU (plain)";
     const auto &cfg = g->saturn->configuration;
     char ts[32];
     const time_t now = time(nullptr);
@@ -911,7 +899,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     const double renderedMs = g_renderedFrames ? g_renderedNs / 1e6 / g_renderedFrames : 0.0;
     const double skippedMs = g_skippedFrames ? g_skippedNs / 1e6 / g_skippedFrames : 0.0;
     fprintf(f, "%s,%s,%s,%u,%d,%d,%d,%d,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", ts, title.c_str(), renderer,
-            (mode == 4 || mode == 5) ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
+            mode == 4 ? g->resScale : 1u, cfg.swRenderer.threadedVDP1.Get() ? 1 : 0,
             cfg.audio.threadedSCSP.Get() ? 1 : 0, g->frameSkip.load() ? 1 : 0, g->fastForward.load() ? 1 : 0, fps,
             presentedFps, g->frameTimeUs.load() / 1000.0,
             waitMs[util::waitstats::SCSP], waitMs[util::waitstats::VDP1], waitMs[util::waitstats::VDP2],
@@ -1021,15 +1009,6 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
         settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
         settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
-    if (gb::DiagOn("gbsat", "gles_subdata_upload")) {
-        settings += ";diag= gles_subdata_upload";
-    }
-    if (gb::DiagOn("gbsat", "gles_stage_vdp2_only")) {
-        settings += ";diag= gles_stage_vdp2_only";
-    }
-    if (gb::DiagOn("gbsat", "gles_full_vdp1_merge")) {
-        settings += ";diag= gles_full_vdp1_merge";
-    }
     settings += ";sync_step=" + std::to_string(g->saturn->GetSH2SyncStep()); // in use (game database may limit it)
     if (g->fsUseless) {
         settings += ";frameskip_paused=useless"; // frame skip on, but held off: skipped frames weren't faster
@@ -1040,40 +1019,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     settings += ";frameskip_history=" + std::to_string(g->fsHistoryCount);
     settings += ";frameskip_cadence=" + std::to_string(g->minRenderRun);
     settings += ";frameskip_vdp1_cmds=" + std::to_string((uint32_t)std::max(0.0f, vdp1CommandsPerFrame));
-    const double perfFrames = std::max(1.0f, fps);
-    const double glesTickMsPerFrame = 1000.0 / ws::TicksPerSecond() / perfFrames;
-    const double glesDispatchMs = ws::g_glesDispatchTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesDispatches = ws::g_glesDispatchCount.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesUploadMs = ws::g_glesUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesUploads = ws::g_glesUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesPersistentMs = ws::g_glesPersistentUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesPersistentUploads = ws::g_glesPersistentUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesPersistentBytes = ws::g_glesPersistentUploadBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesStagedCopyMs = ws::g_glesStagedCopyTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesStagedCopies = ws::g_glesStagedCopyCount.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesStagedBytes = ws::g_glesStagedCopyBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesSubDataMs = ws::g_glesSubDataUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesSubDataUploads = ws::g_glesSubDataUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
-    const double glesSubDataBytes = ws::g_glesSubDataUploadBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
-    double glesTargetMs[ws::GlesUploadTargetCount]{};
-    double glesTargetUploads[ws::GlesUploadTargetCount]{};
-    double glesTargetBytes[ws::GlesUploadTargetCount]{};
-    for (size_t i = 0; i < ws::GlesUploadTargetCount; ++i) {
-        glesTargetMs[i] = ws::g_glesUploadTargetTicks[i].exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-        glesTargetUploads[i] = ws::g_glesUploadTargetCount[i].exchange(0, std::memory_order_relaxed) / perfFrames;
-        glesTargetBytes[i] = ws::g_glesUploadTargetBytes[i].exchange(0, std::memory_order_relaxed) / perfFrames;
-    }
-    const double glesFenceWaitMs = ws::g_glesFenceWaitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesPresentCopyMs = ws::g_glesPresentCopyTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesReadbackMs = ws::g_glesReadbackTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesVDP1SubmitMs = ws::g_glesVDP1SubmitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const double glesVDP2EndMs = ws::g_glesVDP2EndTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const char *glesUploadStrategy = mode != 5 ? "n/a"
-                                    : glesSubDataUploads > 0.0 ? "glBufferSubData"
-                                    : glesStagedCopies > 0.0 ? "staged-copy"
-                                    : glesPersistentUploads > 0.0 ? "persistent-mapped"
-                                                                 : "none";
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%.2f,%.0f,%.2f,%.0f,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%s\n",
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             vdp1CommandsPerFrame,
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
@@ -1087,13 +1033,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             g->skip.TakeActiveFrames() * 100.0 / std::max(1.0f, fps), (unsigned)g->cdSpeedApplied,
             ws::g_vulkanFrameFenceWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             ws::g_vulkanFrameCallbackNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
-            glesDispatchMs, glesDispatches, glesUploadMs, glesUploads, glesFenceWaitMs, glesPresentCopyMs,
-            glesReadbackMs, glesVDP1SubmitMs, glesVDP2EndMs, glesUploadStrategy, glesPersistentMs,
-            glesPersistentUploads, glesPersistentBytes, glesStagedCopyMs, glesStagedCopies, glesStagedBytes,
-            glesSubDataMs, glesSubDataUploads, glesSubDataBytes,
-            glesTargetMs[ws::GlesUploadVDP1VRAM], glesTargetUploads[ws::GlesUploadVDP1VRAM], glesTargetBytes[ws::GlesUploadVDP1VRAM],
-            glesTargetMs[ws::GlesUploadVDP1FBRAMWrites], glesTargetUploads[ws::GlesUploadVDP1FBRAMWrites], glesTargetBytes[ws::GlesUploadVDP1FBRAMWrites],
-            glesTargetMs[ws::GlesUploadVDP2VRAM], glesTargetUploads[ws::GlesUploadVDP2VRAM], glesTargetBytes[ws::GlesUploadVDP2VRAM], settings.c_str());
+            settings.c_str());
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
     fclose(f);
@@ -1495,22 +1435,6 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
              OnVulkanHardwareFrame(static_cast<AHardwareBuffer *>(buffer), token, w, h, scale);
          }},
         {nullptr, [](uint64_t token, void *) { glr::CancelVulkanTarget(token); }});
-    g->saturn->VDP.SetOpenGLESFrameReadyCallback({nullptr, [](const uint32_t *fb, uint32_t w, uint32_t h, void *) {
-                                                     OnFrameComplete(const_cast<uint32_t *>(fb), w, h);
-                                                 }});
-    g->saturn->VDP.SetOpenGLESFrameTargetCallbacks(
-        {nullptr, [](uint32_t w, uint32_t h, uint64_t *token, void *) -> void * {
-             const auto target = glr::AcquireGlesTarget(w, h);
-             if (token) *token = target.token;
-             return target.buffer;
-         }},
-        {nullptr, [](void *, uint64_t token, uint32_t w, uint32_t h, uint32_t scale, void *fence, void *) {
-             // Count the fence-complete shared-buffer frame without mapping or copying its GPU pixels.
-             UpdateFrameMetadata(nullptr, w, h);
-             g->lastScale.store(scale ? scale : 1, std::memory_order_relaxed);
-             glr::SubmitGlesTarget(token, w, h, scale, fence);
-         }},
-        {nullptr, [](uint64_t token, void *) { glr::CancelGlesTarget(token); }});
     ConnectPad(false);
 
     g->smpcPath = JStr(env, smpcPath);
@@ -1573,9 +1497,6 @@ JNI_FN(void, nativeSetSurface)(JNIEnv *env, jclass, jobject surface) {
     }
     if (g->glMode.load()) {
         glr::SetWindow(surface ? ANativeWindow_fromSurface(env, surface) : nullptr);
-        if (surface && g->rendererMode.load(std::memory_order_relaxed) == 5) {
-            Post([] { ApplyVdpRenderer(true, true); });
-        }
         return;
     }
     std::lock_guard lk(g->winMutex);
@@ -2089,23 +2010,20 @@ JNI_FN(jstring, nativeLoadState)(JNIEnv *env, jclass, jstring path) {
 // Runs on the emulation thread.
 void ApplyEnhancements() {
     auto &vdp = g->saturn->VDP;
-    const bool gpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr ||
-                     vdp.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr;
+    const bool gpu = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
     const bool deinterlace = gpu && g->deinterlaceAllowed;
     vdp.ModifyEnhancements([deinterlace](ymir::vdp::config::Enhancements &e) { e.deinterlace = deinterlace; });
 }
 
-// Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES. Set before the surface is created.
-// Switches the VDP emulation between software, Vulkan compute, and the isolated GLES compute experiment.
+// Display: renderer 0 = native window (CPU copy), 1 = OpenGL ES presenter. Set before the surface is created.
+// Switches the VDP emulation between software and Vulkan compute.
 // Runs on the emulation thread. If the GPU renderer cannot be created the software renderer stays active.
 void ApplyVdpRenderer(bool gpu, bool force = false) {
     auto &vdp = g->saturn->VDP;
     const int requestedMode = g->rendererMode.load(std::memory_order_relaxed);
     const bool isVulkan = vdp.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr;
-    const bool isGles = vdp.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr;
-    const bool isGpu = isVulkan || isGles;
-    if (((!gpu && !isGpu) || (gpu && requestedMode == 4 && isVulkan) || (gpu && requestedMode == 5 && isGles)) &&
-        !force) {
+    const bool isGpu = isVulkan;
+    if (((!gpu && !isGpu) || (gpu && requestedMode == 4 && isVulkan)) && !force) {
         return;
     }
     if (gpu) {
@@ -2119,39 +2037,14 @@ void ApplyVdpRenderer(bool gpu, bool force = false) {
         };
         bool result = false;
         std::string error;
-        if (requestedMode == 5) {
-            SetStage("gles: switching to experimental OpenGL ES compute renderer");
-            glr::SharedGlesContext shared{};
-            bool sharedReady = false;
-            for (int attempt = 0; attempt < 200 && !sharedReady; ++attempt) {
-                sharedReady = glr::GetSharedGlesContext(&shared);
-                if (!sharedReady) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-            if (sharedReady) {
-                ymir::vdp::OpenGLESRendererContext ctx{};
-                ctx.display = shared.display;
-                ctx.context = shared.context;
-                ctx.surface = shared.surface;
-                ctx.resolutionScale = g->resScale == 0 ? 4 : std::min<uint32_t>(g->resScale, 4);
-                ctx.progress = progress;
-                auto renderer = vdp.UseOpenGLESRenderer(ctx);
-                result = static_cast<bool>(renderer);
-                if (!renderer) error = renderer.Error().message;
-            } else {
-                error = "GBFrame shared GLES context is unavailable";
-            }
-        } else {
-            SetStage("vk: switching to the Vulkan GPU renderer");
-            ymir::vdp::VulkanRendererContext ctx{};
-            ctx.resolutionScale = g->resScale;
-            ctx.progress = progress;
-            auto renderer = vdp.UseVulkanRenderer(ctx);
-            result = static_cast<bool>(renderer);
-            if (!renderer) error = renderer.Error().message;
-        }
-        SetStage(result ? (requestedMode == 5 ? "running (experimental GLES compute renderer)"
-                                               : "running (Vulkan GPU renderer)")
-                        : "running (software renderer, GPU init failed)");
+        SetStage("vk: switching to the Vulkan GPU renderer");
+        ymir::vdp::VulkanRendererContext ctx{};
+        ctx.resolutionScale = g->resScale;
+        ctx.progress = progress;
+        auto renderer = vdp.UseVulkanRenderer(ctx);
+        result = static_cast<bool>(renderer);
+        if (!renderer) error = renderer.Error().message;
+        SetStage(result ? "running (Vulkan GPU renderer)" : "running (software renderer, GPU init failed)");
         std::lock_guard lk(g->winMutex);
         if (!result) {
             g->gpuError = error;
@@ -2171,7 +2064,8 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
     if (g) {
         // Vulkan GPU (4) emulates the VDPs on the GPU and shows the frames through the OpenGL ES presenter, which
         // provides the filters and shaders
-        const bool newGl = (mode == 1 || mode == 4 || mode == 5);
+        const int renderer = mode == 4 || mode == 0 ? mode : 1;
+        const bool newGl = renderer == 1 || renderer == 4;
         const bool oldGl = g->glMode.load();
         if (oldGl && !newGl) {
             glr::Shutdown(); // switching to CPU presentation in game: release the GL surface
@@ -2184,9 +2078,9 @@ JNI_FN(void, nativeSetRenderer)(JNIEnv *, jclass, jint mode) {
             g->curW = g->curH = 0;
         }
         g->glMode = newGl;
-        g->rendererMode = mode;
-        g_crashRenderer = mode;
-        const bool gpu = mode == 4 || mode == 5;
+        g->rendererMode = renderer;
+        g_crashRenderer = renderer;
+        const bool gpu = renderer == 4;
         Post([gpu] { ApplyVdpRenderer(gpu); });
     }
 }
@@ -2202,8 +2096,7 @@ JNI_FN(void, nativeSetResolutionScale)(JNIEnv *, jclass, jint scale) {
             return;
         }
         g->resScale = s;
-        if (g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr ||
-            g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::OpenGLES>() != nullptr) {
+        if (g->saturn->VDP.GetRendererAs<ymir::vdp::VDPRendererType::Vulkan>() != nullptr) {
             ApplyVdpRenderer(true, true);
         }
     });

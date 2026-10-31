@@ -73,7 +73,7 @@ fun GameScreen(onQuitApp: () -> Unit) {
     // window output if OpenGL ES can't start on this device.
     LaunchedEffect(Emulator.renderer) {
         delay(1500)
-        if (Emulator.renderer == 4 || Emulator.renderer == 5) {
+        if (Emulator.renderer == 4) {
             val err = NativeBridge.nativeGetGpuError().orEmpty()
             if (err.isNotEmpty()) Emulator.showToast("GPU (Vulkan) unavailable, using the CPU renderer: $err")
         }
@@ -200,26 +200,21 @@ private fun GameMenu(onDismiss: () -> Unit) {
                 id = "renderer", icon = Icons.Default.Memory, label = "Renderer",
                 value = Emulator.rendererLabel,
             ) {
-                Emulator.renderer = when (Emulator.renderer) { 1 -> 4; 4 -> 5; else -> 1 }
+                Emulator.renderer = if (Emulator.renderer == 1) 4 else 1
                 Emulator.savePrefs()
                 Emulator.applyOptions()
             }
-            if (Emulator.renderer == 4 || Emulator.renderer == 5) {
+            if (Emulator.renderer == 4) {
                 QuickMenuItemRow(
                     id = "enhanced_resolution", icon = Icons.Default.HighQuality, label = "Enhanced resolution",
                     value = Emulator.resScaleLabel,
                 ) {
-                    // The GLES experiment is limited to 1x–4x; Vulkan keeps its native-scale option.
-                    Emulator.resScale = if (Emulator.renderer == 5) {
-                        if (Emulator.effectiveScale >= 4) 1 else Emulator.effectiveScale + 1
-                    } else {
-                        when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }
-                    }
+                    Emulator.resScale = when (Emulator.resScale) { 0 -> 1; 4 -> 0; else -> Emulator.resScale + 1 }
                     Emulator.savePrefs()
                     Emulator.applyOptions()
                 }
             }
-            if (Emulator.renderer == 1 || Emulator.renderer == 4 || Emulator.renderer == 5) {
+            if (Emulator.renderer == 1 || Emulator.renderer == 4) {
                 QuickMenuItemRow(
                     id = "shader", icon = Icons.Default.Gradient, label = "Shader",
                     value = Shaders.name(Emulator.shader),

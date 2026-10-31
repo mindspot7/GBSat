@@ -1,12 +1,12 @@
-# Experimental GLES VDP renderer A/B
+# Experimental GLES VDP renderer A/B (archived)
 
-Status: the experimental Ymir GLES VDP backend is selectable on branch `codex/gles-vdp-ab` and rendered Virtua Fighter 2 on the RG Rotate. The first A/B showed a large performance regression against Vulkan and the software VDP, so the mode remains opt-in and is not suitable for the default or mainline yet.
+Status (2026-10-31): the OpenGL ES compute Saturn VDP renderer is rejected for the product. It did not meet the performance target and still showed visual artifacts in Daytona CCE and Virtua Fighter 2 on the RG Rotate. The supported Android choices remain the software VDP presented by OpenGL ES (`CPU (OpenGL)`) and the Vulkan VDP. Historical implementation and results remain below for traceability; they are not a recommendation to ship or re-enable the GLES compute backend.
 
 ## Goal
 
-Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal scales 1x through 4x, and compare it to the existing Vulkan hardware renderer on the RG Rotate. Keep the software renderer and Vulkan as-is and leave the current default unchanged until repeated game tests justify a change.
+Historical objective: add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal scales 1x through 4x, and compare it to the existing Vulkan hardware renderer on the RG Rotate. The experiment has concluded without acceptance. Keep the software renderer and Vulkan as the supported choices.
 
-## Current architecture
+## Architecture at experiment start
 
 - `SoftwareVDPRenderer` composes the Saturn frame on the CPU at the emulated output resolution. The Android OpenGL ES presenter displays that completed frame; scaling its texture would not increase Saturn rendering detail.
 - `VulkanVDPRenderer` runs Ymir VDP1/VDP2 compute shaders on the GPU. Its HLSL sources are compiled to SPIR-V, and its hardware renderer supports internal scaling.
@@ -14,7 +14,7 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 - GBFrame commit `1274a71` adds a shared GLES render context, GPU-writable AHardwareBuffer targets, and shared GL-sync handoff to its presenter. Its EGL config prefers window+pbuffer support and falls back to the old window-only config, leaving the GLES VDP path unavailable on devices without a pbuffer.
 - Local `:app:externalNativeBuildDebug` passed with that GBFrame commit integrated. This validates the current interface compiles in the Android app; it does not yet exercise the shared context on-device.
 
-## Implementation route
+## Historical implementation route
 
 1. Device capability check on RG Rotate: Android 12, ARM Mali-G52, OpenGL ES 3.2 (`ro.opengles.version=196610`; SurfaceFlinger reports driver `v1.r34p0`). ES 3.2 includes compute shaders.
 2. Compiled all 20 Ymir VDP compute-shader variants with DXC using GL-compatible SPIR-V layout, translated them to GLSL ES 3.1 with SPIRV-Cross, then compiled and linked each on the RG Rotate's GLES 3.2 driver. Translation exposed two ES image-format gaps: VDP2's `r8ui` and `r16ui` outputs are represented by GLES-only `r32ui` variants. The existing Vulkan shader formats remain unchanged. Generated GLSL is checked in under `res/shaders/gles/vdp/`.
@@ -24,7 +24,7 @@ Add an opt-in Ymir hardware VDP renderer using OpenGL ES compute, with internal 
 6. Expose the experimental backend and 1x–4x scale in the shared GBFrame settings/quick menu only after the renderer initializes and produces correct frames; keep Vulkan and software selections available.
 7. Build and validate locally, then run paired tests on the RG Rotate from the same savestate and scene at 1x, 2x, 3x, and 4x. Compare emulation FPS, displayed FPS, frame time, GPU time, and output correctness. Use NiGHTS, Daytona, Virtua Fighter 2, Guardian Heroes, and Burning Rangers; record each run and leave defaults untouched.
 
-## Current implementation checkpoint
+## Historical implementation checkpoints
 
 - Added the Android-only `OpenGLESVDPRenderer` Ymir type and the callback/context contract, without changing the selected renderer or app settings.
 - Added move-only GLES RAII wrappers for compute programs, buffers, and 2D/array images. Shader programs load from the packaged `ymir-core-gles-shaders` resource filesystem and report compile/link logs with shader labels.
@@ -225,3 +225,26 @@ The matching build 458 and 459 screenshots show the first obvious missing scoreb
 - The existing Vulkan-to-GBFrame path already uses shared Android hardware buffers, so eliminating readback is not an automatic GLES advantage.
 - 4x in each dimension processes up to 16 times as many pixels as 1x. Higher scale is an image-quality choice and may reduce throughput.
 - The experiment is successful only if it renders representative games correctly and provides repeatable A/B measurements. Performance parity or improvement is not assumed.
+
+## Final disposition and test summary (2026-10-31)
+
+The GLES compute renderer is retired from the supported product path. Across Daytona USA: Championship Circuit Edition and Virtua Fighter 2 on the RG Rotate (T618/Mali-G52), it did not satisfy the requested 85% of Saturn speed at 2x, and correctness remained inconsistent. A coherent-looking frame or successful shader initialization was not sufficient acceptance: missing rows/blocks, black output in earlier builds, and residual visual defects persisted across later builds. The owner stopped further performance measurement and requested visual fixes only; the last visual checks did not clear the renderer.
+
+Before removing the implementation from the active branches, its complete pre-removal state was preserved in `archive/gles-vdp-ab-2026-10-31` in both the GBSat and GBFrame repositories. Re-enable it in an isolated branch from those archive branches if the experiment is revisited; no implementation work needs to be recreated.
+
+| Area | What worked | What failed or remains unaccepted |
+| --- | --- | --- |
+| Shader/backend bring-up | GLES 3.2 capability checks passed; translated shader variants compiled/linked on the Rotate; Ymir initialized (`gles: ready`); GPU-writable AHardwareBuffer handoff could present frames without normal CPU readback. | Bring-up did not establish correctness or usable speed. |
+| Frame output | Build 484 fixed a black VDP2 composite caused by packing the compose-height limit at the wrong word. Build 489 restored all Daytona scoreboard rows in the inspected frame. | Other visual defects remained in Daytona and VF2, including missing rows/blocks in intermediate builds and residual corruption after build 489. No GLES build passed visual acceptance. |
+| Throughput | Some short Daytona 2x windows reached or exceeded 51 FPS, including build 467's cache-off window. | Results were scene-sensitive and not sustained. 1x Daytona began around 20.8 FPS; the 2x candidates varied and did not establish a repeatable 85% pass. Builds 467–469 cache experiments were rejected. The output-merger bounds candidate had no reliable gain. |
+| Uploads and synchronization | Direct `glBufferSubData` avoids the persistent-map path that first coincided with missing scoreboard rows. The GBFrame shared-target path demonstrated the feasibility of GPU frame sharing. | Persistent mapping and staged-copy variants were associated with visible defects; build 489 still did not establish artifact-free output. The final source also adds a barrier after each host buffer upload; this is a likely avoidable submission cost by code inspection, but it was not isolated after performance captures were stopped. |
+| Resolution scale | Output at 704x448 (2x for 352x224 scenes) was produced and captured. | 2x image correctness and speed were not accepted; 3x/4x were outside the final target and are not supported recommendations. |
+| Vulkan and CPU/OpenGL | The CPU VDP path continued to produce usable frames. Vulkan's existing AHardwareBuffer sharing path avoids mandatory CPU readback when import succeeds and retains the existing fallback. | Vulkan performance varied by scene/device and is not a claim that it is always faster than CPU/OpenGL. |
+
+Historical measurements, rejected candidates, settings, and raw-log paths remain documented in the dated sections above. They are retained as experiment evidence, not as current performance claims. The latest visual-only check used build 489 on the Rotate. A `--es ROM` path containing unescaped spaces landed on the library; retrying with a percent-encoded `file://` URI entered Daytona CCE's saved gameplay/ranking scene. All five ranking rows were visible in that capture, but the owner still reported image artifacts, so it does not pass visual acceptance. The VF2 title-screen capture likewise did not establish a clean image. No FPS logs, timing samples, or renderer A/B were collected during these final checks. The Rotate was returned to sleep afterward. Future performance CSV rows retain their shared CPU/Vulkan columns; the GLES-only columns have been removed and the schema marker forces old-format logs to restart, while existing historical files remain available.
+
+### Useful changes retained outside the GLES compute renderer
+
+- GBFrame's Vulkan frame-target path can copy Vulkan-rendered frames into shared `AHardwareBuffer` slots and present them through the existing OpenGL ES presenter, avoiding routine CPU framebuffer readback when EGLImage import works. The fallback remains available for unsupported devices/drivers.
+- GBFrame tracks the in-flight writer per hardware-buffer slot. This prevents a later acquire from replacing the reservation for a frame still being submitted, and applies to the shared frame pipeline rather than to GLES VDP shader logic.
+- Ymir's existing Vulkan VDP compute renderer and the CPU VDP renderer remain supported. The renderer-selection setting should expose only `CPU (OpenGL)` and `GPU (Vulkan)`; the GLES compute backend, 2x–4x experiment options, and renderer mode 5 are retired.
