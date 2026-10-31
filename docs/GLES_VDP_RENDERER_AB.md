@@ -151,6 +151,24 @@ Build 444 added timing around the GLES per-dispatch constant-buffer `glBufferSub
 
 The GPU percentage is computed from asynchronous timer-query results divided by wall-clock time between overlay polls. It excludes unrelated applications and may omit draws when the query ring is still busy. Treat it as the measured duration of this app's timed GPU work, not a whole-device utilization meter.
 
+### GLES 1x threshold and 2x scale check (build 458)
+
+Build 458 was installed on the RG Rotate (T618/Mali-G52). Daytona USA: Championship Circuit Edition Slot 1 was launched by ROM intent and the saved state was confirmed in logcat before each capture. The fixed settings were 1x or 2x, CPU sync Fast, SH-2 JIT on, threaded VDP on, frameskip off, Nearest filter, and shader None. The video path for GLES uses the experimental hardware VDP renderer. Captures were 17–21 one-second samples each; the game advances without deterministic input replay, so these are same-save-state windows, not frame-matched playback.
+
+| Scale / renderer | Samples | Median emulation FPS | Median shown FPS | Median emulation ms/frame | Samples >= 48 FPS | Saturn output mode |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| GLES 1x, first window | 17 | 57.6 | 57.6 | 17.34 ms | 14/17 | 352x224 |
+| GLES 1x, repeat | 20 | 59.6 | 59.6 | 14.81 ms | 20/20 | 352x224 |
+| Vulkan 1x | 21 | 59.9 | 59.9 | 11.83 ms | 20/21 | 352x224 |
+| GLES 2x | 21 | 38.6 | 38.6 | 26.45 ms | 1/21 | 704x448 |
+| Vulkan 2x | 20 | 50.2 | 50.2 | 19.72 ms | 17/20 | 704x448 |
+
+Both 1x GLES windows cleared the 80% target using the 60 FPS Saturn rate, and the Vulkan 1x window remained near full speed. The Vulkan and GLES results are close in aggregate but the command counts and scene progression differ, so the small frame-time difference is not a controlled renderer speed ranking. At 2x both paths produced coherent images at 704x448; GLES was slower, with one sample at or above 80% speed and a median of 64.3% of target. Vulkan's 2x median was 83.7%. This supports retaining GLES at 1x for further work and treating 2x as a quality/performance tradeoff on this device. It does not justify changing any default.
+
+Build 458 also removed explicit memory-barrier requests after CPU-originated `glBufferSubData` updates, narrowed compute-write barriers to the shader storage/image, texture fetch/update, buffer update, and atomic-counter domains used by Ymir, and added an optional coherent persistent map for the per-frame constants upload ring when `GL_EXT_buffer_storage` and its entry point are available. Other GLES buffers continue to use dynamic uploads. The renderer keeps the existing dynamic allocation/upload fallback if the extension or mapping is unavailable. The 1x output remained coherent and dispatch CPU time in the repeat window was around 1.3 ms/frame; because several changes landed together and the VDP1 command stream varies, the capture does not isolate each change's contribution. The CSV `gles_upload_strategy` field still reports `glBufferSubData` for the renderer as a whole and does not distinguish the persistently mapped constants ring.
+
+Raw logs: `C:\.android\daytona458-gles1x.csv`, `daytona458-gles-repeat1x.csv`, `daytona458-vulkan1x.csv`, `daytona458-gles2x.csv`, and `daytona458-vulkan2x.csv`. These were local build 458 captures; no GitHub build was started. After the comparison, the device was restored to experimental GLES 1x, Nearest, and shader None.
+
 ### Ymir upstream review (2026-10-30)
 
 Fetched `upstream/main` and reviewed its 89 commits after the shared 2026-10-18 base (`8cdf0a5`, Ymir 0.4.2 development line). The post-base changes are concentrated in Ymir's SDL3 desktop Vulkan frontend, its generic Vulkan resource/synchronization layer, and build workflows. Recent examples include Vulkan queue allocation and dispatcher fixes (`45b68d958`, `9a1ac5369`) and Vulkan SDK compatibility (`fe439e98a`). The changed upstream core files do not include SH-2, SCU, SCSP, or Saturn VDP emulation/performance code. GBSat uses its Android-specific VDP renderers rather than those SDL3 frontend resources, so there is no safe wholesale update or direct performance cherry-pick identified in this range. Revisit individual Vulkan lifecycle fixes only if a matching defect appears in GBSat's own renderer, with Android device validation.

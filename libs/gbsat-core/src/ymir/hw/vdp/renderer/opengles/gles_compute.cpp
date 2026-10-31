@@ -150,7 +150,8 @@ Buffer::Buffer(Buffer &&other) noexcept
     : m_handle(std::exchange(other.m_handle, 0))
     , m_size(std::exchange(other.m_size, 0))
     , m_target(std::exchange(other.m_target, 0))
-    , m_textureView(std::exchange(other.m_textureView, 0)) {}
+    , m_textureView(std::exchange(other.m_textureView, 0))
+    , m_persistentMapping(std::exchange(other.m_persistentMapping, nullptr)) {}
 
 Buffer &Buffer::operator=(Buffer &&other) noexcept {
     if (this != &other) {
@@ -159,6 +160,7 @@ Buffer &Buffer::operator=(Buffer &&other) noexcept {
         m_size = std::exchange(other.m_size, 0);
         m_target = std::exchange(other.m_target, 0);
         m_textureView = std::exchange(other.m_textureView, 0);
+        m_persistentMapping = std::exchange(other.m_persistentMapping, nullptr);
     }
     return *this;
 }
@@ -185,12 +187,62 @@ bool Buffer::Create(GLenum target, GLsizeiptr size, const void *data, GLenum usa
     return true;
 }
 
+bool Buffer::CreatePersistentMapped(GLenum target, GLsizeiptr size, std::string &error) {
+    Reset();
+    error.clear();
+    if (size <= 0) {
+        error = "Cannot create an empty GLES buffer";
+        return false;
+    }
+
+    GLint extensionCount = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &extensionCount);
+    bool hasBufferStorage = false;
+    for (GLint i = 0; i < extensionCount; ++i) {
+        const GLubyte *extension = glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i));
+        if (extension != nullptr && std::strcmp(reinterpret_cast<const char *>(extension), "GL_EXT_buffer_storage") == 0) {
+            hasBufferStorage = true;
+            break;
+        }
+    }
+    const auto bufferStorage = reinterpret_cast<PFNGLBUFFERSTORAGEEXTPROC>(eglGetProcAddress("glBufferStorageEXT"));
+    if (!hasBufferStorage || bufferStorage == nullptr) {
+        return false;
+    }
+
+    constexpr GLbitfield kStorageFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT;
+    glGenBuffers(1, &m_handle);
+    glBindBuffer(target, m_handle);
+    bufferStorage(target, size, nullptr, kStorageFlags);
+    if (!CheckGl("persistent buffer allocation", error)) {
+        Reset();
+        return false;
+    }
+    m_size = size;
+    m_target = target;
+    m_persistentMapping = glMapBufferRange(target, 0, size, kStorageFlags);
+    if (m_persistentMapping == nullptr || !CheckGl("persistent buffer mapping", error)) {
+        if (error.empty()) error = "Persistent GLES buffer mapping returned null";
+        Reset();
+        return false;
+    }
+    return true;
+}
+
 bool Buffer::Upload(GLintptr offset, GLsizeiptr size, const void *data, std::string &error) {
     if (m_handle == 0 || offset < 0 || size < 0 || offset > m_size || size > m_size - offset) {
         error = "GLES buffer upload is outside the allocated range";
         return false;
     }
     if (size == 0) {
+        return true;
+    }
+    if (m_persistentMapping != nullptr) {
+        auto *destination = static_cast<uint8_t *>(m_persistentMapping) + offset;
+        if (data != destination) {
+            std::memmove(destination, data, static_cast<size_t>(size));
+        }
+        // Coherent persistent mappings make client writes visible to subsequently issued GL commands.
         return true;
     }
     glBindBuffer(m_target, m_handle);
@@ -282,12 +334,17 @@ void Buffer::Reset() {
         glDeleteTextures(1, &m_textureView);
     }
     if (m_handle != 0) {
+        if (m_persistentMapping != nullptr) {
+            glBindBuffer(m_target, m_handle);
+            glUnmapBuffer(m_target);
+        }
         glDeleteBuffers(1, &m_handle);
     }
     m_handle = 0;
     m_size = 0;
     m_target = 0;
     m_textureView = 0;
+    m_persistentMapping = nullptr;
 }
 
 Image::Image(Image &&other) noexcept

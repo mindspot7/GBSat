@@ -35,6 +35,7 @@ public:
     ~Buffer();
 
     bool Create(GLenum target, GLsizeiptr size, const void *data, GLenum usage, std::string &error);
+    bool CreatePersistentMapped(GLenum target, GLsizeiptr size, std::string &error);
     bool CreateTextureView(GLenum internalFormat, std::string &error);
     bool Upload(GLintptr offset, GLsizeiptr size, const void *data, std::string &error);
     bool CopyTo(Buffer &destination, GLintptr sourceOffset, GLintptr destinationOffset, GLsizeiptr size,
@@ -46,12 +47,14 @@ public:
     GLsizeiptr Size() const { return m_size; }
     GLenum Target() const { return m_target; }
     GLuint TextureView() const { return m_textureView; }
+    void *PersistentMapping() const { return m_persistentMapping; }
 
 private:
     GLuint m_handle = 0;
     GLsizeiptr m_size = 0;
     GLenum m_target = 0;
     GLuint m_textureView = 0;
+    void *m_persistentMapping = nullptr;
 };
 
 class Image {

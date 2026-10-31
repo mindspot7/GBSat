@@ -575,21 +575,32 @@ struct OpenGLESVDPRenderer::Impl {
 
     [[nodiscard]] util::VoidResult<> CreateBuffer(GpuBuffer &buf, VkDeviceSize size, VkBufferUsageFlags usage,
                                                   bool hostVisible, VkFormat viewFormat, const std::string &name,
-                                                  bool hostCached = false) {
+                                                  bool hostCached = false, bool persistentMapped = false) {
         (void)hostCached;
         size = AlignUp(std::max<VkDeviceSize>(size, 4), 4);
         const GLenum target = (usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) != 0 ? GL_UNIFORM_BUFFER
                              : (usage & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT) != 0 ? GL_TEXTURE_BUFFER
                                                                                        : GL_SHADER_STORAGE_BUFFER;
         std::string error;
-        if (!buf.resource.Create(target, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW, error)) {
+        const bool persistentReady = persistentMapped &&
+                                     buf.resource.CreatePersistentMapped(target, static_cast<GLsizeiptr>(size), error);
+        if (!persistentReady && !buf.resource.Create(target, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW,
+                                                     error)) {
             return util::ErrorMessage{fmt::format("Could not create GLES buffer \"{}\": {}", name, error)};
         }
         buf.size = size;
         if (hostVisible) {
-            buf.hostStorage = std::make_unique<uint8[]>(static_cast<size_t>(size));
-            std::memset(buf.hostStorage.get(), 0, static_cast<size_t>(size));
-            buf.mapped = buf.hostStorage.get();
+            if (persistentReady) {
+                buf.mapped = buf.resource.PersistentMapping();
+                devlog::info<grp::dx12_base>("GLES buffer {} uses persistent coherent mapping", name);
+            } else {
+                buf.hostStorage = std::make_unique<uint8[]>(static_cast<size_t>(size));
+                std::memset(buf.hostStorage.get(), 0, static_cast<size_t>(size));
+                buf.mapped = buf.hostStorage.get();
+                if (persistentMapped) {
+                    devlog::info<grp::dx12_base>("GLES buffer {} uses dynamic uploads", name);
+                }
+            }
         }
         if (viewFormat != VK_FORMAT_UNDEFINED) {
             GLenum internalFormat = 0;
@@ -722,7 +733,11 @@ struct OpenGLESVDPRenderer::Impl {
             return;
         }
         pendingBarrier = false;
-        gles::MemoryBarrier();
+        // Ymir's compute passes communicate through SSBOs, storage images, texture reads, buffer updates and the
+        // VDP1 OIT counter. Synchronize those consumers without stalling unrelated GLES pipeline domains.
+        gles::MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+                           GL_TEXTURE_FETCH_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT |
+                           GL_BUFFER_UPDATE_BARRIER_BIT | GL_ATOMIC_COUNTER_BARRIER_BIT);
     }
 
     /// @brief Allocates a chunk of the current frame's upload buffer, flushing the GPU if it's full.
@@ -756,7 +771,7 @@ struct OpenGLESVDPRenderer::Impl {
             devlog::error<grp::dx12_base>("GLES buffer upload failed: {}", error);
             return util::ErrorMessage{fmt::format("GLES buffer upload failed: {}", error)};
         }
-        pendingBarrier = true;
+        // glBufferSubData is ordered by GL and does not produce shader writes requiring an explicit memory barrier.
         return {};
     }
 
@@ -1050,7 +1065,7 @@ struct OpenGLESVDPRenderer::Impl {
 
             YMIR_VK_TRY(CreateBuffer(f.uploadBuffer, kUploadBufferSize,
                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true,
-                                     VK_FORMAT_UNDEFINED, "Upload" + sfx));
+                                     VK_FORMAT_UNDEFINED, "Upload" + sfx, false, true));
             // VDP1
             YMIR_VK_TRY(CreateBuffer(f.spanParamsBuffer, sizeof(GlesVDP1SpanParams) * f.cpuSpanParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 span params" + sfx));
@@ -1307,7 +1322,6 @@ struct OpenGLESVDPRenderer::Impl {
                 !result) return result;
         }
         vdp1.vramDirty.ClearAll();
-        pendingBarrier = true;
         return {};
     }
 
@@ -2663,7 +2677,6 @@ struct OpenGLESVDPRenderer::Impl {
                 !result) return result;
         }
         vdp2.vramDirty.ClearAll();
-        pendingBarrier = true;
         return {};
     }
 
