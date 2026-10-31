@@ -39,6 +39,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <concepts>
 #include <cstdlib>
 #include <cstring>
@@ -77,6 +78,49 @@ constexpr VkDeviceSize kConstRange = 256;
 static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1PolyDrawParams) <= kConstRange);
 static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1EraseParams) <= kConstRange);
 static_assert(sizeof(VDP2CommonRenderParams) <= kConstRange);
+
+// GLES uniform/storage blocks use std140/std430 vector alignment. The shared HLSL-side
+// CPU structs intentionally use tightly packed 32-bit words, so adapt the two VDP2
+// payloads whose GLSL layouts contain vectors before uploading them.
+struct alignas(16) GlesVDP2CommonRenderParams {
+    std::array<uint32, 12> words{};
+};
+static_assert(sizeof(VDP2CommonRenderParams) == 40);
+static_assert(offsetof(VDP2CommonRenderParams, spritePriosRatios) == 20);
+static_assert(offsetof(VDP2CommonRenderParams, enhancements) == 36);
+static_assert(sizeof(GlesVDP2CommonRenderParams) == 48);
+
+struct alignas(16) GlesVDP2ComposeParams {
+    std::array<uint32, 20> words{};
+};
+static_assert(offsetof(VDP2ComposeParams, colorOffsetA) == 16);
+static_assert(offsetof(VDP2ComposeParams, colorOffsetB) == 28);
+static_assert(offsetof(VDP2ComposeParams, bgColorCalcRatios) == 40);
+static_assert(offsetof(VDP2ComposeParams, backLineColorCalcRatios) == 60);
+static_assert(sizeof(GlesVDP2ComposeParams) == 80);
+
+GlesVDP2CommonRenderParams PackGlesVDP2CommonRenderParams(const VDP2CommonRenderParams &params) {
+    GlesVDP2CommonRenderParams packed{};
+    const auto *src = reinterpret_cast<const uint8 *>(&params);
+    auto *dst = reinterpret_cast<uint8 *>(&packed);
+
+    // std140 moves the uvec2 from byte 20 to byte 24 and rounds the struct to 48 bytes.
+    std::memcpy(dst, src, 20);
+    std::memcpy(dst + 24, src + 20, sizeof(params) - 20);
+    return packed;
+}
+
+GlesVDP2ComposeParams PackGlesVDP2ComposeParams(const VDP2ComposeParams &params) {
+    GlesVDP2ComposeParams packed{};
+    const auto *src = reinterpret_cast<const uint8 *>(&params);
+    auto *dst = reinterpret_cast<uint8 *>(&packed);
+
+    // std430 aligns each ivec3 to 16 bytes; the trailing uint arrays remain scalar-packed.
+    std::memcpy(dst, src, 28);       // flags and colorOffsetA
+    std::memcpy(dst + 32, src + 28, 12); // colorOffsetB
+    std::memcpy(dst + 44, src + 40, 28); // both ratio arrays
+    return packed;
+}
 
 struct GpuBuffer {
     gles::Buffer resource;
@@ -695,19 +739,9 @@ struct OpenGLESVDPRenderer::Impl {
         }
         util::waitstats::TickTimer perfTimer(util::waitstats::g_glesUploadTicks);
         util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
-        UploadAllocation alloc{};
-        if (auto result = AllocateUploadBuffer(size, 4, alloc); !result) {
-            return result;
-        }
-        std::memcpy(alloc.data, src, size);
         FlushBarriers();
-        FrameContext &frameCtx = frames.GetCurrentFrame();
         std::string error;
-        if (!frameCtx.uploadBuffer.resource.Upload(static_cast<GLintptr>(alloc.offset), static_cast<GLsizeiptr>(size),
-                                                   alloc.data, error) ||
-            !frameCtx.uploadBuffer.resource.CopyTo(dst.resource, static_cast<GLintptr>(alloc.offset),
-                                                   static_cast<GLintptr>(dstOffset), static_cast<GLsizeiptr>(size),
-                                                   error)) {
+        if (!dst.resource.Upload(static_cast<GLintptr>(dstOffset), static_cast<GLsizeiptr>(size), src, error)) {
             devlog::error<grp::dx12_base>("GLES buffer upload failed: {}", error);
             return util::ErrorMessage{fmt::format("GLES buffer upload failed: {}", error)};
         }
@@ -743,6 +777,12 @@ struct OpenGLESVDPRenderer::Impl {
         }
         pendingBarrier = true;
         return {};
+    }
+
+    util::VoidResult<> DispatchVDP2(const GpuPipeline &pipe, const gles::DescriptorSet &set,
+                                    const VDP2CommonRenderParams &params, uint32 x, uint32 y, uint32 z) {
+        const GlesVDP2CommonRenderParams packed = PackGlesVDP2CommonRenderParams(params);
+        return Dispatch(pipe, set, {{packed.words.data(), sizeof(packed)}}, x, y, z);
     }
 
     void FillBuffer(GpuBuffer &dst, VkDeviceSize offset, VkDeviceSize size, uint32 value) {
@@ -1030,7 +1070,7 @@ struct OpenGLESVDPRenderer::Impl {
                                      VK_FORMAT_UNDEFINED, "VDP2 layer render params" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.nbgLineScrollBuffer, sizeof(vdp2.cpuNBGLineScroll), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 NBG2/3 line scroll" + sfx));
-            YMIR_VK_TRY(CreateBuffer(f.composeParamsBuffer, sizeof(VDP2ComposeParams), kSSBO, false,
+            YMIR_VK_TRY(CreateBuffer(f.composeParamsBuffer, sizeof(GlesVDP2ComposeParams), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP2 compose params" + sfx));
 
             // Descriptor sets (resource order mirrors the D3D12 descriptor tables: SRVs then UAVs)
@@ -2991,8 +3031,8 @@ struct OpenGLESVDPRenderer::Impl {
     // ---- end copy ----
 
         // Update buffer
-        return UploadToBuffer(frames.GetCurrentFrame().composeParamsBuffer, 0, &vdp2.cpuComposeParams,
-                              sizeof(vdp2.cpuComposeParams));
+        const GlesVDP2ComposeParams packedParams = PackGlesVDP2ComposeParams(vdp2.cpuComposeParams);
+        return UploadToBuffer(frames.GetCurrentFrame().composeParamsBuffer, 0, &packedParams, sizeof(packedParams));
     }
 
 // ---- begin copy of vdp_renderer_hw_d3d12.cpp lines 4093-4154 ----
@@ -3199,9 +3239,9 @@ struct OpenGLESVDPRenderer::Impl {
         }
 
         // Draw sprite layer
-        if (auto result = Dispatch(vdp2.drawSpritePipe, frames.GetCurrentFrame().drawSpriteSet,
-                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
-                                   (HRes * S + 31) / 32, numLines * S, enhancements.transparentMeshes ? 2 : 1);
+        if (auto result = DispatchVDP2(vdp2.drawSpritePipe, frames.GetCurrentFrame().drawSpriteSet,
+                                       vdp2.cpuCommonRenderParams, (HRes * S + 31) / 32, numLines * S,
+                                       enhancements.transparentMeshes ? 2 : 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 sprite layer: {}", result.Error().message);
         }
@@ -3212,9 +3252,8 @@ struct OpenGLESVDPRenderer::Impl {
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to upload NBG line scroll: {}", result.Error().message);
         }
-        if (auto result = Dispatch(vdp2.drawBGsPipe, frames.GetCurrentFrame().drawBGsSet,
-                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}}, HRes / 32,
-                                   numLines, 1);
+        if (auto result = DispatchVDP2(vdp2.drawBGsPipe, frames.GetCurrentFrame().drawBGsSet,
+                                       vdp2.cpuCommonRenderParams, HRes / 32, numLines, 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 background layers: {}", result.Error().message);
         }
@@ -3259,9 +3298,8 @@ struct OpenGLESVDPRenderer::Impl {
         }
 
         // Compose final image
-        if (auto result = Dispatch(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
-                                   {{&vdp2.cpuCommonRenderParams, sizeof(vdp2.cpuCommonRenderParams)}},
-                                   (HRes * S + 31) / 32, numLines * S, 1);
+        if (auto result = DispatchVDP2(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
+                                       vdp2.cpuCommonRenderParams, (HRes * S + 31) / 32, numLines * S, 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to compose VDP2 layers: {}", result.Error().message);
         }
@@ -3379,7 +3417,8 @@ struct OpenGLESVDPRenderer::Impl {
 #endif
             if (!externalTarget) {
                 const size_t pixelCount = static_cast<size_t>(outW) * outH;
-                frameCtx.readbackPixels.resize(pixelCount);
+                // ReadbackRGBA8 writes four bytes per pixel (RGBA).
+                frameCtx.readbackPixels.resize(pixelCount * 4);
                 std::string error;
                 util::waitstats::TickTimer readbackTimer(util::waitstats::g_glesReadbackTicks);
                 if (!vdp2.compositeOutTexture.resource.ReadbackRGBA8(outW, outH, frameCtx.readbackPixels.data(), error)) {
@@ -3446,8 +3485,9 @@ struct OpenGLESVDPRenderer::Impl {
         deliveredScale = frameCtx.readbackScale;
         // One sequential pass over the mapped memory into a CPU buffer (with opaque alpha); the frame consumer reads
         // it several times (thumbnail, presentation), which is slow straight from GPU-visible memory
-        deliveredPixels.resize(frameCtx.readbackPixels.size());
-        for (size_t i = 0; i < frameCtx.readbackPixels.size(); ++i) {
+        const size_t pixelCount = frameCtx.readbackPixels.size() / 4;
+        deliveredPixels.resize(pixelCount);
+        for (size_t i = 0; i < pixelCount; ++i) {
             const uint8 *rgba = frameCtx.readbackPixels.data() + i * 4;
             deliveredPixels[i] = static_cast<uint32>(rgba[0]) | (static_cast<uint32>(rgba[1]) << 8) |
                                  (static_cast<uint32>(rgba[2]) << 16) | 0xFF000000u;

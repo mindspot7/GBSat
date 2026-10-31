@@ -1036,7 +1036,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     const double glesReadbackMs = ws::g_glesReadbackTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesVDP1SubmitMs = ws::g_glesVDP1SubmitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesVDP2EndMs = ws::g_glesVDP2EndTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const char *glesUploadStrategy = mode == 5 ? "staging+glCopyBufferSubData" : "n/a";
+    const char *glesUploadStrategy = mode == 5 ? "glBufferSubData" : "n/a";
     fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%.2f,%.0f,%.2f,%.0f,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             vdp1CommandsPerFrame,
@@ -1464,6 +1464,9 @@ JNI_FN(jstring, nativeInit)(JNIEnv *env, jclass, jstring backupRamPath, jstring 
              return target.buffer;
          }},
         {nullptr, [](void *, uint64_t token, uint32_t w, uint32_t h, uint32_t scale, void *fence, void *) {
+             // Count the fence-complete shared-buffer frame without mapping or copying its GPU pixels.
+             UpdateFrameMetadata(nullptr, w, h);
+             g->lastScale.store(scale ? scale : 1, std::memory_order_relaxed);
              glr::SubmitGlesTarget(token, w, h, scale, fence);
          }},
         {nullptr, [](uint64_t token, void *) { glr::CancelGlesTarget(token); }});
