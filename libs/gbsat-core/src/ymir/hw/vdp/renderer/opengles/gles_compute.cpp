@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -19,6 +20,85 @@ namespace ymir::vdp::gles {
 namespace {
 
 cmrc::embedded_filesystem g_glesShaderFS = cmrc::ymir_core_gles_shaders::get_filesystem();
+
+struct ImageUnitBinding {
+    GLuint texture = 0;
+    GLint level = 0;
+    GLboolean layered = GL_FALSE;
+    GLint layer = 0;
+    GLenum access = 0;
+    GLenum format = 0;
+    bool operator==(const ImageUnitBinding &) const = default;
+};
+
+struct GLBindingStateCache {
+    EGLContext context = EGL_NO_CONTEXT;
+    GLuint program = std::numeric_limits<GLuint>::max();
+    GLenum activeTexture = std::numeric_limits<GLenum>::max();
+    std::unordered_map<uint64_t, GLuint> bufferBases;
+    std::unordered_map<uint64_t, GLuint> textures;
+    std::unordered_map<GLuint, ImageUnitBinding> images;
+
+    void Reset() {
+        context = eglGetCurrentContext();
+        program = std::numeric_limits<GLuint>::max();
+        activeTexture = std::numeric_limits<GLenum>::max();
+        bufferBases.clear();
+        textures.clear();
+        images.clear();
+    }
+};
+
+thread_local GLBindingStateCache g_bindingStateCache;
+
+void EnsureBindingStateContext() {
+    if (g_bindingStateCache.context != eglGetCurrentContext()) {
+        g_bindingStateCache.Reset();
+    }
+}
+
+void InvalidateBindingStateCache() {
+    g_bindingStateCache.Reset();
+}
+
+void UseProgramCached(GLuint program) {
+    if (g_bindingStateCache.program != program) {
+        glUseProgram(program);
+        g_bindingStateCache.program = program;
+    }
+}
+
+void BindBufferBaseCached(GLenum target, GLuint index, GLuint buffer) {
+    const uint64_t key = (static_cast<uint64_t>(target) << 32) | index;
+    const auto it = g_bindingStateCache.bufferBases.find(key);
+    if (it == g_bindingStateCache.bufferBases.end() || it->second != buffer) {
+        glBindBufferBase(target, index, buffer);
+        g_bindingStateCache.bufferBases[key] = buffer;
+    }
+}
+
+void BindTextureCached(GLuint unit, GLenum target, GLuint texture) {
+    const GLenum textureUnit = GL_TEXTURE0 + unit;
+    if (g_bindingStateCache.activeTexture != textureUnit) {
+        glActiveTexture(textureUnit);
+        g_bindingStateCache.activeTexture = textureUnit;
+    }
+    const uint64_t key = (static_cast<uint64_t>(unit) << 32) | target;
+    const auto it = g_bindingStateCache.textures.find(key);
+    if (it == g_bindingStateCache.textures.end() || it->second != texture) {
+        glBindTexture(target, texture);
+        g_bindingStateCache.textures[key] = texture;
+    }
+}
+
+void BindImageTextureCached(GLuint unit, const ImageUnitBinding &binding) {
+    const auto it = g_bindingStateCache.images.find(unit);
+    if (it == g_bindingStateCache.images.end() || !(it->second == binding)) {
+        glBindImageTexture(unit, binding.texture, binding.level, binding.layered, binding.layer, binding.access,
+                           binding.format);
+        g_bindingStateCache.images[unit] = binding;
+    }
+}
 
 using GlesTexBufferProc = void (*)(GLenum target, GLenum internalFormat, GLuint buffer);
 
@@ -197,6 +277,7 @@ bool Buffer::CreateTextureView(GLenum internalFormat, std::string &error) {
 }
 
 void Buffer::Reset() {
+    InvalidateBindingStateCache();
     if (m_textureView != 0) {
         glDeleteTextures(1, &m_textureView);
     }
@@ -318,6 +399,7 @@ bool Image::ReadbackRGBA8(uint32_t width, uint32_t height, void *pixels, std::st
 }
 
 void Image::Reset() {
+    InvalidateBindingStateCache();
     if (m_readFramebuffer != 0) {
         glDeleteFramebuffers(1, &m_readFramebuffer);
     }
@@ -365,6 +447,7 @@ AndroidFrameTarget::~AndroidFrameTarget() {
 }
 
 bool AndroidFrameTarget::Import(EGLDisplay display, AHardwareBuffer *buffer, uint64_t token, std::string &error) {
+    InvalidateBindingStateCache();
     if (display == EGL_NO_DISPLAY || buffer == nullptr) {
         error = "Cannot import an empty Android frame target";
         return false;
@@ -581,7 +664,8 @@ bool ComputeProgram::Dispatch(const DescriptorSet &set, const Buffer &constantsB
         return false;
     }
 
-    glUseProgram(m_handle);
+    EnsureBindingStateContext();
+    UseProgramCached(m_handle);
     glBindBufferRange(GL_UNIFORM_BUFFER, 0, constantsBuffer.Handle(), constantsOffset, constantsSize);
     for (const vulkan::SpvBinding &binding : m_bindings) {
         if (binding.binding == 0) {
@@ -610,47 +694,48 @@ bool ComputeProgram::Dispatch(const DescriptorSet &set, const Buffer &constantsB
                 error = fmt::format("GLES shader binding {} requires a storage buffer", binding.binding);
                 return false;
             }
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.binding, resource->buffer->Handle());
+            BindBufferBaseCached(GL_SHADER_STORAGE_BUFFER, binding.binding, resource->buffer->Handle());
             break;
         case vulkan::SpvDescriptorKind::UniformBuffer:
             if (resource->buffer == nullptr || resource->buffer->Handle() == 0) {
                 error = fmt::format("GLES shader binding {} requires a uniform buffer", binding.binding);
                 return false;
             }
-            glBindBufferBase(GL_UNIFORM_BUFFER, binding.binding, resource->buffer->Handle());
+            BindBufferBaseCached(GL_UNIFORM_BUFFER, binding.binding, resource->buffer->Handle());
             break;
         case vulkan::SpvDescriptorKind::UniformTexelBuffer:
             if (resource->buffer == nullptr || resource->buffer->TextureView() == 0) {
                 error = fmt::format("GLES shader binding {} requires a texture-buffer view", binding.binding);
                 return false;
             }
-            glActiveTexture(GL_TEXTURE0 + binding.binding);
-            glBindTexture(GL_TEXTURE_BUFFER, resource->buffer->TextureView());
+            BindTextureCached(binding.binding, GL_TEXTURE_BUFFER, resource->buffer->TextureView());
             break;
         case vulkan::SpvDescriptorKind::StorageTexelBuffer:
             if (resource->buffer == nullptr || resource->buffer->TextureView() == 0) {
                 error = fmt::format("GLES shader binding {} requires a storage texture-buffer view", binding.binding);
                 return false;
             }
-            glBindImageTexture(binding.binding, resource->buffer->TextureView(), 0, GL_FALSE, 0, GL_WRITE_ONLY,
-                               GL_R32UI);
+            BindImageTextureCached(binding.binding,
+                                   {resource->buffer->TextureView(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32UI});
             break;
         case vulkan::SpvDescriptorKind::SampledImage:
             if (resource->image == nullptr || resource->image->Handle() == 0) {
                 error = fmt::format("GLES shader binding {} requires a sampled image", binding.binding);
                 return false;
             }
-            glActiveTexture(GL_TEXTURE0 + binding.binding);
-            glBindTexture(resource->image->Target(), resource->image->Handle());
+            BindTextureCached(binding.binding, resource->image->Target(), resource->image->Handle());
             break;
         case vulkan::SpvDescriptorKind::StorageImage:
             if (resource->image == nullptr || resource->image->Handle() == 0) {
                 error = fmt::format("GLES shader binding {} requires a storage image", binding.binding);
                 return false;
             }
-            glBindImageTexture(binding.binding, resource->image->Handle(), 0,
-                               resource->image->Target() == GL_TEXTURE_2D_ARRAY ? GL_TRUE : GL_FALSE, 0,
-                               GL_WRITE_ONLY, resource->image->InternalFormat());
+            BindImageTextureCached(binding.binding,
+                                   {resource->image->Handle(), 0,
+                                    static_cast<GLboolean>(resource->image->Target() == GL_TEXTURE_2D_ARRAY ? GL_TRUE
+                                                                                                           : GL_FALSE),
+                                    0,
+                                    GL_WRITE_ONLY, resource->image->InternalFormat()});
             break;
         }
     }
@@ -753,6 +838,7 @@ bool ComputeProgram::Load(std::string_view glesResourcePath, std::string_view sp
 }
 
 void ComputeProgram::Reset() {
+    InvalidateBindingStateCache();
     if (m_handle != 0) {
         glDeleteProgram(m_handle);
     }
@@ -872,18 +958,20 @@ bool BufferFillKernel::Fill(const Buffer &buffer, GLintptr offset, GLsizeiptr si
     const uint64_t neededGroups = (wordCount64 + kLocalSize - 1) / kLocalSize;
     const GLuint groupsX = static_cast<GLuint>(std::min<uint64_t>(neededGroups, static_cast<uint32_t>(maxGroupsX)));
 
-    glUseProgram(m_program);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer.Handle());
+    EnsureBindingStateContext();
+    UseProgramCached(m_program);
+    BindBufferBaseCached(GL_SHADER_STORAGE_BUFFER, 0, buffer.Handle());
     glUniform1ui(m_wordOffsetLocation, static_cast<GLuint>(offsetWords));
     glUniform1ui(m_wordCountLocation, wordCount);
     glUniform1ui(m_valueLocation, value);
     glDispatchCompute(groupsX, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
-    glUseProgram(0);
+    UseProgramCached(0);
     return CheckGl("storage-buffer fill", error);
 }
 
 void BufferFillKernel::Reset() {
+    InvalidateBindingStateCache();
     if (m_program != 0) {
         glDeleteProgram(m_program);
     }
