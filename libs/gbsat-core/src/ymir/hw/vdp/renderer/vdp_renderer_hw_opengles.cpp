@@ -82,6 +82,12 @@ static_assert(sizeof(GlesVDP1SpanParams) == 64);
 
 /// @brief Size reserved for the shader constants of each dispatch (D3D12 root constants are limited to 256 bytes).
 constexpr VkDeviceSize kConstRange = 256;
+constexpr uint32 kGlesVDP2SpriteGroupSize = 32;
+constexpr uint32 kGlesVDP2ComposeGroupSizeX = 32;
+constexpr uint32 kGlesVDP2ComposeGroupSizeY = 1;
+constexpr GLbitfield kGlesMemoryBarrierBits = GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+                                              GL_TEXTURE_FETCH_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT |
+                                              GL_BUFFER_UPDATE_BARRIER_BIT | GL_ATOMIC_COUNTER_BARRIER_BIT;
 
 static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1PolyDrawParams) <= kConstRange);
 static_assert(sizeof(VDP1CommonRenderParams) + sizeof(VDP1EraseParams) <= kConstRange);
@@ -135,6 +141,7 @@ struct GpuBuffer {
     VkDeviceSize size = 0;
     void *mapped = nullptr;
     bool coherent = true; // host-visible memory that needs no flush/invalidate
+    util::waitstats::GlesUploadTarget uploadTarget = util::waitstats::GlesUploadOther;
     std::unique_ptr<uint8[]> hostStorage;
 };
 
@@ -575,32 +582,28 @@ struct OpenGLESVDPRenderer::Impl {
 
     [[nodiscard]] util::VoidResult<> CreateBuffer(GpuBuffer &buf, VkDeviceSize size, VkBufferUsageFlags usage,
                                                   bool hostVisible, VkFormat viewFormat, const std::string &name,
-                                                  bool hostCached = false, bool persistentMapped = false) {
+                                                  bool hostCached = false) {
         (void)hostCached;
+        if (name.rfind("VDP1 VRAM", 0) == 0) {
+            buf.uploadTarget = util::waitstats::GlesUploadVDP1VRAM;
+        } else if (name.rfind("VDP1 FBRAM writes", 0) == 0) {
+            buf.uploadTarget = util::waitstats::GlesUploadVDP1FBRAMWrites;
+        } else if (name.rfind("VDP2 VRAM", 0) == 0) {
+            buf.uploadTarget = util::waitstats::GlesUploadVDP2VRAM;
+        }
         size = AlignUp(std::max<VkDeviceSize>(size, 4), 4);
         const GLenum target = (usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) != 0 ? GL_UNIFORM_BUFFER
                              : (usage & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT) != 0 ? GL_TEXTURE_BUFFER
                                                                                        : GL_SHADER_STORAGE_BUFFER;
         std::string error;
-        const bool persistentReady = persistentMapped &&
-                                     buf.resource.CreatePersistentMapped(target, static_cast<GLsizeiptr>(size), error);
-        if (!persistentReady && !buf.resource.Create(target, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW,
-                                                     error)) {
+        if (!buf.resource.Create(target, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW, error)) {
             return util::ErrorMessage{fmt::format("Could not create GLES buffer \"{}\": {}", name, error)};
         }
         buf.size = size;
         if (hostVisible) {
-            if (persistentReady) {
-                buf.mapped = buf.resource.PersistentMapping();
-                devlog::info<grp::dx12_base>("GLES buffer {} uses persistent coherent mapping", name);
-            } else {
-                buf.hostStorage = std::make_unique<uint8[]>(static_cast<size_t>(size));
-                std::memset(buf.hostStorage.get(), 0, static_cast<size_t>(size));
-                buf.mapped = buf.hostStorage.get();
-                if (persistentMapped) {
-                    devlog::info<grp::dx12_base>("GLES buffer {} uses dynamic uploads", name);
-                }
-            }
+            buf.hostStorage = std::make_unique<uint8[]>(static_cast<size_t>(size));
+            std::memset(buf.hostStorage.get(), 0, static_cast<size_t>(size));
+            buf.mapped = buf.hostStorage.get();
         }
         if (viewFormat != VK_FORMAT_UNDEFINED) {
             GLenum internalFormat = 0;
@@ -728,16 +731,14 @@ struct OpenGLESVDPRenderer::Impl {
 
     /// @brief Emits a global memory barrier if any GPU operation was recorded since the last barrier.
     /// This conservatively replaces the fine-grained resource state tracking of the D3D12 backend.
-    void FlushBarriers() {
+    void FlushBarriers(GLbitfield additionalBits = 0) {
         if (!pendingBarrier) {
             return;
         }
         pendingBarrier = false;
-        // Ymir's compute passes communicate through SSBOs, storage images, texture reads, buffer updates and the
-        // VDP1 OIT counter. Synchronize those consumers without stalling unrelated GLES pipeline domains.
-        gles::MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
-                           GL_TEXTURE_FETCH_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT |
-                           GL_BUFFER_UPDATE_BARRIER_BIT | GL_ATOMIC_COUNTER_BARRIER_BIT);
+        // Keep buffer and texture update visibility between compute passes and subsequent API resource updates.
+        // The backend does not track per-resource access, so use the conservative global mask here.
+        gles::MemoryBarrier(kGlesMemoryBarrierBits | additionalBits);
     }
 
     /// @brief Allocates a chunk of the current frame's upload buffer, flushing the GPU if it's full.
@@ -763,15 +764,22 @@ struct OpenGLESVDPRenderer::Impl {
         if (size == 0) {
             return {};
         }
-        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesUploadTicks);
-        util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
         FlushBarriers();
+        util::waitstats::TickTimer perfTimer(util::waitstats::g_glesUploadTicks);
+        const size_t uploadTarget = static_cast<size_t>(dst.uploadTarget);
+        util::waitstats::TickTimer targetTimer(util::waitstats::g_glesUploadTargetTicks[uploadTarget]);
+        util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
+        util::waitstats::g_glesUploadTargetCount[uploadTarget].fetch_add(1, std::memory_order_relaxed);
+        util::waitstats::g_glesUploadTargetBytes[uploadTarget].fetch_add(size, std::memory_order_relaxed);
+        util::waitstats::TickTimer strategyTimer(util::waitstats::g_glesSubDataUploadTicks);
+        util::waitstats::g_glesSubDataUploadCount.fetch_add(1, std::memory_order_relaxed);
+        util::waitstats::g_glesSubDataUploadBytes.fetch_add(size, std::memory_order_relaxed);
         std::string error;
         if (!dst.resource.Upload(static_cast<GLintptr>(dstOffset), static_cast<GLsizeiptr>(size), src, error)) {
             devlog::error<grp::dx12_base>("GLES buffer upload failed: {}", error);
             return util::ErrorMessage{fmt::format("GLES buffer upload failed: {}", error)};
         }
-        // glBufferSubData is ordered by GL and does not produce shader writes requiring an explicit memory barrier.
+        pendingBarrier = true;
         return {};
     }
 
@@ -798,8 +806,17 @@ struct OpenGLESVDPRenderer::Impl {
         std::string error;
         bool constantsUploaded = false;
         {
+            const bool persistentMapped = frameCtx.uploadBuffer.resource.PersistentMapping() != nullptr;
             util::waitstats::TickTimer uploadTimer(util::waitstats::g_glesUploadTicks);
+            util::waitstats::TickTimer strategyTimer(persistentMapped ? util::waitstats::g_glesPersistentUploadTicks
+                                                                      : util::waitstats::g_glesSubDataUploadTicks);
             util::waitstats::g_glesUploadCount.fetch_add(1, std::memory_order_relaxed);
+            (persistentMapped ? util::waitstats::g_glesPersistentUploadCount
+                              : util::waitstats::g_glesSubDataUploadCount)
+                .fetch_add(1, std::memory_order_relaxed);
+            (persistentMapped ? util::waitstats::g_glesPersistentUploadBytes
+                              : util::waitstats::g_glesSubDataUploadBytes)
+                .fetch_add(kConstRange, std::memory_order_relaxed);
             constantsUploaded = frameCtx.uploadBuffer.resource.Upload(static_cast<GLintptr>(alloc.offset), kConstRange,
                                                                       alloc.data, error);
         }
@@ -1065,12 +1082,13 @@ struct OpenGLESVDPRenderer::Impl {
 
             YMIR_VK_TRY(CreateBuffer(f.uploadBuffer, kUploadBufferSize,
                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true,
-                                     VK_FORMAT_UNDEFINED, "Upload" + sfx, false, true));
+                                     VK_FORMAT_UNDEFINED, "Upload" + sfx));
             // VDP1
             YMIR_VK_TRY(CreateBuffer(f.spanParamsBuffer, sizeof(GlesVDP1SpanParams) * f.cpuSpanParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 span params" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.spanPrefixSumsBuffer, sizeof(HLSLuint) * f.cpuSpanPrefixSums.size(),
-                                     kUniformTexel | kSSBO, false, VK_FORMAT_R32_UINT, "VDP1 span prefix sums" + sfx));
+                                     kUniformTexel | kSSBO, false, VK_FORMAT_R32_UINT, "VDP1 span prefix sums" + sfx,
+                                     false));
             YMIR_VK_TRY(CreateBuffer(f.cmdParamsBuffer, sizeof(VDP1CommandParams) * f.cpuCmdParams.size(), kSSBO, false,
                                      VK_FORMAT_UNDEFINED, "VDP1 command params" + sfx));
             YMIR_VK_TRY(CreateBuffer(f.internalSpriteOutBuffer, sizeof(HLSLuint) * kVDP1FBRAMSize * 2 * 2 * ScaleSq(),
@@ -3282,7 +3300,9 @@ struct OpenGLESVDPRenderer::Impl {
 
         // Draw sprite layer
         if (auto result = DispatchVDP2(vdp2.drawSpritePipe, frames.GetCurrentFrame().drawSpriteSet,
-                                       vdp2.cpuCommonRenderParams, (HRes * S + 31) / 32, numLines * S,
+                                       vdp2.cpuCommonRenderParams,
+                                       (HRes * S + kGlesVDP2SpriteGroupSize - 1) / kGlesVDP2SpriteGroupSize,
+                                       numLines * S,
                                        enhancements.transparentMeshes ? 2 : 1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to draw VDP2 sprite layer: {}", result.Error().message);
@@ -3340,7 +3360,11 @@ struct OpenGLESVDPRenderer::Impl {
 
         // Compose final image
         if (auto result = DispatchVDP2(vdp2.composePipe, frames.GetCurrentFrame().composeSet,
-                                       vdp2.cpuCommonRenderParams, (HRes * S + 31) / 32, numLines * S, 1);
+                                       vdp2.cpuCommonRenderParams,
+                                       (HRes * S + kGlesVDP2ComposeGroupSizeX - 1) / kGlesVDP2ComposeGroupSizeX,
+                                       (numLines * S + kGlesVDP2ComposeGroupSizeY - 1) /
+                                           kGlesVDP2ComposeGroupSizeY,
+                                       1);
             !result) {
             devlog::warn<grp::dx12_vdp2>("Failed to compose VDP2 layers: {}", result.Error().message);
         }
@@ -3431,7 +3455,7 @@ struct OpenGLESVDPRenderer::Impl {
 
         FrameContext &frameCtx = frames.GetCurrentFrame();
         if (!skipFrame) {
-            FlushBarriers();
+            FlushBarriers(GL_FRAMEBUFFER_BARRIER_BIT);
             const uint32 outW = HRes * vdp2.outScale;
             const uint32 outH = VRes * vdp2.outScale;
             bool externalTarget = false;

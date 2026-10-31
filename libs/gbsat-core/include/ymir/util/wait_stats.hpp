@@ -5,9 +5,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 
 namespace util::waitstats {
+
+enum GlesUploadTarget : size_t { GlesUploadOther, GlesUploadVDP1VRAM, GlesUploadVDP1FBRAMWrites, GlesUploadVDP2VRAM, GlesUploadTargetCount };
 
 enum Kind { SCSP, VDP1, VDP2, Count };
 
@@ -25,6 +28,18 @@ inline std::atomic<uint64_t> g_glesDispatchTicks{0};
 inline std::atomic<uint64_t> g_glesDispatchCount{0};
 inline std::atomic<uint64_t> g_glesUploadTicks{0};
 inline std::atomic<uint64_t> g_glesUploadCount{0};
+inline std::atomic<uint64_t> g_glesPersistentUploadTicks{0};
+inline std::atomic<uint64_t> g_glesPersistentUploadCount{0};
+inline std::atomic<uint64_t> g_glesPersistentUploadBytes{0};
+inline std::atomic<uint64_t> g_glesStagedCopyTicks{0};
+inline std::atomic<uint64_t> g_glesStagedCopyCount{0};
+inline std::atomic<uint64_t> g_glesStagedCopyBytes{0};
+inline std::atomic<uint64_t> g_glesSubDataUploadTicks{0};
+inline std::atomic<uint64_t> g_glesSubDataUploadCount{0};
+inline std::atomic<uint64_t> g_glesSubDataUploadBytes{0};
+inline std::atomic<uint64_t> g_glesUploadTargetTicks[GlesUploadTargetCount]{};
+inline std::atomic<uint64_t> g_glesUploadTargetCount[GlesUploadTargetCount]{};
+inline std::atomic<uint64_t> g_glesUploadTargetBytes[GlesUploadTargetCount]{};
 inline std::atomic<uint64_t> g_glesFenceWaitTicks{0};
 inline std::atomic<uint64_t> g_glesPresentCopyTicks{0};
 inline std::atomic<uint64_t> g_glesReadbackTicks{0};

@@ -169,6 +169,34 @@ Build 458 also removed explicit memory-barrier requests after CPU-originated `gl
 
 Raw logs: `C:\.android\daytona458-gles1x.csv`, `daytona458-gles-repeat1x.csv`, `daytona458-vulkan1x.csv`, `daytona458-gles2x.csv`, and `daytona458-vulkan2x.csv`. These were local build 458 captures; no GitHub build was started. After the comparison, the device was restored to experimental GLES 1x, Nearest, and shader None.
 
+### 2x throughput work on the RG Rotate (builds 463–465)
+
+The current goal is at least 51 FPS (85% of Saturn's 60 FPS rate) at GLES 2x, with Daytona CCE Slot 1, frameskip off, CPU sync Fast, SH-2 JIT on, Nearest, and shader None. Each run used a clean app process and ROM intent, confirmed the saved state loaded, and checked `704x448` output and zero GLES CPU readback. These remain advancing gameplay windows from the same save, not frame-identical replays.
+
+| Build | GLES change | Samples | Median emulation FPS | Samples >= 51 FPS | Median fence wait | Median VDP2 end |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 463 | Split VDP2 workgroups (sprite 64, composition 128) plus narrowed barriers | 20 | 46.5 | 8/20 | 4.22 ms | 5.49 ms |
+| 464 | Composition workgroup 256 | 20 | 49.9 | 7/20 | 6.47 ms | 7.45 ms |
+| 465 | Three frame contexts, composition restored to 128 | 20 | 49.15 | 8/20 | 7.74 ms | 8.56 ms |
+
+Neither candidate reached the 51 FPS target. The 256-thread composition group moved the overall median upward in this window, but its fence wait and VDP2-end measurements also rose, while the scene and VDP1 command counts were not frame-matched; it is not a defensible win and was reverted. Three frame contexts did not reduce the measured fence wait and add a queued frame of presentation latency, so that change was also reverted. GLES 2x remains below target; no 3x or 4x work was performed for this stage.
+
+Builds 464 and 465 were local arm64 release builds installed on the RG Rotate. Raw logs: `C:\.android\daytona464-gles2x.csv` and `C:\.android\daytona465-gles2x.csv`. The build 465 three-frame experiment is rejected; source has been restored to two frame contexts.
+
+### VDP2 composition reuse experiments (builds 467–469)
+
+Builds 467–469 tested whether 2x composition could reuse native-resolution background samples shared by horizontal subpixels. Daytona CCE Slot 1 was started by ROM intent and its auto-loaded state was confirmed. Each build used GLES 2x, 704x448, CPU sync Fast, SH-2 JIT on, frameskip off, Nearest, shader None, and zero CPU readback. The game advanced during each window, so VDP1 command counts and the scene were not frame-matched.
+
+| Build / method | Cache off or reference | Cache enabled | Result |
+| --- | --- | --- | --- |
+| 467: four serial Compose calls per base pixel, passing a cache struct | 45 rows, median 54.6 FPS; VDP2 end 9.03 ms; fence 7.86 ms | 45 rows, median 14.9 FPS; VDP2 end 56.66 ms; fence 53.25 ms | Rejected. Serializing the four subpixels removed useful GPU parallelism and the large by-value cache added severe cost. |
+| 468: four serial calls using invocation-local cache storage | — | 10 settled rows, median 22.1 FPS; VDP2 end 29.72 ms; fence 28.19 ms | Rejected. Avoiding the struct copy did not offset the serial execution. |
+| 469: parallel output pixels with workgroup-shared horizontal samples | — | 8 settled rows, median 34.5 FPS; VDP2 end 19.56 ms; fence 18.79 ms | Rejected. This remained well below the target and added a workgroup barrier plus unconditional background loads. |
+
+Build 467's cache-off median exceeded 51 FPS (85% of target) across its two A windows, but this is not a sustained pass: individual rows varied with the changing scene and VDP1 command count. The experiment did not establish that caching improves throughput. The compose cache and its diagnostic property were removed from source after build 469. No default was changed. Raw logs: `C:\.android\daytona467-glescompose-ab.csv`, `C:\.android\daytona468-globalcache-smoke.csv`, `C:\.android\daytona469-groupshared-smoke.csv`, and `C:\.android\daytona469-groupshared-off.csv`.
+
+Build 470 rebuilt the clean compose shader and renderer without the cache experiment. On the RG Rotate, 21 settled samples from the same ROM intent and auto-loaded Slot 1 measured 49.6 FPS median (47.5 average), with 8/21 samples at or above 51 FPS; median VDP2 end was 8.42 ms and GLES fence wait 7.55 ms. The window does not meet the 85% target. Settings remained at 2x/704x448, Fast CPU sync, SH-2 JIT on, frameskip off, Nearest and shader None, with zero CPU readback. Raw log: `C:\.android\daytona470-gles2x-clean.csv`. The device reported no thermal throttling during this short capture. Source still has the experimental renderer's earlier barrier and workgroup changes; this result validates the cache-free path, not a new speedup from those changes.
+
 ### Ymir upstream review (2026-10-30)
 
 Fetched `upstream/main` and reviewed its 89 commits after the shared 2026-10-18 base (`8cdf0a5`, Ymir 0.4.2 development line). The post-base changes are concentrated in Ymir's SDL3 desktop Vulkan frontend, its generic Vulkan resource/synchronization layer, and build workflows. Recent examples include Vulkan queue allocation and dispatcher fixes (`45b68d958`, `9a1ac5369`) and Vulkan SDK compatibility (`fe439e98a`). The changed upstream core files do not include SH-2, SCU, SCSP, or Saturn VDP emulation/performance code. GBSat uses its Android-specific VDP renderers rather than those SDL3 frontend resources, so there is no safe wholesale update or direct performance cherry-pick identified in this range. Revisit individual Vulkan lifecycle fixes only if a matching defect appears in GBSat's own renderer, with Android device validation.
@@ -180,6 +208,16 @@ Build 448 added a per-frame-context shadow of each 256-byte constant block and s
 ### Vulkan presentation clarification
 
 The CPU-readback fallback recorded in the build 420/422/423 sections above is historical evidence for those specific runs, not a claim that the current source always presents Vulkan frames through CPU memory. Current Vulkan code first imports GBFrame's `AHardwareBuffer` and records a GPU-to-GPU copy; it falls back to `vkCmdCopyImageToBuffer` only when that import path is unavailable or fails. Separately, `OnVulkanHardwareFrame` locks the buffer for CPU frame metadata (skip analysis and a reduced last-frame copy) before submitting the shared target. That CPU access is distinct from the presentation fallback and may still synchronize. The build 440 Daytona Vulkan window ran at 60.05 FPS, but its runtime log did not capture either the AHardwareBuffer-success or fallback message, so the active presentation route remains unconfirmed for that window.
+
+### Daytona CCE 2x composition and upload-path visual corrections (builds 481–489)
+
+All runs used the Rotate, Daytona CCE Slot 1 via ROM intent, GLES 2x at 704x448, Fast CPU sync, SH-2 JIT on, frameskip off, Nearest, shader None, and zero GLES CPU readback. The gameplay advanced from the same save, so these are not frame-identical comparisons.
+
+The output-merger bounding-box candidate was rejected. Across 57 settled rows from build 485, median speed was 50.8 FPS (48.0 average; 28/57 rows at or above 51 FPS). The preceding build 484 window had a 54.2 FPS median (50.8 average; 40/58 rows at or above 51 FPS) with a higher median VDP1 command count (290 versus 161). Candidate VDP1 submission CPU was 0.81 ms/frame versus 0.67 ms/frame in the earlier window. Scene variation prevents attributing the FPS difference to the code, and the candidate showed no reliable gain; it was removed. Raw logs: `C:\.android\daytona484-baseline.csv` and `C:\.android\daytona485-bounds.csv`.
+
+The black image seen in builds 481–483 came from the VDP2 compose-height limit being packed at word 10, the `enhancements` field. The shader's `composeHeight` is at packed word 11 (byte 44); build 484 corrected the offset and restored the image. Restoring conservative buffer/texture barriers in build 487 did not remove the visible artifacts. Reverting VDP2 workgroups to Ymir's original 32x1 layout in build 488 also did not remove them.
+
+The matching build 458 and 459 screenshots show the first obvious missing scoreboard rows after the persistent-mapped upload change. Build 489 disables persistent-mapped and staged-copy uploads in this renderer, returning resource and constant updates to the direct `glBufferSubData` path. A visual check of the same Daytona CCE save at 2x shows the missing scoreboard spans and block corruption are gone. This was a visual-only validation; no FPS capture or renderer comparison was made, as requested. Build 489 is installed locally on the Rotate. No GitHub build was run.
 
 ## Risks and acceptance
 

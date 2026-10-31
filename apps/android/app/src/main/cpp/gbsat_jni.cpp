@@ -846,7 +846,7 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             fgets(head, sizeof(head), h);
             fclose(h);
         }
-        fresh = strstr(head, "gles_upload_strategy") == nullptr;
+        fresh = strstr(head, "gles_vdp1_vram_upload_ms") == nullptr;
     }
     FILE *f = fopen(kPath, fresh ? "w" : "a");
     if (!f) {
@@ -866,7 +866,13 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
                    "vulkan_fence_wait_ms,vulkan_frame_callback_ms,gles_dispatch_cpu_ms_per_frame,"
                    "gles_dispatches_per_frame,gles_upload_cpu_ms_per_frame,gles_uploads_per_frame,"
                    "gles_fence_wait_ms_per_frame,gles_present_copy_cpu_ms_per_frame,gles_readback_cpu_ms_per_frame,"
-                   "gles_vdp1_submit_cpu_ms_per_frame,gles_vdp2_end_cpu_ms_per_frame,gles_upload_strategy,settings\n");
+                   "gles_vdp1_submit_cpu_ms_per_frame,gles_vdp2_end_cpu_ms_per_frame,gles_upload_strategy,"
+                   "gles_persistent_upload_ms,gles_persistent_uploads,gles_persistent_bytes,"
+                   "gles_staged_copy_ms,gles_staged_copies,gles_staged_bytes,"
+                   "gles_subdata_upload_ms,gles_subdata_uploads,gles_subdata_bytes,"
+                   "gles_vdp1_vram_upload_ms,gles_vdp1_vram_uploads,gles_vdp1_vram_bytes,"
+                   "gles_vdp1_fbram_upload_ms,gles_vdp1_fbram_uploads,gles_vdp1_fbram_bytes,"
+                   "gles_vdp2_vram_upload_ms,gles_vdp2_vram_uploads,gles_vdp2_vram_bytes,settings\n");
     }
     const int mode = g->rendererMode;
     const char *renderer = mode == 5 ? "GPU (OpenGL ES experimental)"
@@ -1015,6 +1021,15 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
         settings += util::waitstats::g_vdp2TwoFB.load(std::memory_order_relaxed) ? "" : "vdp2_one_fb ";
         settings += util::waitstats::g_vdpBatch.load(std::memory_order_relaxed) ? "" : "vdp_nobatch";
     }
+    if (gb::DiagOn("gbsat", "gles_subdata_upload")) {
+        settings += ";diag= gles_subdata_upload";
+    }
+    if (gb::DiagOn("gbsat", "gles_stage_vdp2_only")) {
+        settings += ";diag= gles_stage_vdp2_only";
+    }
+    if (gb::DiagOn("gbsat", "gles_full_vdp1_merge")) {
+        settings += ";diag= gles_full_vdp1_merge";
+    }
     settings += ";sync_step=" + std::to_string(g->saturn->GetSH2SyncStep()); // in use (game database may limit it)
     if (g->fsUseless) {
         settings += ";frameskip_paused=useless"; // frame skip on, but held off: skipped frames weren't faster
@@ -1031,13 +1046,34 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
     const double glesDispatches = ws::g_glesDispatchCount.exchange(0, std::memory_order_relaxed) / perfFrames;
     const double glesUploadMs = ws::g_glesUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesUploads = ws::g_glesUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesPersistentMs = ws::g_glesPersistentUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesPersistentUploads = ws::g_glesPersistentUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesPersistentBytes = ws::g_glesPersistentUploadBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesStagedCopyMs = ws::g_glesStagedCopyTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesStagedCopies = ws::g_glesStagedCopyCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesStagedBytes = ws::g_glesStagedCopyBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesSubDataMs = ws::g_glesSubDataUploadTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+    const double glesSubDataUploads = ws::g_glesSubDataUploadCount.exchange(0, std::memory_order_relaxed) / perfFrames;
+    const double glesSubDataBytes = ws::g_glesSubDataUploadBytes.exchange(0, std::memory_order_relaxed) / perfFrames;
+    double glesTargetMs[ws::GlesUploadTargetCount]{};
+    double glesTargetUploads[ws::GlesUploadTargetCount]{};
+    double glesTargetBytes[ws::GlesUploadTargetCount]{};
+    for (size_t i = 0; i < ws::GlesUploadTargetCount; ++i) {
+        glesTargetMs[i] = ws::g_glesUploadTargetTicks[i].exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
+        glesTargetUploads[i] = ws::g_glesUploadTargetCount[i].exchange(0, std::memory_order_relaxed) / perfFrames;
+        glesTargetBytes[i] = ws::g_glesUploadTargetBytes[i].exchange(0, std::memory_order_relaxed) / perfFrames;
+    }
     const double glesFenceWaitMs = ws::g_glesFenceWaitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesPresentCopyMs = ws::g_glesPresentCopyTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesReadbackMs = ws::g_glesReadbackTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesVDP1SubmitMs = ws::g_glesVDP1SubmitTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
     const double glesVDP2EndMs = ws::g_glesVDP2EndTicks.exchange(0, std::memory_order_relaxed) * glesTickMsPerFrame;
-    const char *glesUploadStrategy = mode == 5 ? "glBufferSubData" : "n/a";
-    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%.2f,%.0f,%.2f,%.0f,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%s\n",
+    const char *glesUploadStrategy = mode != 5 ? "n/a"
+                                    : glesSubDataUploads > 0.0 ? "glBufferSubData"
+                                    : glesStagedCopies > 0.0 ? "staged-copy"
+                                    : glesPersistentUploads > 0.0 ? "persistent-mapped"
+                                                                 : "none";
+    fprintf(f, ",%.2f,%u,%.0f,%ux%u,%d,%u,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,%.0f,%s %.0f,%d,%.2f,%s,%.0f,%.0f,%s,%s,%.0f,%.0f,%u,%u,%d,%s,%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%u,%.2f,%.2f,%.2f,%.0f,%.2f,%.0f,%.2f,%.2f,%.2f,%.2f,%.2f,%s,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%.2f,%.2f,%.0f,%s\n",
             g_worstFrameUs.exchange(0, std::memory_order_relaxed) / 1000.0, g_slowFrames.exchange(0, std::memory_order_relaxed),
             vdp1CommandsPerFrame,
             g->videoW.load(std::memory_order_relaxed), g->videoH.load(std::memory_order_relaxed),
@@ -1052,7 +1088,12 @@ void WritePerfLog(float fps, float presentedFps, float vdp1CommandsPerFrame) {
             ws::g_vulkanFrameFenceWaitNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             ws::g_vulkanFrameCallbackNs.exchange(0, std::memory_order_relaxed) / 1e6 / std::max(1.0f, fps),
             glesDispatchMs, glesDispatches, glesUploadMs, glesUploads, glesFenceWaitMs, glesPresentCopyMs,
-            glesReadbackMs, glesVDP1SubmitMs, glesVDP2EndMs, glesUploadStrategy, settings.c_str());
+            glesReadbackMs, glesVDP1SubmitMs, glesVDP2EndMs, glesUploadStrategy, glesPersistentMs,
+            glesPersistentUploads, glesPersistentBytes, glesStagedCopyMs, glesStagedCopies, glesStagedBytes,
+            glesSubDataMs, glesSubDataUploads, glesSubDataBytes,
+            glesTargetMs[ws::GlesUploadVDP1VRAM], glesTargetUploads[ws::GlesUploadVDP1VRAM], glesTargetBytes[ws::GlesUploadVDP1VRAM],
+            glesTargetMs[ws::GlesUploadVDP1FBRAMWrites], glesTargetUploads[ws::GlesUploadVDP1FBRAMWrites], glesTargetBytes[ws::GlesUploadVDP1FBRAMWrites],
+            glesTargetMs[ws::GlesUploadVDP2VRAM], glesTargetUploads[ws::GlesUploadVDP2VRAM], glesTargetBytes[ws::GlesUploadVDP2VRAM], settings.c_str());
     g_renderedNs = g_skippedNs = 0;
     g_renderedFrames = g_skippedFrames = 0;
     fclose(f);
