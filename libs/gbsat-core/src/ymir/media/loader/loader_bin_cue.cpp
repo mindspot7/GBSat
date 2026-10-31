@@ -356,7 +356,7 @@ static std::optional<CueSheet> LoadSheet(std::filesystem::path cuePath, CbLoader
     return sheet;
 }
 
-bool Load(std::filesystem::path cuePath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
+bool Load(std::filesystem::path cuePath, Disc &disc, CbLoaderMessage cbMsg) {
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
 
     auto errorMsg = [&](std::string message) { cbMsg(MessageType::Error, message); };
@@ -372,11 +372,7 @@ bool Load(std::filesystem::path cuePath, Disc &disc, bool preloadToRAM, CbLoader
         if (sheet.files.size() == 1) {
             auto &file = sheet.files.front();
             std::error_code err{};
-            if (preloadToRAM) {
-                reader = std::make_shared<MemoryBinaryReader>(file.path, err);
-            } else {
-                reader = std::make_shared<MemoryMappedBinaryReader>(file.path, err);
-            }
+            reader = std::make_shared<MemoryMappedBinaryReader>(file.path, err);
             if (err) {
                 errorMsg(fmt::format("BIN/CUE: Failed to load {} - {}", file.path, err.message()));
                 return false;
@@ -390,13 +386,7 @@ bool Load(std::filesystem::path cuePath, Disc &disc, bool preloadToRAM, CbLoader
                 std::shared_ptr<IBinaryReader> fileReader;
                 std::error_code err{};
 
-                auto loadFile = [&] {
-                    if (preloadToRAM) {
-                        fileReader = std::make_shared<MemoryBinaryReader>(file.path, err);
-                    } else {
-                        fileReader = std::make_shared<MemoryMappedBinaryReader>(file.path, err);
-                    }
-                };
+                auto loadFile = [&] { fileReader = std::make_shared<MemoryMappedBinaryReader>(file.path, err); };
 
                 if (file.format == "MP3" || file.format == "OGG") {
                     // MP3 or OGG files have to be fully preloaded as they cannot be randomly accessed without being

@@ -270,7 +270,7 @@ chd_error OpenFromFd(int procFd, chd_file **out) {
 } // namespace
 #endif
 
-bool Load(std::filesystem::path chdPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
+bool Load(std::filesystem::path chdPath, Disc &disc, CbLoaderMessage cbMsg) {
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
 
     auto invFmtMsg = [&](std::string message) { cbMsg(MessageType::InvalidFormat, message); };
@@ -301,10 +301,6 @@ bool Load(std::filesystem::path chdPath, Disc &disc, bool preloadToRAM, CbLoader
         return false;
     }
     const chd_header *header = chd_get_header(file);
-
-    if (preloadToRAM) {
-        chd_precache(file);
-    }
 
     auto binaryReader = std::make_shared<CHDBinaryReader>(file);
 

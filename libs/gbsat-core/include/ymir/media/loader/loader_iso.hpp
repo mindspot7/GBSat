@@ -19,8 +19,7 @@ namespace ymir::media::loader::iso {
 // Attempts to load an ISO file from isoPath into the specified Disc object.
 // Returns true if loading the file succeeded.
 // If this function returns false, the Disc object is invalidated.
-// preloadToRAM specifies if the entire disc image should be preloaded into memory.
 // cbMsg is the callback for message reporting.
-bool Load(std::filesystem::path isoPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg);
+bool Load(std::filesystem::path isoPath, Disc &disc, CbLoaderMessage cbMsg);
 
 } // namespace ymir::media::loader::iso

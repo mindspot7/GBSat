@@ -15,8 +15,7 @@ namespace ymir::media::loader::chd {
 // Attempts to load a CHD file from chdPath into the specified Disc object.
 // Returns true if loading all files succeeded.
 // If this function returns false, the Disc object is invalidated.
-// preloadToRAM specifies if the entire disc image should be preloaded into memory.
 // cbMsg is the callback for message reporting.
-bool Load(std::filesystem::path chdPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg);
+bool Load(std::filesystem::path chdPath, Disc &disc, CbLoaderMessage cbMsg);
 
 } // namespace ymir::media::loader::chd

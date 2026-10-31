@@ -56,7 +56,7 @@ std::unique_ptr<ymir::Saturn> MakeRun(const Options &o, int sync, const std::vec
 
     ymir::media::Disc disc;
     std::string log;
-    if (!ymir::media::LoadDisc(o.disc, disc, false, [&log](ymir::media::MessageType, std::string m) { log += m + "\n"; })) {
+    if (!ymir::media::LoadDisc(o.disc, disc, [&log](ymir::media::MessageType, std::string m) { log += m + "\n"; })) {
         err = "cannot load disc: " + log;
         return nullptr;
     }

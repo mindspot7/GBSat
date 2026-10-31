@@ -294,9 +294,6 @@ private fun PerformancePage() {
         ToggleRow(Icons.Default.Speed, "CPU recompiler", "On by default: faster on weak devices (Daytona USA +24% on an RG DS) and less CPU use on the others, slightly less accurate. Works with Fast CPU sync; games that need tighter sync (Burning Rangers) keep the interpreter. Turn off if a game misbehaves",
             Emulator.sh2Recompiler, ch { Emulator.sh2Recompiler = it })
     }
-    SettingsGroup("Loading", Icons.Default.Album) {
-        ToggleRow(Icons.Default.Download, "Preload disc into RAM", "Faster loading, uses more memory", Emulator.preloadDisc, ch { Emulator.preloadDisc = it })
-    }
 }
 
 @Composable

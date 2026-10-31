@@ -19,7 +19,7 @@ static std::string ToLower(std::string str) {
     return str;
 }
 
-bool Load(std::filesystem::path isoPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
+bool Load(std::filesystem::path isoPath, Disc &disc, CbLoaderMessage cbMsg) {
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
 
     auto invFmtMsg = [&](std::string message) { cbMsg(MessageType::InvalidFormat, message); };
@@ -92,11 +92,7 @@ bool Load(std::filesystem::path isoPath, Disc &disc, bool preloadToRAM, CbLoader
     index.endFrameAddress = track.endFrameAddress;
 
     std::error_code err{};
-    if (preloadToRAM) {
-        track.binaryReader = std::make_unique<MemoryBinaryReader>(isoPath, err);
-    } else {
-        track.binaryReader = std::make_unique<MemoryMappedBinaryReader>(isoPath, err);
-    }
+    track.binaryReader = std::make_unique<MemoryMappedBinaryReader>(isoPath, err);
     if (err) {
         errorMsg(fmt::format("ISO: Could not create file reader: {}", err.message()));
         return false;

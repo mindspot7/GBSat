@@ -29078,7 +29078,6 @@ HSPLapp/gbsat/emulator/Emulator;->getMenuRequest()Z
 HSPLapp/gbsat/emulator/Emulator;->getNativeScale()I
 HSPLapp/gbsat/emulator/Emulator;->getOneField()Z
 HSPLapp/gbsat/emulator/Emulator;->getPaused()Z
-HSPLapp/gbsat/emulator/Emulator;->getPreloadDisc()Z
 HSPLapp/gbsat/emulator/Emulator;->getRecommendedPreset()Lapp/gbsat/emulator/Emulator$Preset;
 HSPLapp/gbsat/emulator/Emulator;->getRemapTarget()Lapp/gbsat/emulator/SaturnButton;
 HSPLapp/gbsat/emulator/Emulator;->getRenderer()I
@@ -29179,7 +29178,6 @@ HSPLapp/gbsat/emulator/Emulator;->setMenuRequest(Z)V
 HSPLapp/gbsat/emulator/Emulator;->setPadMask(I)V
 HSPLapp/gbsat/emulator/Emulator;->setPadStick(II)V
 HSPLapp/gbsat/emulator/Emulator;->setPaused(Z)V
-HSPLapp/gbsat/emulator/Emulator;->setPreloadDisc(Z)V
 HSPLapp/gbsat/emulator/Emulator;->setRemapTarget(Lapp/gbsat/emulator/SaturnButton;)V
 HSPLapp/gbsat/emulator/Emulator;->setRenderer(I)V
 HSPLapp/gbsat/emulator/Emulator;->setResScale(I)V
@@ -29304,7 +29302,7 @@ HSPLapp/gbsat/emulator/NativeBridge;->nativeGetStats()[J
 HSPLapp/gbsat/emulator/NativeBridge;->nativeGetThreadedScsp()Z
 HSPLapp/gbsat/emulator/NativeBridge;->nativeGlFailed()Z
 HSPLapp/gbsat/emulator/NativeBridge;->nativeInit(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
-HSPLapp/gbsat/emulator/NativeBridge;->nativeLoadDisc(Ljava/lang/String;Z)Ljava/lang/String;
+HSPLapp/gbsat/emulator/NativeBridge;->nativeLoadDisc(Ljava/lang/String;)Ljava/lang/String;
 HSPLapp/gbsat/emulator/NativeBridge;->nativeLoadIpl(Ljava/lang/String;)Ljava/lang/String;
 HSPLapp/gbsat/emulator/NativeBridge;->nativeLoadState(Ljava/lang/String;)Ljava/lang/String;
 HSPLapp/gbsat/emulator/NativeBridge;->nativeRaAchievements()[B

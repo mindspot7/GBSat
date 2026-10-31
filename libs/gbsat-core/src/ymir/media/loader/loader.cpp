@@ -8,7 +8,7 @@
 
 namespace ymir::media {
 
-bool LoadDisc(std::filesystem::path path, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
+bool LoadDisc(std::filesystem::path path, Disc &disc, CbLoaderMessage cbMsg) {
     // Sanity check: check that the file exists
     if (!std::filesystem::is_regular_file(path)) {
         cbMsg(MessageType::Error, "File not found");
@@ -23,11 +23,11 @@ bool LoadDisc(std::filesystem::path path, Disc &disc, bool preloadToRAM, CbLoade
     };
 
     // Abuse short-circuiting to pick the first matching loader with less verbosity
-    return loader::chd::Load(path, disc, preloadToRAM, cbMsg) ||    //
-           loader::bincue::Load(path, disc, preloadToRAM, cbMsg) || //
-           loader::mdfmds::Load(path, disc, preloadToRAM, cbMsg) || //
-           loader::ccd::Load(path, disc, preloadToRAM, cbMsg) ||    //
-           loader::iso::Load(path, disc, preloadToRAM, cbMsg) ||    //
+    return loader::chd::Load(path, disc, cbMsg) ||    //
+           loader::bincue::Load(path, disc, cbMsg) || //
+           loader::mdfmds::Load(path, disc, cbMsg) || //
+           loader::ccd::Load(path, disc, cbMsg) ||    //
+           loader::iso::Load(path, disc, cbMsg) ||    //
            fail();
 }
 

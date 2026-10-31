@@ -48,7 +48,7 @@ struct CaseInsensitiveStringCompare {
 const std::set<std::string, CaseInsensitiveStringCompare> kValidSectionNames = {"CloneCD", "Disc",  "CDText",
                                                                                 "Session", "Entry", "TRACK"};
 
-bool Load(std::filesystem::path ccdPath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg) {
+bool Load(std::filesystem::path ccdPath, Disc &disc, CbLoaderMessage cbMsg) {
     InputFile in{ccdPath}; // reads /proc/self/fd links through the descriptor
 
     util::ScopeGuard sgInvalidateDisc{[&] { disc.Invalidate(); }};
@@ -241,11 +241,7 @@ bool Load(std::filesystem::path ccdPath, Disc &disc, bool preloadToRAM, CbLoader
     imgPath.replace_extension("img");
     std::error_code err{};
     std::shared_ptr<IBinaryReader> imgFile;
-    if (preloadToRAM) {
-        imgFile = std::make_shared<MemoryBinaryReader>(imgPath, err);
-    } else {
-        imgFile = std::make_shared<MemoryMappedBinaryReader>(imgPath, err);
-    }
+    imgFile = std::make_shared<MemoryMappedBinaryReader>(imgPath, err);
     if (err) {
         errorMsg(fmt::format("IMG/CCD: Failed to load image file {}: {}", imgPath, err.message()));
         return false;

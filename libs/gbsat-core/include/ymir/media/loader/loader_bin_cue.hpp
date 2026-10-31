@@ -42,8 +42,7 @@ namespace ymir::media::loader::bincue {
 // Attempts to load a CUE file (along with any referenced BIN files) from cuePath into the specified Disc object.
 // Returns true if loading all files succeeded.
 // If this function returns false, the Disc object is invalidated.
-// preloadToRAM specifies if the entire disc image should be preloaded into memory.
 // cbMsg is the callback for message reporting.
-bool Load(std::filesystem::path cuePath, Disc &disc, bool preloadToRAM, CbLoaderMessage cbMsg);
+bool Load(std::filesystem::path cuePath, Disc &disc, CbLoaderMessage cbMsg);
 
 } // namespace ymir::media::loader::bincue

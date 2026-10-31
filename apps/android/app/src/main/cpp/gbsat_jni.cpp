@@ -1553,16 +1553,15 @@ JNI_FN(jstring, nativeLoadIpl)(JNIEnv *env, jclass, jstring path) {
     return NewJStr(env, err);
 }
 
-JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path, jboolean preload) {
+JNI_FN(jstring, nativeLoadDisc)(JNIEnv *env, jclass, jstring path) {
     if (!g) {
         return NewJStr(env, "not initialized");
     }
     const std::string p = JStr(env, path);
-    const bool pre = preload;
     // Parse the disc image outside the emulation thread so the UI can show progress without stalling emulation.
     auto disc = std::make_shared<ymir::media::Disc>();
     std::string log;
-    const bool ok = ymir::media::LoadDisc(p, *disc, pre, [&log](ymir::media::MessageType, std::string msg) {
+    const bool ok = ymir::media::LoadDisc(p, *disc, [&log](ymir::media::MessageType, std::string msg) {
         log += msg + "\n";
     });
     if (!ok) {
@@ -2156,7 +2155,7 @@ JNI_FN(jfloat, nativeGetGpuLoad)(JNIEnv *, jclass) {
 // RetroAchievements hash of a disc image that is not running (same rule as nativeLoadDisc), for the game's achievement list.
 JNI_FN(jstring, nativeRaHashFile)(JNIEnv *env, jclass, jstring path) {
     auto disc = std::make_shared<ymir::media::Disc>();
-    if (!ymir::media::LoadDisc(JStr(env, path), *disc, false, [](ymir::media::MessageType, std::string) {}) || disc->sessions.empty()) {
+    if (!ymir::media::LoadDisc(JStr(env, path), *disc, [](ymir::media::MessageType, std::string) {}) || disc->sessions.empty()) {
         return nullptr;
     }
     const auto &session = disc->sessions.front();

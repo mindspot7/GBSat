@@ -52,7 +52,6 @@ object Emulator {
     val deinterlace get() = device.tier >= gb.frame.DeviceTier.Tier.Mid
     var threadedVdp = true; private set // VDP1/VDP2 rendering on their own threads
     var scspMode by mutableStateOf(0)        // threaded audio: 0 = Auto (per game, tuned while playing), 1 = On, 2 = Off
-    var preloadDisc by mutableStateOf(false)
     var showTouchControls by mutableStateOf(true)
     var aspect by mutableStateOf(0) // 0 = 4:3, 1 = fill, 2 = 16:9
     /** Apply built-in Saturn widescreen codes when a matching game runs in 16:9. */
@@ -154,7 +153,6 @@ object Emulator {
             "skip_loads=${on(skipLoads)}",
             "skip_transitions=${on(skipTransitions)}",
             "skip_saves=${on(skipSaves)}",
-            "preload_disc=${on(preloadDisc)}",
             "fast_boot=${on(fastBoot)}",
             "game_profiles=${on(useGameProfiles)}",
             "ff_audio=${listOf("default", "speed up", "mute").getOrElse(ffAudio) { "$ffAudio" }}",
@@ -435,6 +433,7 @@ object Emulator {
     fun init(context: Context) {
         appContext = context.applicationContext
         prefs = appContext.getSharedPreferences("gbsat", Context.MODE_PRIVATE)
+        if (prefs.contains("preloadDisc")) prefs.edit().remove("preloadDisc").apply()
         Storage.init(appContext)
         Thread { gb.frame.DeviceTier.detect() }.start() // GPU name from a throwaway OpenGL ES context, off the main thread
         dataDir = File(appContext.filesDir.path)
@@ -455,7 +454,6 @@ object Emulator {
         cpuSync = prefs.getInt("sh2Sync", 1).coerceIn(0, 1)
         sh2Recompiler = prefs.getBoolean("cpuRecompiler", true)
         scspMode = prefs.getInt("scspMode", 0).coerceIn(0, 2)
-        preloadDisc = prefs.getBoolean("preloadDisc", false)
         showTouchControls = prefs.getBoolean("touch", true)
         aspect = prefs.getInt("aspect", 0).coerceIn(0, 2)
         widescreenGameHacks = prefs.getBoolean("widescreenGameHacks", gb.frame.GameHackPolicy.DEFAULT_ENABLED)
@@ -563,7 +561,7 @@ object Emulator {
 
     private fun savePrefsEditor(globals: GameOpts?) = prefs.edit()
         .putString("gamesDir", gamesDir).putBoolean("analogPad", analogPad).putBoolean("sh2Cache", sh2Cache).putInt("sh2Sync", cpuSync).putBoolean("cpuRecompiler", sh2Recompiler)
-        .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles).putBoolean("preloadDisc", preloadDisc)
+        .putInt("scspMode", globals?.scspMode ?: scspMode).putBoolean("gameProfiles", useGameProfiles)
         .putBoolean("touch", showTouchControls).putInt("aspect", aspect).putBoolean("widescreenGameHacks", widescreenGameHacks).putBoolean("showFps", showFps).putBoolean("showSpeed", showSpeed).putBoolean("showFfButton", showFfButton).putBoolean("showRenderer", showRenderer).putBoolean("showResolution", showResolution).putBoolean("showCpu", showCpu).putBoolean("showGpu", showGpu).putBoolean("showFrameTime", showFrameTime)
         .putBoolean("fastBoot", fastBoot).putInt("renderer", globals?.renderer ?: renderer).putInt("filter", filter).putInt("shader", shader).putInt("resScale", resScale).putInt("cdSpeed", cdSpeed).putBoolean("skipLoads", skipLoads).putBoolean("skipTransitions", skipTransitions).putBoolean("skipSaves", skipSaves).putBoolean("frameSkip", globals?.frameSkip ?: frameSkip).putInt("volume", volume).putBoolean("autoSave", autoSave).putBoolean("autoLoad", autoLoad).putInt("ffAudio", ffAudio)
         .putBoolean("ffToggle", ffToggle)
@@ -615,8 +613,8 @@ object Emulator {
         android.util.Log.i("GBSat-Disc", "launch requested path=" + path + "; name=" + Storage.fileName(path))
         // The kit opens the disc and retries from a copy when the core can't read it through the descriptor (SafGames)
         val loaded = Storage.openAndLoad(path) { disc ->
-            android.util.Log.i("GBSat-Disc", "calling nativeLoadDisc path=" + disc.path + "; preload=" + preloadDisc)
-            NativeBridge.nativeLoadDisc(disc.path, preloadDisc)
+            android.util.Log.i("GBSat-Disc", "calling nativeLoadDisc path=" + disc.path)
+            NativeBridge.nativeLoadDisc(disc.path)
                 .also { android.util.Log.i("GBSat-Disc", "nativeLoadDisc result=" + (it ?: "success")) }
         }
         val err = loaded.error

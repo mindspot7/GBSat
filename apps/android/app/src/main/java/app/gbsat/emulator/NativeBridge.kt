@@ -10,7 +10,7 @@ object NativeBridge {
     @JvmStatic external fun nativeShutdown()
     @JvmStatic external fun nativeSetSurface(surface: Surface?)
     @JvmStatic external fun nativeLoadIpl(path: String): String?
-    @JvmStatic external fun nativeLoadDisc(path: String, preload: Boolean): String?
+    @JvmStatic external fun nativeLoadDisc(path: String): String?
     @JvmStatic external fun nativeEjectDisc()
     @JvmStatic external fun nativeSetTrayOpen(open: Boolean)
     @JvmStatic external fun nativeReset(hard: Boolean)
